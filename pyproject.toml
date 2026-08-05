@@ -1,0 +1,91 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "mmwcore"
+dynamic = ["version"]
+description = "Typed mmWave radar data-link and signal-processing primitives backed by Rust."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+authors = [
+    { name = "mmwcore contributors" }
+]
+keywords = [
+    "mmwave",
+    "radar",
+    "fmcw",
+    "signal-processing",
+    "tracking",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+plot = [
+    "matplotlib>=3.8",
+]
+dev = [
+    "matplotlib>=3.8",
+    "maturin>=1.9,<2",
+    "pyright>=1.1",
+    "pytest>=8",
+    "pytest-cov>=7,<8",
+    "ruff>=0.8",
+]
+
+[project.urls]
+Documentation = "https://github.com/AIoT-Laboratory/mmwcore/tree/main/docs"
+Issues = "https://github.com/AIoT-Laboratory/mmwcore/issues"
+Repository = "https://github.com/AIoT-Laboratory/mmwcore"
+
+[project.scripts]
+mmwcore = "mmwcore.cli.main:main"
+
+[tool.maturin]
+profile = "release"
+editable-profile = "release"
+include = [
+    { path = "LICENSE", format = "sdist" },
+    { path = "NOTICE", format = "sdist" },
+]
+locked = true
+manifest-path = "crates/mmwcore-python/Cargo.toml"
+module-name = "mmwcore._native"
+python-source = "python"
+python-packages = ["mmwcore"]
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python"]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["mmwcore"]
+
+[tool.coverage.report]
+fail_under = 80
+precision = 2
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+src = ["python"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C90"]

@@ -1,0 +1,20 @@
+[package]
+name = "mmwcore"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Typed mmWave radar data-link and signal-processing primitives"
+documentation = "https://docs.rs/mmwcore"
+readme = "README.md"
+keywords = ["mmwave", "radar", "fmcw", "dsp", "tracking"]
+categories = ["algorithms", "science"]
+publish = ["crates-io"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+num-complex = "0.4"
+rustfft = "6"

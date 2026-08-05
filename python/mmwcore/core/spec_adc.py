@@ -1,0 +1,312 @@
+"""ADC frame and virtual antenna layout specs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from math import isfinite
+
+from .spec_enums import ADCComplexLayout
+
+
+@dataclass(frozen=True)
+class VirtualAntennaLayout:
+    """Virtual antenna positions expressed in wavelengths."""
+
+    positions_wavelengths: tuple[tuple[float, float, float], ...]
+    name: str = "virtual_array"
+    angle_axis: str = "azimuth"
+
+    def __post_init__(self) -> None:
+        positions = tuple(
+            tuple(float(value) for value in row) for row in self.positions_wavelengths
+        )
+        if not positions:
+            raise ValueError("VirtualAntennaLayout.positions_wavelengths must not be empty.")
+        for position in positions:
+            if len(position) != 3:
+                raise ValueError(
+                    "VirtualAntennaLayout positions must be 3D wavelength coordinates."
+                )
+            if not all(isfinite(value) for value in position):
+                raise ValueError("VirtualAntennaLayout positions must be finite.")
+        if not self.name:
+            raise ValueError("VirtualAntennaLayout.name must not be empty.")
+        if self.angle_axis not in {"azimuth", "elevation"}:
+            raise ValueError(f"Unsupported angle axis: {self.angle_axis}.")
+
+        object.__setattr__(self, "positions_wavelengths", positions)
+
+    @classmethod
+    def uniform_linear(
+        cls,
+        num_antennas: int,
+        *,
+        spacing_wavelengths: float = 0.5,
+        name: str = "uniform_linear",
+        angle_axis: str = "azimuth",
+    ) -> VirtualAntennaLayout:
+        """Create a linear virtual array along the x-axis."""
+
+        if num_antennas <= 0:
+            raise ValueError(f"num_antennas must be positive; got {num_antennas}.")
+        if spacing_wavelengths <= 0:
+            raise ValueError(f"spacing_wavelengths must be positive; got {spacing_wavelengths}.")
+        return cls(
+            positions_wavelengths=tuple(
+                (index * spacing_wavelengths, 0.0, 0.0) for index in range(num_antennas)
+            ),
+            name=name,
+            angle_axis=angle_axis,
+        )
+
+    @property
+    def num_antennas(self) -> int:
+        return len(self.positions_wavelengths)
+
+    def as_metadata(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "angle_axis": self.angle_axis,
+            "num_antennas": self.num_antennas,
+            "positions_wavelengths": [list(position) for position in self.positions_wavelengths],
+        }
+
+
+@dataclass(frozen=True)
+class PlanarApertureLayout:
+    """Sparse virtual-channel locations on a zero-based planar FFT grid."""
+
+    grid_indices: tuple[tuple[int, int], ...]
+    name: str = "planar_aperture"
+
+    def __post_init__(self) -> None:
+        indices = tuple(tuple(int(value) for value in row) for row in self.grid_indices)
+        if not indices:
+            raise ValueError("PlanarApertureLayout.grid_indices must not be empty.")
+        if any(len(index) != 2 for index in indices):
+            raise ValueError("Planar aperture indices must contain azimuth/elevation pairs.")
+        if any(value < 0 for index in indices for value in index):
+            raise ValueError("Planar aperture indices must be non-negative.")
+        if not self.name:
+            raise ValueError("PlanarApertureLayout.name must not be empty.")
+        object.__setattr__(self, "grid_indices", indices)
+
+    @property
+    def num_antennas(self) -> int:
+        return len(self.grid_indices)
+
+    @property
+    def num_unique_positions(self) -> int:
+        return len(set(self.grid_indices))
+
+    @property
+    def aperture_shape(self) -> tuple[int, int]:
+        return (
+            max(index[0] for index in self.grid_indices) + 1,
+            max(index[1] for index in self.grid_indices) + 1,
+        )
+
+    def as_metadata(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "num_antennas": self.num_antennas,
+            "num_unique_positions": self.num_unique_positions,
+            "aperture_shape": list(self.aperture_shape),
+            "grid_indices": [list(index) for index in self.grid_indices],
+            "duplicate_policy": "first",
+        }
+
+
+@dataclass(frozen=True)
+class AntennaArrayGeometry:
+    """Physical Tx/Rx phase-center coordinates expressed in wavelengths."""
+
+    tx_positions_wavelengths: tuple[tuple[float, float, float], ...]
+    rx_positions_wavelengths: tuple[tuple[float, float, float], ...]
+    name: str = "antenna_array"
+
+    def __post_init__(self) -> None:
+        tx = _positions(self.tx_positions_wavelengths, name="tx_positions_wavelengths")
+        rx = _positions(self.rx_positions_wavelengths, name="rx_positions_wavelengths")
+        if not self.name:
+            raise ValueError("AntennaArrayGeometry.name must not be empty.")
+        object.__setattr__(self, "tx_positions_wavelengths", tx)
+        object.__setattr__(self, "rx_positions_wavelengths", rx)
+
+    @property
+    def num_tx(self) -> int:
+        return len(self.tx_positions_wavelengths)
+
+    @property
+    def num_rx(self) -> int:
+        return len(self.rx_positions_wavelengths)
+
+    def virtual_layout(
+        self,
+        tx_order: tuple[int, ...],
+        *,
+        angle_axis: str = "azimuth",
+    ) -> VirtualAntennaLayout:
+        """Build ordered virtual phase centers as Tx + Rx coordinates."""
+
+        _validate_tx_order(tx_order, self.num_tx)
+        positions = tuple(
+            (
+                tx[0] + rx[0],
+                tx[1] + rx[1],
+                tx[2] + rx[2],
+            )
+            for tx_index in tx_order
+            for tx in (self.tx_positions_wavelengths[tx_index],)
+            for rx in self.rx_positions_wavelengths
+        )
+        return VirtualAntennaLayout(
+            positions,
+            name=f"{self.name}_virtual",
+            angle_axis=angle_axis,
+        )
+
+
+@dataclass(frozen=True)
+class TDMVirtualArraySpec:
+    """TDM-MIMO chirp order and physical antenna geometry."""
+
+    geometry: AntennaArrayGeometry
+    tx_order: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        order = tuple(int(index) for index in self.tx_order)
+        _validate_tx_order(order, self.geometry.num_tx)
+        object.__setattr__(self, "tx_order", order)
+
+    @property
+    def num_tx(self) -> int:
+        return len(self.tx_order)
+
+    @property
+    def num_virtual_antennas(self) -> int:
+        return self.num_tx * self.geometry.num_rx
+
+    def virtual_layout(self, *, angle_axis: str = "azimuth") -> VirtualAntennaLayout:
+        return self.geometry.virtual_layout(self.tx_order, angle_axis=angle_axis)
+
+
+@dataclass(frozen=True)
+class VirtualSubarraySpec:
+    """Ordered virtual-channel selection with its physical phase centers."""
+
+    antenna_indices: tuple[int, ...]
+    layout: VirtualAntennaLayout
+
+    def __post_init__(self) -> None:
+        indices = tuple(int(index) for index in self.antenna_indices)
+        if not indices:
+            raise ValueError("VirtualSubarraySpec.antenna_indices must not be empty.")
+        if len(set(indices)) != len(indices):
+            raise ValueError("VirtualSubarraySpec.antenna_indices must not contain duplicates.")
+        if any(index < 0 for index in indices):
+            raise ValueError("VirtualSubarraySpec.antenna_indices must be non-negative.")
+        if len(indices) != self.layout.num_antennas:
+            raise ValueError("VirtualSubarraySpec index count must match layout antenna count.")
+        object.__setattr__(self, "antenna_indices", indices)
+
+
+def _positions(
+    values: tuple[tuple[float, float, float], ...],
+    *,
+    name: str,
+) -> tuple[tuple[float, float, float], ...]:
+    positions = tuple((float(row[0]), float(row[1]), float(row[2])) for row in values)
+    if not positions:
+        raise ValueError(f"AntennaArrayGeometry.{name} must not be empty.")
+    if any(len(position) != 3 for position in positions):
+        raise ValueError(f"AntennaArrayGeometry.{name} must contain 3D coordinates.")
+    if any(not all(isfinite(value) for value in position) for position in positions):
+        raise ValueError(f"AntennaArrayGeometry.{name} must contain finite coordinates.")
+    return positions
+
+
+def _validate_tx_order(tx_order: tuple[int, ...], num_tx: int) -> None:
+    if not tx_order:
+        raise ValueError("TDM Tx order must not be empty.")
+    if len(set(tx_order)) != len(tx_order):
+        raise ValueError("TDM Tx order must not contain duplicates.")
+    if any(index < 0 or index >= num_tx for index in tx_order):
+        raise ValueError(f"TDM Tx order indices must be within [0, {num_tx}).")
+
+
+@dataclass(frozen=True)
+class ADCFrameSpec:
+    """Shape and layout specification for one ADC frame."""
+
+    num_chirps: int
+    num_rx: int
+    num_samples: int
+    layout: ADCComplexLayout = ADCComplexLayout.IQ_INTERLEAVED
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("num_chirps", self.num_chirps),
+            ("num_rx", self.num_rx),
+            ("num_samples", self.num_samples),
+        ):
+            if value <= 0:
+                raise ValueError(f"ADCFrameSpec.{name} must be positive; got {value}.")
+
+        if not isinstance(self.layout, ADCComplexLayout):
+            object.__setattr__(self, "layout", ADCComplexLayout(self.layout))
+
+    @property
+    def complex_values_per_frame(self) -> int:
+        return self.num_chirps * self.num_rx * self.num_samples
+
+    @property
+    def raw_values_per_frame(self) -> int:
+        return self.complex_values_per_frame * 2
+
+
+@dataclass(frozen=True)
+class CascadeADCFrameSpec:
+    """Shape and device order for one multi-device TDM-MIMO ADC frame."""
+
+    num_samples: int
+    num_loops: int
+    num_tx: int
+    num_rx_per_device: int
+    device_names: tuple[str, ...]
+    layout: ADCComplexLayout = ADCComplexLayout.IQ_INTERLEAVED
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("num_samples", self.num_samples),
+            ("num_loops", self.num_loops),
+            ("num_tx", self.num_tx),
+            ("num_rx_per_device", self.num_rx_per_device),
+        ):
+            if value <= 0:
+                raise ValueError(f"CascadeADCFrameSpec.{name} must be positive; got {value}.")
+
+        devices = tuple(str(name) for name in self.device_names)
+        if not devices or any(not name for name in devices):
+            raise ValueError("CascadeADCFrameSpec.device_names must contain non-empty names.")
+        if len(set(devices)) != len(devices):
+            raise ValueError("CascadeADCFrameSpec.device_names must be unique.")
+        if not isinstance(self.layout, ADCComplexLayout):
+            object.__setattr__(self, "layout", ADCComplexLayout(self.layout))
+        object.__setattr__(self, "device_names", devices)
+
+    @property
+    def num_devices(self) -> int:
+        return len(self.device_names)
+
+    @property
+    def num_rx(self) -> int:
+        return self.num_devices * self.num_rx_per_device
+
+    @property
+    def complex_values_per_device_frame(self) -> int:
+        return self.num_samples * self.num_loops * self.num_tx * self.num_rx_per_device
+
+    @property
+    def bytes_per_device_frame(self) -> int:
+        return self.complex_values_per_device_frame * 2 * 2

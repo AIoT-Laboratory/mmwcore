@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo publish -p mmwcore --dry-run --locked
+
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev --locked
+      - run: uv run ruff check python tests
+      - run: uv run ruff format --check python tests
+      - run: uv run pyright
+      - run: uv run pytest --cov=mmwcore
+
+  package:
+    needs: [rust, python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v9
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+      - run: uv sync --extra dev --locked
+      - run: uv run maturin build --release --locked --out dist
+      - run: uv run maturin sdist --out dist
+      - run: uv venv --python 3.12 .package-venv
+      - run: uv pip install --python .package-venv/bin/python dist/*.whl
+      - run: .package-venv/bin/python -c "import mmwcore; from mmwcore import _native; print(mmwcore.__version__)"
+      - run: .package-venv/bin/mmwcore --help
