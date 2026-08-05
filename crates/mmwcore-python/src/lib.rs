@@ -115,10 +115,10 @@ type Dca1000AssemblyResult<'py> = (
     Vec<i64>,
 );
 
-fn dca1000_assembly_result<'py>(
-    py: Python<'py>,
+fn dca1000_assembly_result(
+    py: Python<'_>,
     assembly: Dca1000FrameAssembly,
-) -> PyResult<Dca1000AssemblyResult<'py>> {
+) -> PyResult<Dca1000AssemblyResult<'_>> {
     let (samples, stats) = assembly.into_parts();
     let samples = Array1::from_vec(samples).into_pyarray(py);
     Ok((
@@ -219,10 +219,10 @@ fn position_matrix_f64(
     Ok((values, shape[0]))
 }
 
-fn candidate_indices_array<'py>(
-    py: Python<'py>,
+fn candidate_indices_array(
+    py: Python<'_>,
     indices: Vec<usize>,
-) -> PyResult<Bound<'py, PyArray1<i64>>> {
+) -> PyResult<Bound<'_, PyArray1<i64>>> {
     let indices = indices
         .into_iter()
         .map(|index| {
@@ -571,10 +571,7 @@ fn dbscan_config(config: NativeDbscanConfig) -> PyResult<DbscanConfig> {
     DbscanConfig::new(eps_m, min_samples, velocity_scale_s, use_z).map_err(cluster_error)
 }
 
-fn cfar_1d_result_array<'py>(
-    py: Python<'py>,
-    result: Cfar1DResult,
-) -> PyResult<NativeCfar1DResult<'py>> {
+fn cfar_1d_result_array(py: Python<'_>, result: Cfar1DResult) -> PyResult<NativeCfar1DResult<'_>> {
     if result.indices.len() != result.noise.len() {
         return Err(PyValueError::new_err(
             "Native CFAR 1D indices do not match noise values.",
@@ -593,10 +590,10 @@ fn cfar_1d_result_array<'py>(
     Ok((indices, noise))
 }
 
-fn cfar_detections_array<'py>(
-    py: Python<'py>,
+fn cfar_detections_array(
+    py: Python<'_>,
     detections: CfarDetections,
-) -> PyResult<NativeCfarDetections<'py>> {
+) -> PyResult<NativeCfarDetections<'_>> {
     let count = detections.magnitudes.len();
     if detections.noise.len() != count || detections.snr.len() != count {
         return Err(PyValueError::new_err(
@@ -612,10 +609,10 @@ fn cfar_detections_array<'py>(
     ))
 }
 
-fn cluster_result_array<'py>(
-    py: Python<'py>,
+fn cluster_result_array(
+    py: Python<'_>,
     result: ClusterResult,
-) -> PyResult<NativeClusterResult<'py>> {
+) -> PyResult<NativeClusterResult<'_>> {
     let cluster_count = result.mean_velocities.len();
     let expected_coordinate_count = cluster_count
         .checked_mul(3)
@@ -643,10 +640,10 @@ fn cluster_result_array<'py>(
     ))
 }
 
-fn assignment_result_array<'py>(
-    py: Python<'py>,
+fn assignment_result_array(
+    py: Python<'_>,
     result: AssignmentResult,
-) -> PyResult<NativeAssignmentResult<'py>> {
+) -> PyResult<NativeAssignmentResult<'_>> {
     if result.rows.len() != result.columns.len() {
         return Err(PyValueError::new_err(
             "Native assignment rows and columns do not agree on count.",
@@ -674,12 +671,12 @@ fn assignment_result_array<'py>(
     ))
 }
 
-fn native_indices_array<'py>(
-    py: Python<'py>,
+fn native_indices_array(
+    py: Python<'_>,
     indices: Vec<usize>,
     count: usize,
     rank: usize,
-) -> PyResult<Bound<'py, PyArray2<i64>>> {
+) -> PyResult<Bound<'_, PyArray2<i64>>> {
     let expected_index_count = count
         .checked_mul(rank)
         .ok_or_else(|| PyValueError::new_err("Native CFAR detection index count overflows."))?;
@@ -700,10 +697,10 @@ fn native_indices_array<'py>(
         .map(|array| array.into_pyarray(py))
 }
 
-fn threshold_detections_array<'py>(
-    py: Python<'py>,
+fn threshold_detections_array(
+    py: Python<'_>,
     detections: ThresholdDetections,
-) -> PyResult<NativeThresholdDetections<'py>> {
+) -> PyResult<NativeThresholdDetections<'_>> {
     let count = detections.magnitudes.len();
     let expected_index_count = count.checked_mul(detections.rank).ok_or_else(|| {
         PyValueError::new_err("Native threshold detection index count overflows.")

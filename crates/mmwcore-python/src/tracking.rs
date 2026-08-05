@@ -329,10 +329,10 @@ fn native_tracker_config(config: NativeClusterTrackerConfig) -> PyResult<Tracker
         .map_err(tracking_error)
 }
 
-fn tracker_step_result_array<'py>(
-    py: Python<'py>,
+fn tracker_step_result_array(
+    py: Python<'_>,
     result: TrackStepResult,
-) -> PyResult<NativeTrackerStepResult<'py>> {
+) -> PyResult<NativeTrackerStepResult<'_>> {
     let track_count = result.track_ids.len();
     let positions = Array2::from_shape_vec((track_count, 3), result.positions)
         .map_err(|_| PyValueError::new_err("Native tracker positions shape is invalid."))?
@@ -362,10 +362,10 @@ fn tracker_step_result_array<'py>(
     ))
 }
 
-fn tracking_metrics_result_array<'py>(
-    py: Python<'py>,
+fn tracking_metrics_result_array(
+    py: Python<'_>,
     metrics: TrackingSequenceMetrics,
-) -> PyResult<NativeTrackingMetricsResult<'py>> {
+) -> PyResult<NativeTrackingMetricsResult<'_>> {
     let track_count = metrics.tracks.len();
     let mut track_ids = Vec::with_capacity(track_count);
     let mut observed_frames = Vec::with_capacity(track_count);

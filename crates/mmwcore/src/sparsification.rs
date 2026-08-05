@@ -656,7 +656,7 @@ mod tests {
         }
     }
 
-    fn input<'a>(volume: &'a [f32], shape_dzyx: [usize; 4]) -> CartesianSparsificationInput<'a> {
+    fn input(volume: &[f32], shape_dzyx: [usize; 4]) -> CartesianSparsificationInput<'_> {
         CartesianSparsificationInput {
             magnitude_dzyx: volume,
             shape_dzyx,

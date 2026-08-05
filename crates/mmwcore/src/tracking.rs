@@ -235,8 +235,9 @@ impl TrackerDynamicsConfig {
                 "initial_velocity_std_mps",
             ));
         }
-        if !extent_covariance_smoothing.is_finite()
-            || !(0.0 < extent_covariance_smoothing && extent_covariance_smoothing <= 1.0)
+        if !(extent_covariance_smoothing.is_finite()
+            && 0.0 < extent_covariance_smoothing
+            && extent_covariance_smoothing <= 1.0)
         {
             return Err(TrackingError::InvalidConfiguration(
                 "extent_covariance_smoothing",

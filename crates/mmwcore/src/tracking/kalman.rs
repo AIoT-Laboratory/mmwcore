@@ -210,9 +210,10 @@ fn matrix_add<const ROWS: usize, const COLUMNS: usize>(
     right: [[f64; COLUMNS]; ROWS],
 ) -> [[f64; COLUMNS]; ROWS] {
     let mut values = [[0.0; COLUMNS]; ROWS];
-    for row in 0..ROWS {
-        for column in 0..COLUMNS {
-            values[row][column] = left[row][column] + right[row][column];
+    for ((values_row, left_row), right_row) in values.iter_mut().zip(left).zip(right) {
+        for ((value, left_value), right_value) in values_row.iter_mut().zip(left_row).zip(right_row)
+        {
+            *value = left_value + right_value;
         }
     }
     values
@@ -223,11 +224,13 @@ fn product<const ROWS: usize, const INNER: usize, const COLUMNS: usize>(
     right: &[[f64; COLUMNS]; INNER],
 ) -> [[f64; COLUMNS]; ROWS] {
     let mut values = [[0.0; COLUMNS]; ROWS];
-    for row in 0..ROWS {
-        for column in 0..COLUMNS {
-            for shared in 0..INNER {
-                values[row][column] += left[row][shared] * right[shared][column];
-            }
+    for (values_row, left_row) in values.iter_mut().zip(left) {
+        for (column, value) in values_row.iter_mut().enumerate() {
+            *value = left_row
+                .iter()
+                .zip(right)
+                .map(|(left_value, right_row)| left_value * right_row[column])
+                .sum();
         }
     }
     values
@@ -237,9 +240,9 @@ fn transpose<const ROWS: usize, const COLUMNS: usize>(
     matrix: &[[f64; COLUMNS]; ROWS],
 ) -> [[f64; ROWS]; COLUMNS] {
     let mut values = [[0.0; ROWS]; COLUMNS];
-    for row in 0..ROWS {
-        for column in 0..COLUMNS {
-            values[column][row] = matrix[row][column];
+    for (row, matrix_row) in matrix.iter().enumerate() {
+        for (column, value) in matrix_row.iter().enumerate() {
+            values[column][row] = *value;
         }
     }
     values
@@ -250,10 +253,12 @@ fn matrix_vector_product<const ROWS: usize, const COLUMNS: usize>(
     vector: [f64; COLUMNS],
 ) -> [f64; ROWS] {
     let mut values = [0.0; ROWS];
-    for row in 0..ROWS {
-        for column in 0..COLUMNS {
-            values[row] += matrix[row][column] * vector[column];
-        }
+    for (value, matrix_row) in values.iter_mut().zip(matrix) {
+        *value = matrix_row
+            .iter()
+            .zip(vector)
+            .map(|(matrix_value, vector_value)| matrix_value * vector_value)
+            .sum();
     }
     values
 }

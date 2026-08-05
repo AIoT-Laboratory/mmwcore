@@ -29,10 +29,10 @@ fn decode_adc_i16<'py>(
 }
 
 #[pyfunction]
-fn parse_dca1000_packet<'py>(
-    py: Python<'py>,
+fn parse_dca1000_packet(
+    py: Python<'_>,
     data: Vec<u8>,
-) -> PyResult<(i64, u64, Bound<'py, PyArray1<i16>>)> {
+) -> PyResult<(i64, u64, Bound<'_, PyArray1<i16>>)> {
     let packet = py
         .detach(move || parse_native_dca1000_packet(&data))
         .map_err(dca1000_error)?;
@@ -85,13 +85,13 @@ fn reorder_dca1000_packets<'py>(
 }
 
 #[pyfunction]
-fn assemble_dca1000_frame_bytes<'py>(
-    py: Python<'py>,
+fn assemble_dca1000_frame_bytes(
+    py: Python<'_>,
     packets: Vec<Vec<u8>>,
     raw_values_per_frame: usize,
     payload_values_per_packet: usize,
     fill_value: i16,
-) -> PyResult<Dca1000AssemblyResult<'py>> {
+) -> PyResult<Dca1000AssemblyResult<'_>> {
     let assembly = py
         .detach(move || {
             assemble_native_dca1000_frame_bytes(

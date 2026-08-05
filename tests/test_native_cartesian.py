@@ -141,7 +141,9 @@ def test_native_cartesian_plan_matches_locked_non_axis_reference() -> None:
     magnitude, *diagnostics = projector.project(source)
 
     assert diagnostics == [0, 6, 1, 6, 24, 5]
-    sample_indices = np.asarray([0, 1, 5, 11, 23, 24, 37, 48, 59, 71, 83, 95, 107, 119])
+    sample_indices = np.asarray(
+        [0, 1, 5, 11, 23, 24, 37, 48, 59, 71, 83, 95, 107, 119], dtype=np.intp
+    )
     np.testing.assert_allclose(
         magnitude.ravel()[sample_indices],
         [
