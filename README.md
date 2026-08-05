@@ -63,7 +63,7 @@ than a source fork. It already covers the main raw-ADC-to-point-cloud path and a
 processing, tracking, session contracts, and Rust distribution. Capon/Bartlett parity, broader
 public device fixtures, and identical-input benchmarks remain release gates before claiming a
 strict superset or a measured performance advantage.
-See [the comparison](docs/openradar-comparison.md).
+See [the comparison](https://github.com/AIoT-Laboratory/mmwcore/blob/main/docs/openradar-comparison.md).
 
 ## Development
 
@@ -73,7 +73,8 @@ uv run pytest --cov=mmwcore
 cargo test --workspace --locked
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [the architecture](docs/architecture.md).
+See [CONTRIBUTING.md](https://github.com/AIoT-Laboratory/mmwcore/blob/main/CONTRIBUTING.md)
+and [the architecture](https://github.com/AIoT-Laboratory/mmwcore/blob/main/docs/architecture.md).
 
 ## License
 

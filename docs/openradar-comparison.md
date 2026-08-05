@@ -10,11 +10,11 @@ that practical scope while making physical contracts explicit and moving compute
 | Range/Doppler FFT | Yes | Yes |
 | Angle FFT | Yes | Yes |
 | CFAR and peak processing | Yes | Yes |
-| TDM phase compensation | Limited workflow coverage | Explicit contract and kernel |
-| Antenna/channel calibration | Script-oriented | Typed contracts |
+| TDM phase compensation | Yes | Explicit typed contract and Rust kernel |
+| Antenna/channel calibration | Yes | Typed calibration contracts and kernels |
 | Cartesian point cloud | Yes | Calibrated typed output |
 | Clustering | DBSCAN | DBSCAN |
-| Tracking | Example EKF workflow | Stateful typed tracker and metrics |
+| Tracking | EKF API | Stateful typed tracker and metrics |
 | Capture synchronization | No core contract | Radar/camera session contracts |
 | Rust crate | No | Yes |
 | Python wheels | Yes | Release workflow prepared |
