@@ -2,6 +2,12 @@
 
 All notable changes to mmwcore are documented here.
 
+## [0.2.2] - 2026-08-06
+
+- Fix Linux wheel builds by selecting CPython 3.12 inside the manylinux container.
+- Validate release wheels against PyPI compatibility requirements.
+- Exercise the release-equivalent Linux wheel build in ordinary CI.
+
 ## [0.2.1] - 2026-08-05
 
 - Restore strict Clippy compatibility with the declared Rust 1.85 MSRV.

@@ -13,6 +13,6 @@ name = "_native"
 crate-type = ["cdylib"]
 
 [dependencies]
-mmwcore = { path = "../mmwcore", version = "=0.2.1" }
+mmwcore = { path = "../mmwcore", version = "=0.2.2" }
 numpy = "0.29"
 pyo3 = { version = "0.29", features = ["extension-module"] }

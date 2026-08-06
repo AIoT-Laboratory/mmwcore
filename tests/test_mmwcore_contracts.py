@@ -44,7 +44,7 @@ from mmwcore.io import ADCFileFrameReader, load_adc_cube, load_adc_file
 
 
 def test_mmwcore_import_is_lightweight() -> None:
-    assert mmwcore.__version__ == "0.2.1"
+    assert mmwcore.__version__ == "0.2.2"
 
 
 def test_raw_adc_frame_normalizes_to_int16() -> None:

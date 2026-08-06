@@ -52,12 +52,18 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: PyO3/maturin-action@v1
         with:
-          toolchain: 1.85.0
-      - run: uv sync --extra dev --locked
-      - run: uv run maturin build --release --locked --out dist
-      - run: uv run maturin sdist --out dist
+          target: x86_64
+          args: >-
+            --release --locked --out dist
+            --interpreter python3.12
+            --compatibility pypi
+          manylinux: 2_17
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
       - run: uv venv --python 3.12 .package-venv
       - run: uv pip install --python .package-venv/bin/python dist/*.whl
       - run: .package-venv/bin/python -c "import mmwcore; from mmwcore import _native; print(mmwcore.__version__)"
