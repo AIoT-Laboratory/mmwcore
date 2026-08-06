@@ -8,10 +8,11 @@ compute kernels and a native crate; Python provides typed research contracts, fi
 device adapters, plotting, and PyO3 bindings. Learned models and experiment orchestration
 belong in downstream projects.
 
-[PyPI](https://pypi.org/project/mmwcore/) |
-[crates.io](https://crates.io/crates/mmwcore) |
-[Rust API](https://docs.rs/mmwcore) |
-[source](https://github.com/AIoT-Laboratory/mmwcore)
+[![PyPI](https://img.shields.io/pypi/v/mmwcore.svg?logo=pypi&logoColor=white)](https://pypi.org/project/mmwcore/)
+[![crates.io](https://img.shields.io/crates/v/mmwcore.svg?logo=rust)](https://crates.io/crates/mmwcore)
+[![docs.rs](https://img.shields.io/docsrs/mmwcore.svg?logo=docs.rs)](https://docs.rs/mmwcore)
+[![CI](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/AIoT-Laboratory/mmwcore.svg)](https://github.com/AIoT-Laboratory/mmwcore/blob/main/LICENSE)
 
 ## Install
 
@@ -25,6 +26,28 @@ Rust 1.85 or newer:
 
 ```console
 cargo add mmwcore
+```
+
+## Real ADC evidence
+
+These figures are generated from the repository-local, git-ignored `adc_data.bin` validation
+capture, not from synthetic fixtures. Its explicit decode contract is 5000 frames, 2 chirps,
+4 receivers, 128 complex samples, `group2_i_then_q` layout, and a 10 ms frame period. The capture
+does not carry slope or sample-rate metadata, so the vertical coordinate remains an honest range
+bin rather than a fabricated distance in meters.
+
+![Range-Time magnitude before and after temporal-background suppression](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-range-time.png)
+
+The lower panel removes the complex temporal mean independently for each chirp, receiver, and
+range bin before magnitude aggregation. It exposes changing returns while preserving the raw map
+above it; it is a deterministic diagnostic, not a learned result.
+
+![Raw ADC I/Q and four-receiver range spectra](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-frame-diagnostics.png)
+
+Regenerate both assets after installing `mmwcore[plot]`:
+
+```console
+python examples/render_adc_assets.py adc_data.bin
 ```
 
 ## Python API

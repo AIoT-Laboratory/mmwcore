@@ -17,4 +17,5 @@ python/mmwcore/_native*.pdb
 *.bin
 *.npy
 *.png
+!docs/assets/*.png
 *.log
