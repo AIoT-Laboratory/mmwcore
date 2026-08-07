@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from operator import index as integer_index
 
 from .spec_enums import ADCComplexLayout
 
@@ -149,14 +150,14 @@ class AntennaArrayGeometry:
     ) -> VirtualAntennaLayout:
         """Build ordered virtual phase centers as Tx + Rx coordinates."""
 
-        _validate_tx_order(tx_order, self.num_tx)
+        order = _validate_tx_order(tx_order, self.num_tx)
         positions = tuple(
             (
                 tx[0] + rx[0],
                 tx[1] + rx[1],
                 tx[2] + rx[2],
             )
-            for tx_index in tx_order
+            for tx_index in order
             for tx in (self.tx_positions_wavelengths[tx_index],)
             for rx in self.rx_positions_wavelengths
         )
@@ -175,8 +176,7 @@ class TDMVirtualArraySpec:
     tx_order: tuple[int, ...]
 
     def __post_init__(self) -> None:
-        order = tuple(int(index) for index in self.tx_order)
-        _validate_tx_order(order, self.geometry.num_tx)
+        order = _validate_tx_order(self.tx_order, self.geometry.num_tx)
         object.__setattr__(self, "tx_order", order)
 
     @property
@@ -199,7 +199,10 @@ class VirtualSubarraySpec:
     layout: VirtualAntennaLayout
 
     def __post_init__(self) -> None:
-        indices = tuple(int(index) for index in self.antenna_indices)
+        indices = _integer_indices(
+            self.antenna_indices,
+            name="VirtualSubarraySpec.antenna_indices",
+        )
         if not indices:
             raise ValueError("VirtualSubarraySpec.antenna_indices must not be empty.")
         if len(set(indices)) != len(indices):
@@ -226,13 +229,27 @@ def _positions(
     return positions
 
 
-def _validate_tx_order(tx_order: tuple[int, ...], num_tx: int) -> None:
-    if not tx_order:
+def _integer_indices(values: tuple[int, ...], *, name: str) -> tuple[int, ...]:
+    indices: list[int] = []
+    for value in values:
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must contain integers.")
+        try:
+            indices.append(integer_index(value))
+        except TypeError as exc:
+            raise ValueError(f"{name} must contain integers.") from exc
+    return tuple(indices)
+
+
+def _validate_tx_order(tx_order: tuple[int, ...], num_tx: int) -> tuple[int, ...]:
+    order = _integer_indices(tx_order, name="TDMVirtualArraySpec.tx_order")
+    if not order:
         raise ValueError("TDM Tx order must not be empty.")
-    if len(set(tx_order)) != len(tx_order):
+    if len(set(order)) != len(order):
         raise ValueError("TDM Tx order must not contain duplicates.")
-    if any(index < 0 or index >= num_tx for index in tx_order):
+    if any(index < 0 or index >= num_tx for index in order):
         raise ValueError(f"TDM Tx order indices must be within [0, {num_tx}).")
+    return order
 
 
 @dataclass(frozen=True)

@@ -121,6 +121,19 @@ def test_tdm_geometry_validates_tx_order() -> None:
         TDMVirtualArraySpec(geometry, tx_order=(0, 2))
 
 
+@pytest.mark.parametrize("tx_order", [(0.0,), (0.5,), (True,)])
+def test_tdm_geometry_rejects_non_integer_tx_order(tx_order: tuple[object, ...]) -> None:
+    geometry = AntennaArrayGeometry(
+        tx_positions_wavelengths=((0.0, 0.0, 0.0),),
+        rx_positions_wavelengths=((0.0, 0.0, 0.0),),
+    )
+
+    with pytest.raises(ValueError, match="must contain integers"):
+        geometry.virtual_layout(tx_order)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must contain integers"):
+        TDMVirtualArraySpec(geometry, tx_order=tx_order)  # type: ignore[arg-type]
+
+
 def test_map_tdm_virtual_array_preserves_loop_tx_rx_order() -> None:
     geometry = AntennaArrayGeometry(
         tx_positions_wavelengths=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
@@ -199,6 +212,16 @@ def test_select_virtual_subarray_preserves_declared_channel_order() -> None:
 
     np.testing.assert_array_equal(selected.data[0, 0, :, 0], np.array([5, 2, 9]))
     assert selected.metadata["virtual_subarray"]["antenna_indices"] == [5, 2, 9]
+
+
+@pytest.mark.parametrize("antenna_indices", [(0.0,), (0.5,), (True,)])
+def test_virtual_subarray_rejects_non_integer_indices(
+    antenna_indices: tuple[object, ...],
+) -> None:
+    layout = VirtualAntennaLayout.uniform_linear(1)
+
+    with pytest.raises(ValueError, match="must contain integers"):
+        VirtualSubarraySpec(antenna_indices, layout)  # type: ignore[arg-type]
 
 
 def test_select_virtual_subarray_rejects_out_of_range_index() -> None:
