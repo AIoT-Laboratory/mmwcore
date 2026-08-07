@@ -2,8 +2,8 @@
 
 ## Boundary
 
-mmwcore is the reusable radar data-link and signal-processing package. It must remain independent
-of experiment, application, and model layers in downstream projects.
+mmwcore is the reusable radar capture-decoding and signal-processing package. It must remain
+independent of experiment, application, and model layers in downstream projects.
 The core boundary begins at captured bytes and explicit offline contracts. The Python package
 retains compatibility hardware/session I/O, but new acquisition behavior belongs in dedicated
 tools.
@@ -22,7 +22,7 @@ Python contracts, I/O, composition, plotting (python/mmwcore)
 ```
 
 The Rust crate is independently usable. The Python wheel embeds the extension and adds typed
-composition, hardware/session I/O, and visual inspection.
+composition, captured-file/session I/O, compatibility hardware adapters, and visual inspection.
 
 ## Physical data path
 

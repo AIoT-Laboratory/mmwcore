@@ -28,6 +28,20 @@ Rust 1.85 or newer:
 cargo add mmwcore
 ```
 
+## TI capture contracts
+
+- `group2_i_then_q` decodes the complex16, two-lane TI mmWave Studio layout used by xWR16xx,
+  xWR18xx, and xWR68xx captures.
+- `group4_i_then_q` decodes the complex16, four-lane, channel-interleaved TI mmWave Studio layout
+  used by xWR12xx and xWR14xx captures.
+- Source-backed antenna geometries are available for XWR1642, the standard XWR1843 EVM,
+  IWR6843ISK, IWR6843 AOP, and AWR1843 AOP.
+
+The legacy TI firmware-configuration parser and `mmwcli.capture_session.v1` consumer remain
+xWR68xx-specific.
+These formats and geometries are based on local TI SDK/Studio sources and offline tests; they do not
+claim hardware control or hardware validation. Select the ADC layout and board geometry explicitly.
+
 ## Hardware-derived validation evidence
 
 These figures were generated from a retained laboratory capture, not from synthetic fixtures. Its
