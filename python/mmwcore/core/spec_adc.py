@@ -81,11 +81,14 @@ class PlanarApertureLayout:
     name: str = "planar_aperture"
 
     def __post_init__(self) -> None:
-        indices = tuple(tuple(int(value) for value in row) for row in self.grid_indices)
-        if not indices:
+        rows = tuple(tuple(row) for row in self.grid_indices)
+        if not rows:
             raise ValueError("PlanarApertureLayout.grid_indices must not be empty.")
-        if any(len(index) != 2 for index in indices):
+        if any(len(row) != 2 for row in rows):
             raise ValueError("Planar aperture indices must contain azimuth/elevation pairs.")
+        indices = tuple(
+            _integer_indices(row, name="PlanarApertureLayout.grid_indices") for row in rows
+        )
         if any(value < 0 for index in indices for value in index):
             raise ValueError("Planar aperture indices must be non-negative.")
         if not self.name:

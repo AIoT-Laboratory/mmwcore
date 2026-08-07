@@ -90,6 +90,9 @@ def test_planar_aperture_layout_validates_indices() -> None:
         PlanarApertureLayout(((0, 1, 2),))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="non-negative"):
         PlanarApertureLayout(((-1, 0),))
+    for indices in [((0.0, 0),), ((0.5, 0),), ((True, 0),)]:
+        with pytest.raises(ValueError, match="must contain integers"):
+            PlanarApertureLayout(indices)  # type: ignore[arg-type]
 
 
 def test_tdm_geometry_builds_ordered_virtual_phase_centers() -> None:
