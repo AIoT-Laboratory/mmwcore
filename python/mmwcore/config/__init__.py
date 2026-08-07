@@ -13,6 +13,8 @@ from .exporters import (
 )
 from .parsers import (
     TiCliConfigSummary,
+    parse_ti_cli_capture_spec,
+    parse_ti_cli_capture_spec_file,
     parse_ti_cli_config,
     parse_ti_cli_config_file,
 )
@@ -53,6 +55,8 @@ __all__ = [
     "render_dca1000_config",
     "render_ti_cli_config",
     "TiCliConfigSummary",
+    "parse_ti_cli_capture_spec",
+    "parse_ti_cli_capture_spec_file",
     "parse_ti_cli_config",
     "parse_ti_cli_config_file",
     "write_dca1000_config",

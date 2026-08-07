@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import pytest
 
@@ -10,6 +11,7 @@ from mmwcore.config import (
     RadarCaptureSpec,
     RadarProfile,
     TiCliConfigSpec,
+    TiCliConfigSummary,
     iwr6843_isk_3d_cfar_point_cloud_recipe,
     iwr6843_isk_3d_point_cloud_recipe,
     iwr6843_isk_antenna_geometry,
@@ -19,6 +21,7 @@ from mmwcore.config import (
     iwr6843_isk_planar_aperture_layout,
     iwr6843_isk_tdm_virtual_array,
     iwr6843_profile,
+    parse_ti_cli_capture_spec,
     parse_ti_cli_config,
     render_dca1000_config,
     render_ti_cli_config,
@@ -365,11 +368,10 @@ def test_parse_ti_cli_config_recovers_capture_shape() -> None:
     assert summary.to_adc_frame_spec().raw_values_per_frame == 393216
 
 
-def test_parse_ti_cli_config_supports_single_tx_shape() -> None:
+def test_parse_ti_cli_config_preserves_legacy_shape_contract() -> None:
     text = "\n".join(
         [
             "channelCfg 15 1 0",
-            "adcCfg 2 1",
             "profileCfg 0 60 30 7 57.14 0 0 60 1 128 5209 0 0 158",
             "chirpCfg 0 0 0 0 0 0 0 1",
             "frameCfg 0 0 2 0 10 1 0",
@@ -386,6 +388,249 @@ def test_parse_ti_cli_config_supports_single_tx_shape() -> None:
     assert summary.num_chirps_per_tx == 2
     assert summary.chirps_per_frame == 2
     assert summary.frame_periodicity_s == pytest.approx(0.01)
+
+
+def test_ti_cli_config_summary_keeps_public_constructor_defaults() -> None:
+    summary = TiCliConfigSummary(4, 2, 256, 32, 2, 0, 1)
+
+    assert summary.frame_periodicity_s is None
+    assert summary.to_adc_frame_spec() == ADCFrameSpec(
+        num_chirps=64,
+        num_rx=4,
+        num_samples=256,
+    )
+
+
+def test_ti_cli_shape_parser_keeps_missing_chirp_fallback() -> None:
+    text = "\n".join(
+        [
+            "channelCfg 15 5 0",
+            "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+            "frameCfg 0 1 32 100 100 1 0",
+        ]
+    )
+
+    assert parse_ti_cli_config(text).num_tx == 2
+    with pytest.raises(ValueError, match="dfeDataOutputMode.*adcCfg.*chirpCfg"):
+        parse_ti_cli_capture_spec(
+            text,
+            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        )
+
+
+def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None:
+    text = "\n".join(
+        [
+            "dfeDataOutputMode 1",
+            "channelCfg 15 7 0",
+            "adcCfg 2 1",
+            "adcbufCfg -1 0 1 1 1",
+            "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+            "chirpCfg 1 1 0 0 0 0 0 4",
+            "chirpCfg 0 0 0 0 0 0 0 1",
+            "frameCfg 0 1 32 100 100 1 0",
+            "lvdsStreamCfg -1 0 1 0",
+        ]
+    )
+
+    capture = parse_ti_cli_capture_spec(
+        text,
+        layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+    )
+
+    assert capture.tx_order == (0, 2)
+    assert capture.profile.num_tx == 2
+    assert capture.profile.num_rx == 4
+    assert capture.profile.num_adc_samples == 256
+    assert capture.profile.num_chirps_per_tx == 32
+    assert capture.profile.start_frequency_hz == pytest.approx(60e9)
+    assert capture.profile.frequency_slope_hz_per_s == pytest.approx(166e12)
+    assert capture.profile.adc_sample_rate_hz == pytest.approx(12.5e6)
+    assert capture.adc == ADCFrameSpec(
+        num_chirps=64,
+        num_rx=4,
+        num_samples=256,
+        layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+    )
+    assert capture.frame_periodicity_s == pytest.approx(0.1)
+    assert capture.num_frames == 100
+    assert capture.expected_size_bytes == 26_214_400
+
+
+def test_parse_ti_cli_capture_spec_supports_continuous_frames() -> None:
+    capture = parse_ti_cli_capture_spec(
+        render_ti_cli_config(RadarProfile(num_tx=3)),
+        layout=ADCComplexLayout.IQ_INTERLEAVED,
+    )
+
+    assert capture.tx_order == (0, 2, 1)
+    assert capture.num_frames is None
+    assert capture.expected_size_bytes is None
+    assert capture.adc.layout is ADCComplexLayout.IQ_INTERLEAVED
+
+
+def test_parse_ti_cli_capture_spec_rejects_late_flush() -> None:
+    lines = render_ti_cli_config(RadarProfile(num_tx=1)).splitlines()
+    lines.remove("flushCfg")
+    lines.insert(lines.index("channelCfg 15 1 0") + 1, "flushCfg")
+
+    with pytest.raises(ValueError, match="flushCfg must precede"):
+        parse_ti_cli_capture_spec(
+            "\n".join(lines),
+            layout=ADCComplexLayout.IQ_INTERLEAVED,
+        )
+
+
+@pytest.mark.parametrize(
+    ("chirp_lines", "match"),
+    [
+        (["chirpCfg 0 0 0 0 0 0 0 3"], "exactly one TX"),
+        (
+            [
+                "chirpCfg 0 0 0 0 0 0 0 1",
+                "chirpCfg 1 1 0 0 0 0 0 1",
+            ],
+            "each active TX exactly once",
+        ),
+    ],
+)
+def test_parse_ti_cli_capture_spec_rejects_non_tdm_tx_sequences(
+    chirp_lines: list[str],
+    match: str,
+) -> None:
+    chirp_end = len(chirp_lines) - 1
+    text = "\n".join(
+        [
+            "dfeDataOutputMode 1",
+            "channelCfg 15 7 0",
+            "adcCfg 2 1",
+            "adcbufCfg -1 0 1 1 1",
+            "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+            *chirp_lines,
+            f"frameCfg 0 {chirp_end} 32 100 100 1 0",
+            "lvdsStreamCfg -1 0 1 0",
+        ]
+    )
+
+    with pytest.raises(ValueError, match=match):
+        parse_ti_cli_capture_spec(
+            text,
+            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        )
+
+
+@pytest.mark.parametrize(
+    ("replacement", "match"),
+    [
+        ("adcCfg 2 0", "16-bit complex"),
+        ("adcbufCfg -1 0 1 0 1", "exact adcbufCfg"),
+        ("chirpCfg 0 0 0 0 1 0 0 1", "chirpCfg variations"),
+        ("frameCfg 0 1 32 100 100 2 0", "software-triggered"),
+        ("lvdsStreamCfg -1 1 1 0", "no header"),
+        ("channelCfg 15 7", "expected exactly 3"),
+        ("channelCfg 16 7 0", "RX mask"),
+        ("channelCfg 5 7 0", "Sparse"),
+        ("channelCfg 15 8 0", "TX mask"),
+        ("dfeDataOutputMode 1 0", "expected exactly 1"),
+        ("adcCfg 2 1 0", "expected exactly 2"),
+        ("adcbufCfg -1 0 1 1 1 0", "expected exactly 5"),
+        ("profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158 0", "expected exactly 14"),
+        ("profileCfg 4 60 7 3 24 0 0 166 1 256 12500 0 0 158", "ID must be"),
+        ("chirpCfg 0 0 0 0 0 0 0 1 0", "expected exactly 8"),
+        ("chirpCfg 0 512 0 0 0 0 0 1", "indices must be"),
+        ("frameCfg 0 1 32 100 100 1 0 0", "expected exactly 7"),
+        ("frameCfg 0 512 32 100 100 1 0", "chirp indices must be"),
+        ("frameCfg 0 1 256 100 100 1 0", "num loops"),
+        ("frameCfg 0 1 32 65536 100 1 0", "num frames"),
+        ("lvdsStreamCfg -1 0 1 0 0", "expected exactly 4"),
+    ],
+)
+def test_parse_ti_cli_capture_spec_rejects_ambiguous_physical_contracts(
+    replacement: str,
+    match: str,
+) -> None:
+    lines = [
+        "dfeDataOutputMode 1",
+        "channelCfg 15 7 0",
+        "adcCfg 2 1",
+        "adcbufCfg -1 0 1 1 1",
+        "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+        "chirpCfg 0 0 0 0 0 0 0 1",
+        "chirpCfg 1 1 0 0 0 0 0 4",
+        "frameCfg 0 1 32 100 100 1 0",
+        "lvdsStreamCfg -1 0 1 0",
+    ]
+    command = replacement.split(maxsplit=1)[0]
+    lines[next(index for index, line in enumerate(lines) if line.startswith(command))] = replacement
+
+    assert parse_ti_cli_config("\n".join(lines)).num_tx == 2
+    with pytest.raises(ValueError, match=match):
+        parse_ti_cli_capture_spec(
+            "\n".join(lines),
+            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        )
+
+
+@pytest.mark.parametrize(
+    ("contract_lines", "match"),
+    [
+        (["adcCfg 2 1"], "dfeDataOutputMode"),
+        (["dfeDataOutputMode 1"], "adcCfg"),
+        (["dfeDataOutputMode 2", "adcCfg 2 1"], "dfeDataOutputMode 1"),
+        (["dfeDataOutputMode 1", "adcCfg 2 0"], "16-bit complex"),
+    ],
+)
+def test_ti_cli_capture_contract_checks_do_not_leak_into_shape_parser(
+    contract_lines: list[str],
+    match: str,
+) -> None:
+    text = "\n".join(
+        [
+            *contract_lines,
+            "channelCfg 15 1 0",
+            "adcbufCfg -1 0 1 1 1",
+            "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+            "chirpCfg 0 0 0 0 0 0 0 1",
+            "frameCfg 0 0 32 100 100 1 0",
+            "lvdsStreamCfg -1 0 1 0",
+        ]
+    )
+
+    assert parse_ti_cli_config(text).num_tx == 1
+    with pytest.raises(ValueError, match=match):
+        parse_ti_cli_capture_spec(
+            text,
+            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        )
+
+
+@pytest.mark.parametrize("command", ["adcbufCfg", "lvdsStreamCfg"])
+def test_ti_cli_capture_spec_requires_raw_hardware_stream_commands(command: str) -> None:
+    lines = render_ti_cli_config(RadarProfile(num_tx=1)).splitlines()
+    lines = [line for line in lines if not line.startswith(command)]
+
+    with pytest.raises(ValueError, match=command):
+        parse_ti_cli_capture_spec(
+            "\n".join(lines),
+            layout=ADCComplexLayout.IQ_INTERLEAVED,
+        )
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        ADCComplexLayout.GROUP2_I_THEN_Q,
+        cast(ADCComplexLayout, ADCComplexLayout.GROUP2_I_THEN_Q.value),
+    ],
+)
+def test_ti_cli_capture_spec_rejects_odd_group2_sample_count(
+    layout: ADCComplexLayout,
+) -> None:
+    with pytest.raises(ValueError, match="even numAdcSamples"):
+        parse_ti_cli_capture_spec(
+            render_ti_cli_config(RadarProfile(num_tx=1, num_adc_samples=255)),
+            layout=layout,
+        )
 
 
 def test_write_ti_cli_config_supports_custom_export_spec(tmp_path) -> None:
