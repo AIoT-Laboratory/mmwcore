@@ -135,8 +135,8 @@ def test_radar_capture_spec_joins_explicit_capture_contract() -> None:
         (ADCFrameSpec(384, 4, 128), (0, 1, 2), "sample mismatch"),
         (ADCFrameSpec(256, 4, 256), (0, 1, 2), "chirp mismatch"),
         (ADCFrameSpec(384, 4, 256), (0, 0, 2), "duplicates"),
-        (ADCFrameSpec(256, 4, 256), (0, 1), "every active transmitter"),
-        (ADCFrameSpec(384, 4, 256), (0, 1, 3), "within"),
+        (ADCFrameSpec(256, 4, 256), (0, 1), "one physical identifier"),
+        (ADCFrameSpec(384, 4, 256), (0, 1, -1), "non-negative"),
     ],
 )
 def test_radar_capture_spec_rejects_inconsistent_contract(
@@ -153,6 +153,26 @@ def test_radar_capture_spec_rejects_inconsistent_contract(
 
     with pytest.raises(ValueError, match=match):
         RadarCaptureSpec(profile=profile, adc=adc, tx_order=tx_order)
+
+
+def test_radar_capture_spec_preserves_sparse_physical_tx_identifiers() -> None:
+    profile = RadarProfile(
+        num_tx=2,
+        num_rx=4,
+        num_adc_samples=256,
+        num_chirps_per_tx=32,
+    )
+
+    capture = RadarCaptureSpec(
+        profile=profile,
+        adc=profile.to_adc_frame_spec(layout=ADCComplexLayout.GROUP2_I_THEN_Q),
+        tx_order=(0, 2),
+        frame_periodicity_s=0.1,
+        num_frames=100,
+    )
+
+    assert capture.tx_order == (0, 2)
+    assert capture.expected_size_bytes == 26_214_400
 
 
 def test_radar_capture_spec_rejects_impossible_frame_period() -> None:

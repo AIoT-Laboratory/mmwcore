@@ -15,7 +15,7 @@ RADAR_CAPTURE_SPEC_SCHEMA = "mmwcore.radar_capture_spec.v1"
 
 @dataclass(frozen=True)
 class RadarCaptureSpec:
-    """User-supplied contract joining waveform, frame layout, and TDM order."""
+    """User-supplied contract joining waveform, frame layout, and physical TDM Tx order."""
 
     profile: RadarProfile
     adc: ADCFrameSpec
@@ -146,10 +146,10 @@ def _validated_tx_order(values: tuple[int, ...], *, num_tx: int) -> tuple[int, .
         raise ValueError("RadarCaptureSpec.tx_order must not contain duplicates.")
     if len(tx_order) != num_tx:
         raise ValueError(
-            "RadarCaptureSpec.tx_order must contain every active transmitter exactly once."
+            "RadarCaptureSpec.tx_order must contain one physical identifier per active transmitter."
         )
-    if any(index < 0 or index >= num_tx for index in tx_order):
-        raise ValueError(f"RadarCaptureSpec.tx_order indices must be within [0, {num_tx}).")
+    if any(index < 0 for index in tx_order):
+        raise ValueError("RadarCaptureSpec.tx_order identifiers must be non-negative.")
     return tx_order
 
 
