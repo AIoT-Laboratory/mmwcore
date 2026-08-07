@@ -7,7 +7,9 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Protocol
+
+from mmwcore._compat import Self
 
 
 class SerialPort(Protocol):

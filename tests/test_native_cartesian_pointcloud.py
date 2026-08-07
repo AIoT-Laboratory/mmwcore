@@ -1,11 +1,15 @@
+# ruff: noqa: UP040
+
 from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
 import pytest
 
 from mmwcore import _native
 
-type _Config = tuple[
+_Config: TypeAlias = tuple[
     tuple[float, int],
     tuple[int, int, int | None, int],
     tuple[float, float, float, bool],

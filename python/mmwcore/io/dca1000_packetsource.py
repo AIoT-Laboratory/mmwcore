@@ -5,8 +5,9 @@ from __future__ import annotations
 import socket
 from collections.abc import Callable
 from types import TracebackType
-from typing import Self, cast
+from typing import cast
 
+from mmwcore._compat import Self
 from mmwcore.core import ADCFrameSpec, RawADCFrame
 from mmwcore.io.dca1000_types import DatagramSocket, DCA1000NetworkConfig
 from mmwcore.io.packets import (

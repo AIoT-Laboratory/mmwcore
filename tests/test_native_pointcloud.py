@@ -1,12 +1,16 @@
+# ruff: noqa: UP040
+
 from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
 import pytest
 
 from mmwcore import _native
 
-type _Columns = tuple[int, int, int, int, int, tuple[int, int] | None, list[int]]
-type _Config = tuple[float, float, bool, int | None, bool]
+_Columns: TypeAlias = tuple[int, int, int, int, int, tuple[int, int] | None, list[int]]
+_Config: TypeAlias = tuple[float, float, bool, int | None, bool]
 
 
 def _columns() -> _Columns:
