@@ -8,10 +8,10 @@ const NOISE_LABEL: i64 = -1;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DbscanConfig {
-    pub eps_m: f32,
-    pub min_samples: usize,
-    pub velocity_scale_s: f32,
-    pub use_z: bool,
+    eps_m: f32,
+    min_samples: usize,
+    velocity_scale_s: f32,
+    use_z: bool,
 }
 
 impl DbscanConfig {
@@ -36,6 +36,22 @@ impl DbscanConfig {
             velocity_scale_s,
             use_z,
         })
+    }
+
+    pub const fn eps_m(&self) -> f32 {
+        self.eps_m
+    }
+
+    pub const fn min_samples(&self) -> usize {
+        self.min_samples
+    }
+
+    pub const fn velocity_scale_s(&self) -> f32 {
+        self.velocity_scale_s
+    }
+
+    pub const fn use_z(&self) -> bool {
+        self.use_z
     }
 
     fn uses_velocity(self) -> bool {
@@ -389,7 +405,33 @@ fn empty_result() -> ClusterResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{DbscanConfig, PointColumns, cluster_points};
+    use super::{ClusterError, DbscanConfig, PointColumns, cluster_points};
+
+    #[test]
+    fn validates_and_exposes_dbscan_config() {
+        for eps_m in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(
+                DbscanConfig::new(eps_m, 1, 0.0, false),
+                Err(ClusterError::InvalidEpsilon)
+            );
+        }
+        assert_eq!(
+            DbscanConfig::new(1.0, 0, 0.0, false),
+            Err(ClusterError::ZeroMinSamples)
+        );
+        for velocity_scale_s in [-1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(
+                DbscanConfig::new(1.0, 1, velocity_scale_s, false),
+                Err(ClusterError::InvalidVelocityScale)
+            );
+        }
+
+        let config = DbscanConfig::new(0.3, 2, 0.2, true).unwrap();
+        assert_eq!(config.eps_m(), 0.3);
+        assert_eq!(config.min_samples(), 2);
+        assert_eq!(config.velocity_scale_s(), 0.2);
+        assert!(config.use_z());
+    }
 
     #[test]
     fn dbscan_clusters_spatial_velocity_features_and_summarizes_members() {
