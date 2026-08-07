@@ -303,15 +303,18 @@ class TrackFrame:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        track_ids = np.asarray(self.track_ids, dtype=np.int64)
+        track_ids = _as_int64_array(self.track_ids, name="TrackFrame.track_ids")
         positions = np.asarray(self.positions, dtype=np.float32)
         velocities = np.asarray(self.velocities, dtype=np.float32)
         position_covariances = np.asarray(self.position_covariances, dtype=np.float32)
         extent_covariances = np.asarray(self.extent_covariances, dtype=np.float32)
         statuses = tuple(TrackStatus(status) for status in self.statuses)
-        ages = np.asarray(self.ages, dtype=np.int64)
-        missed = np.asarray(self.missed_counts, dtype=np.int64)
-        associations = np.asarray(self.observation_track_ids, dtype=np.int64)
+        ages = _as_int64_array(self.ages, name="TrackFrame.ages")
+        missed = _as_int64_array(self.missed_counts, name="TrackFrame.missed_counts")
+        associations = _as_int64_array(
+            self.observation_track_ids,
+            name="TrackFrame.observation_track_ids",
+        )
         count = track_ids.size
         _validate_track_ids(track_ids)
         _validate_track_state_shapes(positions, velocities, count=count)

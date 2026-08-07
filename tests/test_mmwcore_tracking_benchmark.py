@@ -10,14 +10,14 @@ from mmwcore.tracking import TrackingGroundTruthFrame, evaluate_track_frames
 def _prediction(ids: tuple[int, ...], positions: list[tuple[float, float, float]]) -> TrackFrame:
     count = len(ids)
     return TrackFrame(
-        track_ids=np.array(ids),
+        track_ids=np.array(ids, dtype=np.int64),
         positions=np.array(positions, dtype=np.float32).reshape(count, 3),
         velocities=np.zeros((count, 3)),
         position_covariances=np.zeros((count, 2, 2)),
         extent_covariances=np.zeros((count, 2, 2)),
         statuses=(TrackStatus.CONFIRMED,) * count,
-        ages=np.ones(count),
-        missed_counts=np.zeros(count),
+        ages=np.ones(count, dtype=np.int64),
+        missed_counts=np.zeros(count, dtype=np.int64),
         observation_track_ids=np.empty(0, dtype=np.int64),
     )
 

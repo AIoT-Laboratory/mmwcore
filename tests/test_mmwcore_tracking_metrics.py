@@ -16,7 +16,7 @@ def _frame(
 ) -> TrackFrame:
     count = len(track_ids)
     return TrackFrame(
-        track_ids=np.array(track_ids),
+        track_ids=np.array(track_ids, dtype=np.int64),
         positions=np.asarray(positions, dtype=np.float32)
         if positions is not None
         else np.zeros((count, 3)),
@@ -26,8 +26,8 @@ def _frame(
         position_covariances=np.zeros((count, 2, 2)),
         extent_covariances=np.zeros((count, 2, 2)),
         statuses=statuses,
-        ages=np.ones(count),
-        missed_counts=np.zeros(count),
+        ages=np.ones(count, dtype=np.int64),
+        missed_counts=np.zeros(count, dtype=np.int64),
         observation_track_ids=np.empty(0, dtype=np.int64),
     )
 
