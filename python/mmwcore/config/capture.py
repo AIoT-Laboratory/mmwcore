@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any
+from typing import Any, Self
 
-from mmwcore._compat import Self
 from mmwcore.config.profiles import RadarProfile
 from mmwcore.core import ADCComplexLayout, ADCFrameSpec
 
