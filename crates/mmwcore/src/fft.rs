@@ -30,11 +30,11 @@ impl TryFrom<u8> for FftWindow {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComplexFftSpec {
-    pub n_fft: usize,
-    pub window: FftWindow,
-    pub remove_dc: bool,
-    pub fftshift: bool,
-    pub one_sided: bool,
+    n_fft: usize,
+    window: FftWindow,
+    remove_dc: bool,
+    fftshift: bool,
+    one_sided: bool,
 }
 
 impl ComplexFftSpec {
@@ -55,6 +55,26 @@ impl ComplexFftSpec {
             fftshift,
             one_sided,
         })
+    }
+
+    pub const fn n_fft(&self) -> usize {
+        self.n_fft
+    }
+
+    pub const fn window(&self) -> FftWindow {
+        self.window
+    }
+
+    pub const fn remove_dc(&self) -> bool {
+        self.remove_dc
+    }
+
+    pub const fn fftshift(&self) -> bool {
+        self.fftshift
+    }
+
+    pub const fn one_sided(&self) -> bool {
+        self.one_sided
     }
 }
 
@@ -190,8 +210,23 @@ fn cosine_window(size: usize, offset: f32, scale: f32) -> Vec<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ComplexFftSpec, FftWindow, fft_complex_axis};
+    use super::{ComplexFftSpec, FftTransformError, FftWindow, fft_complex_axis};
     use num_complex::Complex32;
+
+    #[test]
+    fn validates_and_exposes_fft_spec() {
+        assert_eq!(
+            ComplexFftSpec::new(0, FftWindow::None, false, false, false),
+            Err(FftTransformError::InvalidFftLength { n_fft: 0 })
+        );
+
+        let spec = ComplexFftSpec::new(8, FftWindow::Hamming, true, true, true).unwrap();
+        assert_eq!(spec.n_fft(), 8);
+        assert_eq!(spec.window(), FftWindow::Hamming);
+        assert!(spec.remove_dc());
+        assert!(spec.fftshift());
+        assert!(spec.one_sided());
+    }
 
     #[test]
     fn transforms_impulse_and_preserves_axis_shape() {
