@@ -99,6 +99,32 @@ def test_radar_profile_rejects_invalid_values() -> None:
         RadarProfile(adc_start_time_s=65e-6, ramp_end_time_s=65e-6)
 
 
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    [
+        ("start_frequency_hz", lambda value: RadarProfile(start_frequency_hz=value)),
+        (
+            "frequency_slope_hz_per_s",
+            lambda value: RadarProfile(frequency_slope_hz_per_s=value),
+        ),
+        ("adc_sample_rate_hz", lambda value: RadarProfile(adc_sample_rate_hz=value)),
+        ("adc_start_time_s", lambda value: RadarProfile(adc_start_time_s=value)),
+        ("ramp_end_time_s", lambda value: RadarProfile(ramp_end_time_s=value)),
+        ("idle_time_s", lambda value: RadarProfile(idle_time_s=value)),
+        ("speed_of_light_mps", lambda value: RadarProfile(speed_of_light_mps=value)),
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_radar_profile_rejects_nonfinite_physical_values(
+    field_name: str,
+    factory: Callable[[float], RadarProfile],
+    value: float,
+) -> None:
+    message = rf"RadarProfile\.{field_name} must be finite and positive"
+    with pytest.raises(ValueError, match=message):
+        factory(value)
+
+
 def test_radar_capture_spec_joins_explicit_capture_contract() -> None:
     profile = RadarProfile(
         idle_time_s=7e-6,

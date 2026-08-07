@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 from mmwcore.core import ADCComplexLayout, ADCFrameSpec, PointCloudProjectionSpec
 
@@ -33,8 +34,10 @@ class RadarProfile:
             ("idle_time_s", self.idle_time_s),
             ("speed_of_light_mps", self.speed_of_light_mps),
         ):
-            if value <= 0:
-                raise ValueError(f"RadarProfile.{name} must be positive; got {value}.")
+            if not isfinite(value) or value <= 0:
+                raise ValueError(
+                    f"RadarProfile.{name} must be finite and positive; got {value}."
+                )
 
         for name, value in (
             ("num_adc_samples", self.num_adc_samples),
