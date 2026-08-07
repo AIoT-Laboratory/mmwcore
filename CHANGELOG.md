@@ -12,6 +12,8 @@ All notable changes to mmwcore are documented here.
   IWR6843 active-Tx subsets.
 - Add a reproducible synthetic IWR6843 pipeline benchmark runner with versioned JSON results.
 - Support Python 3.10–3.13 with compatible typing and standard-library fallbacks.
+- Add TI SDK source-backed, offline-tested antenna geometries for XWR1642, the standard XWR1843
+  EVM, IWR6843 AOP, and AWR1843 AOP.
 
 ## [0.2.2] - 2026-08-06
 

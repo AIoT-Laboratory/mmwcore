@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import cast
 
 import pytest
@@ -12,6 +13,8 @@ from mmwcore.config import (
     RadarProfile,
     TiCliConfigSpec,
     TiCliConfigSummary,
+    awr1843_aop_antenna_geometry,
+    iwr6843_aop_antenna_geometry,
     iwr6843_isk_3d_cfar_point_cloud_recipe,
     iwr6843_isk_3d_point_cloud_recipe,
     iwr6843_isk_antenna_geometry,
@@ -27,10 +30,13 @@ from mmwcore.config import (
     render_ti_cli_config,
     write_dca1000_config,
     write_ti_cli_config,
+    xwr1642_antenna_geometry,
+    xwr1843_evm_antenna_geometry,
 )
 from mmwcore.core import (
     ADCComplexLayout,
     ADCFrameSpec,
+    AntennaArrayGeometry,
     CFAR1DSpec,
     DetectionMethod,
     DetectionQualitySpec,
@@ -230,6 +236,68 @@ def test_iwr6843_isk_geometry_uses_standard_evm_phase_centers() -> None:
         (1.0, 0.0, 0.0),
         (1.5, 0.0, 0.0),
     )
+
+
+@pytest.mark.parametrize(
+    ("factory", "name", "tx_positions", "rx_positions"),
+    [
+        (
+            xwr1642_antenna_geometry,
+            "xwr1642",
+            ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+            (
+                (0.0, 0.0, 0.0),
+                (0.5, 0.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (1.5, 0.0, 0.0),
+            ),
+        ),
+        (
+            xwr1843_evm_antenna_geometry,
+            "xwr1843_evm",
+            ((0.0, 0.0, 0.5), (1.0, 0.0, 0.0), (2.0, 0.0, 0.5)),
+            (
+                (0.0, 0.0, 0.0),
+                (0.5, 0.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (1.5, 0.0, 0.0),
+            ),
+        ),
+        (
+            iwr6843_aop_antenna_geometry,
+            "iwr6843_aop",
+            ((0.0, 0.0, 0.0), (1.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
+            (
+                (0.5, 0.0, 0.5),
+                (0.5, 0.0, 0.0),
+                (0.0, 0.0, 0.5),
+                (0.0, 0.0, 0.0),
+            ),
+        ),
+        (
+            awr1843_aop_antenna_geometry,
+            "awr1843_aop",
+            ((0.0, 0.0, 0.0), (0.0, 0.0, 0.5), (0.0, 0.0, 1.0)),
+            (
+                (1.5, 0.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (0.5, 0.0, 0.0),
+                (0.0, 0.0, 0.0),
+            ),
+        ),
+    ],
+)
+def test_ti_sdk_antenna_geometry_presets_match_half_wavelength_offsets(
+    factory: Callable[[], AntennaArrayGeometry],
+    name: str,
+    tx_positions: tuple[tuple[float, float, float], ...],
+    rx_positions: tuple[tuple[float, float, float], ...],
+) -> None:
+    geometry = factory()
+
+    assert geometry.name == name
+    assert geometry.tx_positions_wavelengths == tx_positions
+    assert geometry.rx_positions_wavelengths == rx_positions
 
 
 def test_iwr6843_isk_tdm_array_keeps_configured_tx_order() -> None:
