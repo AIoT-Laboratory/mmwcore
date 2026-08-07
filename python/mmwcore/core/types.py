@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from operator import index as integer_index
 from typing import Any
 
 import numpy as np
@@ -14,6 +15,34 @@ _XYZ_CHANNELS = ("x", "y", "z")
 
 def _metadata_copy(metadata: dict[str, Any] | None) -> dict[str, Any]:
     return dict(metadata or {})
+
+
+def _as_int64_array(values: np.ndarray, *, name: str) -> np.ndarray:
+    array = np.asarray(values)
+    limits = np.iinfo(np.int64)
+    if np.issubdtype(array.dtype, np.integer):
+        if array.size:
+            minimum = int(array.min())
+            maximum = int(array.max())
+            if minimum < limits.min or maximum > limits.max:
+                raise ValueError(f"{name} contains values outside the int64 range.")
+        return array.astype(np.int64, copy=False)
+
+    if array.dtype == np.dtype(object):
+        normalized = np.empty(array.shape, dtype=np.int64)
+        for offset, value in enumerate(array.flat):
+            if isinstance(value, (bool, np.bool_)):
+                raise TypeError(f"{name} must contain integer values.")
+            try:
+                item = integer_index(value)
+            except TypeError as exc:
+                raise TypeError(f"{name} must contain integer values.") from exc
+            if item < limits.min or item > limits.max:
+                raise ValueError(f"{name} contains values outside the int64 range.")
+            normalized.flat[offset] = item
+        return normalized
+
+    raise TypeError(f"{name} must contain integer values; got dtype {array.dtype}.")
 
 
 @dataclass(frozen=True)
@@ -236,8 +265,8 @@ class ClusterFrame:
         centers = np.asarray(self.centers, dtype=np.float32)
         extents = np.asarray(self.extents, dtype=np.float32)
         velocities = np.asarray(self.mean_velocities, dtype=np.float32)
-        counts = np.asarray(self.point_counts, dtype=np.int64)
-        labels = np.asarray(self.point_labels, dtype=np.int64)
+        counts = _as_int64_array(self.point_counts, name="ClusterFrame.point_counts")
+        labels = _as_int64_array(self.point_labels, name="ClusterFrame.point_labels")
         _validate_cluster_shapes(centers, extents, velocities, counts, labels)
         _validate_cluster_membership(centers, extents, counts, labels)
         _validate_cluster_values(centers, extents, velocities)
