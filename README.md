@@ -1,12 +1,12 @@
 # mmwcore
 
-Typed mmWave radar acquisition and signal-processing primitives in Rust and Python.
+Decode DCA1000 raw ADC data into range-Doppler products, detections, calibrated point clouds, and
+tracks from Rust or Python.
 
-mmwcore owns the physical data path from raw ADC samples to range-Doppler products,
-detections, calibrated point clouds, tracks, and vital-sign phase. Rust provides the
-compute kernels and a native crate; Python provides typed research contracts, file and
-device adapters, plotting, and PyO3 bindings. Learned models and experiment orchestration
-belong in downstream projects.
+mmwcore provides explicit capture and physical contracts, frame-by-frame file and packet ingestion,
+Rust compute kernels, Python composition APIs, and plotting. It covers the physical data path from
+raw samples to sensing products; learned models and experiment orchestration belong in downstream
+projects.
 
 [![PyPI](https://img.shields.io/pypi/v/mmwcore.svg?logo=pypi&logoColor=white)](https://pypi.org/project/mmwcore/)
 [![crates.io](https://img.shields.io/crates/v/mmwcore.svg?logo=rust)](https://crates.io/crates/mmwcore)
@@ -28,13 +28,14 @@ Rust 1.85 or newer:
 cargo add mmwcore
 ```
 
-## Real ADC evidence
+## Hardware-derived validation evidence
 
-These figures are generated from the repository-local, git-ignored `adc_data.bin` validation
-capture, not from synthetic fixtures. Its explicit decode contract is 5000 frames, 2 chirps,
-4 receivers, 128 complex samples, `group2_i_then_q` layout, and a 10 ms frame period. The capture
-does not carry slope or sample-rate metadata, so the vertical coordinate remains an honest range
-bin rather than a fabricated distance in meters.
+These figures were generated from a retained laboratory capture, not from synthetic fixtures. Its
+explicit decode contract is 5000 frames, 2 chirps, 4 receivers, 128 complex samples,
+`group2_i_then_q` layout, and a 10 ms frame period. The capture does not carry slope or sample-rate
+metadata, so the vertical coordinate remains a range bin rather than a fabricated distance in
+meters. The source capture is not distributed, so these figures are validation evidence rather
+than a runnable example.
 
 ![Range-Time magnitude before and after temporal-background suppression](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-range-time.png)
 
@@ -44,12 +45,6 @@ above it; it is a deterministic diagnostic, not a learned result.
 
 ![Raw ADC I/Q and four-receiver range spectra](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-frame-diagnostics.png)
 
-Regenerate both assets after installing `mmwcore[plot]`:
-
-```console
-python examples/render_adc_assets.py adc_data.bin
-```
-
 ## Python API
 
 ### Inspect ADC geometry
@@ -57,13 +52,13 @@ python examples/render_adc_assets.py adc_data.bin
 Inspect a capture with an explicit frame shape:
 
 ```console
-mmwcore inspect adc adc_data.bin --num-chirps 192 --num-rx 4 --num-samples 256 --json
+mmwcore inspect adc capture.bin --num-chirps 192 --num-rx 4 --num-samples 256 --json
 ```
 
 When the shape is unknown, list byte-compatible candidates instead of silently selecting one:
 
 ```console
-mmwcore inspect adc adc_data.bin --infer-shapes --json
+mmwcore inspect adc capture.bin --infer-shapes --json
 ```
 
 Shape inference only checks storage compatibility. Chirp order, ADC layout, antenna geometry,
@@ -98,7 +93,7 @@ from mmwcore.io import ADCFileFrameReader
 
 recipe = iwr6843_isk_range_doppler_recipe(remove_static_clutter=True)
 reader = ADCFileFrameReader(
-    "adc_data.bin",
+    "capture.bin",
     recipe.decode.adc,
     frame_periodicity_s=0.1,
 )
@@ -129,7 +124,7 @@ recipe = iwr6843_isk_3d_point_cloud_recipe(
     remove_static_clutter=True,
 )
 reader = ADCFileFrameReader(
-    "adc_data.bin",
+    "capture.bin",
     recipe.detection.transform.decode.adc,
     frame_periodicity_s=0.1,
 )
@@ -209,15 +204,14 @@ public validation vectors are still being expanded.
 ## Positioning
 
 [OpenRadar](https://github.com/PreSenseRadar/OpenRadar) remains a useful Python reference for TI
-mmWave ADC parsing and DSP. mmwcore is an independent implementation, not a source fork. It targets
-a higher-level replacement through explicit physical contracts, Rust kernels with Python bindings,
-calibrated TDM and point-cloud processing, stateful tracking, capture synchronization, and native
-distribution through both crates.io and PyPI.
+mmWave ADC parsing and DSP. mmwcore is an independent implementation, not a source fork. It focuses
+on explicit physical contracts, Rust-backed kernels, frame-by-frame ingestion, calibrated TDM and
+point-cloud processing, stateful tracking, and native distribution through crates.io and PyPI.
 
-mmwcore is not yet described as a strict feature superset. Capon/Bartlett/ZoomFFT coverage,
-identical-input numerical comparisons, broader public hardware fixtures, and published throughput
-and memory benchmarks remain open validation work. New surface area does not compensate for an
-incorrect physical convention; device documentation and reference vectors remain authoritative.
+Identical-input numerical comparisons, redistributable hardware fixtures, and end-to-end throughput
+and memory benchmarks remain open validation work. Until those results are published, mmwcore does
+not claim performance or feature superiority. Device documentation and reference vectors remain
+authoritative for physical conventions.
 
 ## Development
 
