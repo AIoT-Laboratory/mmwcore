@@ -209,10 +209,10 @@ mmWave ADC parsing and DSP. mmwcore is an independent implementation, not a sour
 on explicit physical contracts, Rust-backed kernels, frame-by-frame ingestion, calibrated TDM and
 point-cloud processing, stateful tracking, and native distribution through crates.io and PyPI.
 
-Identical-input numerical comparisons, redistributable hardware fixtures, and end-to-end throughput
-and memory benchmarks remain open validation work. Until those results are published, mmwcore does
-not claim performance or feature superiority. Device documentation and reference vectors remain
-authoritative for physical conventions.
+Identical-input numerical comparisons, redistributable hardware fixtures, and published benchmark
+results remain open validation work. Until those results are published, mmwcore does not claim
+performance or feature superiority. Device documentation and reference vectors remain authoritative
+for physical conventions.
 
 ## Development
 
@@ -221,6 +221,8 @@ uv sync --extra dev
 uv run pytest --cov=mmwcore
 cargo test --workspace --locked
 ```
+
+See [benchmarking](docs/benchmarking.md) for the reproducible synthetic pipeline runner.
 
 See [CONTRIBUTING.md](https://github.com/AIoT-Laboratory/mmwcore/blob/main/CONTRIBUTING.md)
 and [the architecture](https://github.com/AIoT-Laboratory/mmwcore/blob/main/docs/architecture.md).
