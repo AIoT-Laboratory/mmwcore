@@ -52,13 +52,13 @@ impl TryFrom<u8> for CfarInputScale {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cfar1DConfig {
-    pub training_cells: usize,
-    pub guard_cells: usize,
-    pub threshold_scale: f32,
-    pub mode: CfarMode,
-    pub cyclic: bool,
-    pub left_skip: usize,
-    pub right_skip: usize,
+    training_cells: usize,
+    guard_cells: usize,
+    threshold_scale: f32,
+    mode: CfarMode,
+    cyclic: bool,
+    left_skip: usize,
+    right_skip: usize,
 }
 
 impl Cfar1DConfig {
@@ -75,8 +75,8 @@ impl Cfar1DConfig {
         if training_cells == 0 {
             return Err(CfarError::ZeroTrainingCells);
         }
-        if threshold_scale < 0.0 {
-            return Err(CfarError::NegativeThresholdScale);
+        if !threshold_scale.is_finite() || threshold_scale < 0.0 {
+            return Err(CfarError::InvalidThresholdScale);
         }
         Ok(Self {
             training_cells,
@@ -89,6 +89,34 @@ impl Cfar1DConfig {
         })
     }
 
+    pub const fn training_cells(self) -> usize {
+        self.training_cells
+    }
+
+    pub const fn guard_cells(self) -> usize {
+        self.guard_cells
+    }
+
+    pub const fn threshold_scale(self) -> f32 {
+        self.threshold_scale
+    }
+
+    pub const fn mode(self) -> CfarMode {
+        self.mode
+    }
+
+    pub const fn cyclic(self) -> bool {
+        self.cyclic
+    }
+
+    pub const fn left_skip(self) -> usize {
+        self.left_skip
+    }
+
+    pub const fn right_skip(self) -> usize {
+        self.right_skip
+    }
+
     fn radius(self) -> Result<usize, CfarError> {
         self.training_cells
             .checked_add(self.guard_cells)
@@ -98,9 +126,9 @@ impl Cfar1DConfig {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cfar2DConfig {
-    pub training_cells: usize,
-    pub guard_cells: usize,
-    pub threshold_scale: f32,
+    training_cells: usize,
+    guard_cells: usize,
+    threshold_scale: f32,
 }
 
 impl Cfar2DConfig {
@@ -112,14 +140,26 @@ impl Cfar2DConfig {
         if training_cells == 0 {
             return Err(CfarError::ZeroTrainingCells);
         }
-        if threshold_scale < 0.0 {
-            return Err(CfarError::NegativeThresholdScale);
+        if !threshold_scale.is_finite() || threshold_scale < 0.0 {
+            return Err(CfarError::InvalidThresholdScale);
         }
         Ok(Self {
             training_cells,
             guard_cells,
             threshold_scale,
         })
+    }
+
+    pub const fn training_cells(self) -> usize {
+        self.training_cells
+    }
+
+    pub const fn guard_cells(self) -> usize {
+        self.guard_cells
+    }
+
+    pub const fn threshold_scale(self) -> f32 {
+        self.threshold_scale
     }
 
     fn radius(self) -> Result<usize, CfarError> {
@@ -147,7 +187,7 @@ pub struct CfarDetections {
 pub enum CfarError {
     Detection(DetectionError),
     ZeroTrainingCells,
-    NegativeThresholdScale,
+    InvalidThresholdScale,
     ConfigurationOverflow,
     InvalidPowerInput,
     UnsupportedMode { mode: u8 },
@@ -159,8 +199,11 @@ impl fmt::Display for CfarError {
         match self {
             Self::Detection(error) => error.fmt(formatter),
             Self::ZeroTrainingCells => write!(formatter, "CFAR training cells must be positive."),
-            Self::NegativeThresholdScale => {
-                write!(formatter, "CFAR threshold scale must be non-negative.")
+            Self::InvalidThresholdScale => {
+                write!(
+                    formatter,
+                    "CFAR threshold scale must be finite and non-negative."
+                )
             }
             Self::ConfigurationOverflow => write!(formatter, "CFAR configuration size overflows."),
             Self::InvalidPowerInput => write!(
@@ -487,6 +530,34 @@ mod tests {
         detect_cfar_2d_complex, detect_range_doppler_cfar_complex,
     };
     use crate::detection::{RangeDopplerAxes, ReceiverAggregation};
+
+    #[test]
+    fn validates_and_exposes_cfar_configs() {
+        for threshold_scale in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
+            assert_eq!(
+                Cfar1DConfig::new(1, 2, threshold_scale, CfarMode::Go, true, 3, 4),
+                Err(super::CfarError::InvalidThresholdScale)
+            );
+            assert_eq!(
+                Cfar2DConfig::new(1, 2, threshold_scale),
+                Err(super::CfarError::InvalidThresholdScale)
+            );
+        }
+
+        let one = Cfar1DConfig::new(1, 2, 3.0, CfarMode::Go, true, 4, 5).unwrap();
+        assert_eq!(one.training_cells(), 1);
+        assert_eq!(one.guard_cells(), 2);
+        assert_eq!(one.threshold_scale(), 3.0);
+        assert_eq!(one.mode(), CfarMode::Go);
+        assert!(one.cyclic());
+        assert_eq!(one.left_skip(), 4);
+        assert_eq!(one.right_skip(), 5);
+
+        let two = Cfar2DConfig::new(6, 7, 8.0).unwrap();
+        assert_eq!(two.training_cells(), 6);
+        assert_eq!(two.guard_cells(), 7);
+        assert_eq!(two.threshold_scale(), 8.0);
+    }
 
     #[test]
     fn one_dimensional_cfar_matches_window_reduction_modes() {
