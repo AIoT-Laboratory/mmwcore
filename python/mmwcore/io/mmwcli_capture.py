@@ -33,7 +33,6 @@ _ADC_LAYOUT = "group2_i_then_q"
 _RADAR_CONFIG_FORMAT = "ti_xwr68xx_legacy_cli"
 _MAX_MANIFEST_BYTES = 64 << 10
 _MAX_RADAR_CONFIG_BYTES = 4 << 20
-_SHA256_CHUNK_BYTES = 1 << 20
 _MAX_INT64 = (1 << 63) - 1
 
 
@@ -281,13 +280,11 @@ def _sha256_regular_file(path: Path, *, expected_size: int) -> str:
     status = _regular_file_status(path, "ADC payload")
     if status.st_size != expected_size:
         raise ValueError("mmwcli capture ADC size changed before hashing.")
-    digest = hashlib.sha256()
     with path.open("rb") as file:
-        while chunk := file.read(_SHA256_CHUNK_BYTES):
-            digest.update(chunk)
+        digest = hashlib.file_digest(file, "sha256").hexdigest()
     if path.stat().st_size != expected_size:
         raise ValueError("mmwcli capture ADC size changed while it was hashed.")
-    return digest.hexdigest()
+    return digest
 
 
 def _parse_manifest(payload: bytes) -> _ManifestV1:
