@@ -2,8 +2,8 @@
 
 ## Boundary
 
-mmwcore is the reusable radar data-link and signal-processing package. It must not import
-OpenMMW experiment, application, or model layers.
+mmwcore is the reusable radar data-link and signal-processing package. It must remain independent
+of experiment, application, and model layers in downstream projects.
 
 ```text
 raw bytes / packets
@@ -38,5 +38,5 @@ No model-specific normalization or dataset-specific pose logic belongs here.
 ## Versioning
 
 Python and Rust packages share one version. Public Python contracts and Rust APIs are versioned
-together. Existing `openmmw.*` schema values remain stable wire identifiers for recorded capture
-artifacts; they do not create a runtime dependency on OpenMMW.
+together. Existing schema values remain stable wire identifiers for recorded capture artifacts;
+they do not create a runtime dependency on downstream systems.
