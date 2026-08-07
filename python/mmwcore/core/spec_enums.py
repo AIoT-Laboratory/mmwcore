@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from mmwcore._compat import StrEnum
 
 
 class ADCComplexLayout(StrEnum):
