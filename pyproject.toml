@@ -7,7 +7,7 @@ name = "mmwcore"
 dynamic = ["version"]
 description = "Decode mmWave raw ADC data into physical radar products with Rust-backed Python APIs."
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.12,<3.15"
 license = "Apache-2.0"
 authors = [
     { name = "mmwcore contributors" }
@@ -24,16 +24,14 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
     "numpy>=1.24",
-    "typing-extensions>=4.4; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -89,7 +87,7 @@ skip_covered = true
 [tool.ruff]
 line-length = 100
 src = ["python"]
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C90"]
