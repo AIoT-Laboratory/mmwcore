@@ -87,6 +87,12 @@ def test_radar_cube_requires_axes_to_match_dimensions() -> None:
         RadarCube(np.ones((2, 3), dtype=np.complex64))
 
 
+@pytest.mark.parametrize("axes", [("sample", "sample"), ("sample", "")])
+def test_radar_cube_requires_named_unique_axes(axes: tuple[str, ...]) -> None:
+    with pytest.raises(ValueError, match="unique|non-empty"):
+        RadarCube(np.ones((2, 3), dtype=np.complex64), axes=axes)
+
+
 def test_detection_frame_validates_channels() -> None:
     detections = DetectionFrame(
         np.zeros((2, 5), dtype=np.float64),

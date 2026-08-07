@@ -63,18 +63,23 @@ class RadarCube:
 
     def __post_init__(self) -> None:
         data = np.asarray(self.data)
+        axes = tuple(self.axes)
         if not np.iscomplexobj(data):
             data = data.astype(np.complex64)
-        if data.ndim != len(self.axes):
+        if data.ndim != len(axes):
             raise ValueError(
                 "RadarCube.data dimensions must match axes; "
-                f"got shape {data.shape} and axes {self.axes}."
+                f"got shape {data.shape} and axes {axes}."
             )
         if data.size == 0:
             raise ValueError("RadarCube.data must not be empty.")
+        if any(not isinstance(axis, str) or not axis.strip() for axis in axes):
+            raise ValueError("RadarCube.axes must contain non-empty string names.")
+        if len(set(axes)) != len(axes):
+            raise ValueError(f"RadarCube.axes must be unique; got {axes}.")
 
         object.__setattr__(self, "data", data.astype(np.complex64, copy=False))
-        object.__setattr__(self, "axes", tuple(self.axes))
+        object.__setattr__(self, "axes", axes)
         object.__setattr__(self, "metadata", _metadata_copy(self.metadata))
 
 
