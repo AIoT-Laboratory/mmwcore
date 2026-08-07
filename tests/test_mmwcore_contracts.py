@@ -171,6 +171,60 @@ def test_organize_adc_samples_group2_requires_even_sample_count() -> None:
         organize_adc_samples(np.arange(6, dtype=np.int16), spec)
 
 
+def test_organize_adc_samples_group4_i_then_q_layout() -> None:
+    spec = ADCFrameSpec(
+        num_chirps=1,
+        num_rx=2,
+        num_samples=4,
+        layout=ADCComplexLayout.GROUP4_I_THEN_Q,
+    )
+    raw = np.array(
+        [1, 5, 2, 6, 10, 50, 20, 60, 3, 7, 4, 8, 30, 70, 40, 80],
+        dtype=np.int16,
+    )
+
+    cube = organize_adc_samples(raw, spec)
+
+    np.testing.assert_array_equal(
+        cube.data,
+        np.array(
+            [[[[1 + 10j, 2 + 20j, 3 + 30j, 4 + 40j], [5 + 50j, 6 + 60j, 7 + 70j, 8 + 80j]]]],
+            dtype=np.complex64,
+        ),
+    )
+
+
+def test_organize_adc_samples_group4_can_span_chirp_boundaries() -> None:
+    spec = ADCFrameSpec(
+        num_chirps=2,
+        num_rx=1,
+        num_samples=2,
+        layout=ADCComplexLayout.GROUP4_I_THEN_Q,
+    )
+
+    cube = organize_adc_samples(np.array([1, 2, 3, 4, 10, 20, 30, 40]), spec)
+
+    np.testing.assert_array_equal(
+        cube.data,
+        np.array([[[[1 + 10j, 2 + 20j]], [[3 + 30j, 4 + 40j]]]], dtype=np.complex64),
+    )
+
+
+def test_organize_adc_samples_group4_requires_four_complex_value_frame_alignment() -> None:
+    spec = ADCFrameSpec(
+        num_chirps=1,
+        num_rx=2,
+        num_samples=1,
+        layout=ADCComplexLayout.GROUP4_I_THEN_Q,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="num_chirps \\* num_rx \\* num_samples to be divisible by 4",
+    ):
+        organize_adc_samples(np.arange(4, dtype=np.int16), spec)
+
+
 def test_organize_adc_samples_rejects_incomplete_frames_by_default() -> None:
     spec = ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2)
 

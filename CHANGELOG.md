@@ -14,6 +14,8 @@ All notable changes to mmwcore are documented here.
 - Support Python 3.10–3.13 with compatible typing and standard-library fallbacks.
 - Add TI SDK source-backed, offline-tested antenna geometries for XWR1642, the standard XWR1843
   EVM, IWR6843 AOP, and AWR1843 AOP.
+- Decode the TI Studio complex16, four-lane, frame-continuous channel-interleaved word layout used
+  by xWR12xx and xWR14xx raw captures through explicit `group4_i_then_q` contracts.
 
 ## [0.2.2] - 2026-08-06
 

@@ -7,11 +7,12 @@ from mmwcore import _native
 
 
 @pytest.mark.parametrize(
-    ("layout", "raw", "num_rx", "num_samples", "expected"),
+    ("layout", "raw", "num_chirps", "num_rx", "num_samples", "expected"),
     [
         (
             0,
             [1, 10, 2, 20, 3, 30, 4, 40],
+            1,
             2,
             2,
             [[[[1 + 10j, 2 + 20j], [3 + 30j, 4 + 40j]]]],
@@ -19,6 +20,7 @@ from mmwcore import _native
         (
             1,
             [1, 3, 10, 30, 2, 4, 20, 40],
+            1,
             2,
             2,
             [[[[1 + 10j, 2 + 20j], [3 + 30j, 4 + 40j]]]],
@@ -26,22 +28,40 @@ from mmwcore import _native
         (
             2,
             [1, 2, 10, 20, 3, 4, 30, 40, 5, 6, 50, 60, 7, 8, 70, 80],
+            1,
             2,
             4,
             [[[[1 + 10j, 2 + 20j, 3 + 30j, 4 + 40j], [5 + 50j, 6 + 60j, 7 + 70j, 8 + 80j]]]],
+        ),
+        (
+            3,
+            [1, 5, 2, 6, 10, 50, 20, 60, 3, 7, 4, 8, 30, 70, 40, 80],
+            1,
+            2,
+            4,
+            [[[[1 + 10j, 2 + 20j, 3 + 30j, 4 + 40j], [5 + 50j, 6 + 60j, 7 + 70j, 8 + 80j]]]],
+        ),
+        (
+            3,
+            [1, 2, 3, 4, 10, 20, 30, 40],
+            2,
+            1,
+            2,
+            [[[[1 + 10j, 2 + 20j]], [[3 + 30j, 4 + 40j]]]],
         ),
     ],
 )
 def test_native_adc_decoder_preserves_layout_contract(
     layout: int,
     raw: list[int],
+    num_chirps: int,
     num_rx: int,
     num_samples: int,
     expected: list[object],
 ) -> None:
     actual = _native.decode_adc_i16(
         np.array(raw, dtype=np.int16),
-        1,
+        num_chirps,
         num_rx,
         num_samples,
         layout,
@@ -127,5 +147,12 @@ def test_native_adc_decoder_rejects_invalid_native_inputs() -> None:
         _native.decode_adc_i16(np.array([1, 2, 3, 4, 5], dtype=np.int16), 1, 1, 2, 0, False)
     with pytest.raises(ValueError, match="even num_samples"):
         _native.decode_adc_i16(np.arange(6, dtype=np.int16), 1, 1, 3, 2, False)
+    with pytest.raises(
+        ValueError,
+        match="num_chirps \\* num_rx \\* num_samples to be divisible by 4",
+    ):
+        _native.decode_adc_i16(np.arange(4, dtype=np.int16), 1, 2, 1, 3, False)
+    with pytest.raises(ValueError, match="whole number of frames"):
+        _native.decode_adc_i16(np.arange(9, dtype=np.int16), 1, 2, 2, 3, False)
     with pytest.raises(ValueError, match="contiguous"):
         _native.decode_adc_i16(np.arange(10, dtype=np.int16)[::2], 1, 1, 2, 0, False)
