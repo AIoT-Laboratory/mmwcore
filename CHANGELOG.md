@@ -6,6 +6,8 @@ All notable changes to mmwcore are documented here.
 
 - Parse the supported xWR68xx legacy raw-capture subset into validated `RadarCaptureSpec` values
   while preserving the existing permissive ADC-shape parser.
+- Open integrity-checked `mmwcli.capture_session.v1` directories as validated ADC readers and
+  physical capture contracts.
 
 ## [0.2.2] - 2026-08-06
 

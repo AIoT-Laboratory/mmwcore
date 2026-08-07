@@ -47,6 +47,22 @@ above it; it is a deterministic diagnostic, not a learned result.
 
 ## Python API
 
+### Open an mmwcli capture directory
+
+`mmwcli ... capture --session-dir` publishes `adc.bin`, `radar.cfg`, and `capture.json` together.
+Open the completed directory without restating ADC geometry:
+
+```python
+from mmwcore.io import open_capture
+
+capture = open_capture("capture-session")
+frame = capture.reader.read_frame(0)
+```
+
+`open_capture` verifies the v1 schema, hashes, byte count, and finite CFG-derived contract. Use the
+completed directory and keep it unchanged while reading; SHA-256 verifies self-consistency, not
+provenance.
+
 ### Open a capture from an xWR68xx CLI config
 
 The strict parser accepts the supported legacy raw-capture subset: complex 16-bit ADC, legacy
