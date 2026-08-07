@@ -19,6 +19,16 @@ pub mod sparsification;
 pub mod tracking;
 pub mod vitals;
 
+#[inline]
+pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<usize> {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 {
+        return None;
+    }
+
+    let index = value as usize;
+    (index < upper_bound).then_some(index)
+}
+
 pub use adc::{AdcComplexLayout, AdcCube, AdcDecodeError, AdcFrameSpec, decode_adc_i16};
 pub use angle::{
     AngleAxis, AngleBinCalibrationConfig, AngleBinCalibrationInput, AngleCalibrationError,

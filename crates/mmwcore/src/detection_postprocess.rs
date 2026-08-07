@@ -7,6 +7,7 @@ use num_complex::Complex32;
 use crate::detection::{
     DetectionError, RangeDopplerAxes, ReceiverAggregation, range_doppler_magnitude_complex,
 };
+use crate::exact_candidate_index;
 
 /// Contiguous public `float32` detection-candidate matrix.
 #[derive(Clone, Copy, Debug)]
@@ -226,26 +227,14 @@ fn candidate_axis_index(
     axis_length: usize,
 ) -> Result<usize, DetectionPostprocessError> {
     let value = candidate[column];
-    let index = candidate_integer(value)
+    let index = exact_candidate_index(value, axis_length)
         .ok_or(DetectionPostprocessError::CandidateIndexOutOfBounds { axis, value, shape })?;
-    if index >= axis_length {
-        return Err(DetectionPostprocessError::CandidateIndexOutOfBounds { axis, value, shape });
-    }
     Ok(index)
 }
 
 fn candidate_row(input: DetectionCandidateInput<'_>, index: usize) -> &[f32] {
     let width = input.shape[1];
     &input.values[index * width..(index + 1) * width]
-}
-
-fn candidate_integer(value: f32) -> Option<usize> {
-    let value = value.trunc();
-    if value < 0.0 || value > usize::MAX as f32 {
-        None
-    } else {
-        Some(value as usize)
-    }
 }
 
 fn is_local_peak(
@@ -346,8 +335,9 @@ mod tests {
     use num_complex::Complex32;
 
     use super::{
-        DetectionCandidateInput, DetectionIndexColumns, DetectionQualityInput, PeakGroupingConfig,
-        PeakGroupingInput, filter_detection_quality, group_range_doppler_candidates,
+        DetectionCandidateInput, DetectionIndexColumns, DetectionPostprocessError,
+        DetectionQualityInput, PeakGroupingConfig, PeakGroupingInput, filter_detection_quality,
+        group_range_doppler_candidates,
     };
     use crate::detection::{RangeDopplerAxes, ReceiverAggregation};
 
@@ -405,5 +395,53 @@ mod tests {
         .unwrap();
 
         assert_eq!(retained, [1, 2]);
+    }
+
+    #[test]
+    fn rejects_inexact_or_non_finite_candidate_indices() {
+        let data = [Complex32::new(1.0, 0.0); 2];
+        for invalid in [1.9, -0.5, f32::NAN, f32::INFINITY] {
+            let candidates = [0.0, invalid, 0.0];
+            let result = group_range_doppler_candidates(
+                PeakGroupingInput {
+                    data: &data,
+                    shape: &[1, 1, 1, 2],
+                    axes: RangeDopplerAxes {
+                        frame: 0,
+                        doppler: 1,
+                        receiver: 2,
+                        range: 3,
+                    },
+                    aggregation: ReceiverAggregation::Sum,
+                    candidates: DetectionCandidateInput {
+                        values: &candidates,
+                        shape: [1, 3],
+                    },
+                    columns: DetectionIndexColumns {
+                        frame: 0,
+                        range: 1,
+                        doppler: 2,
+                    },
+                },
+                PeakGroupingConfig {
+                    range_radius: 1,
+                    doppler_radius: 0,
+                    cyclic_doppler: false,
+                    strict: true,
+                },
+            );
+
+            if invalid.is_finite() {
+                assert!(matches!(
+                    result,
+                    Err(DetectionPostprocessError::CandidateIndexOutOfBounds { .. })
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(DetectionPostprocessError::NonFiniteCandidates)
+                ));
+            }
+        }
     }
 }

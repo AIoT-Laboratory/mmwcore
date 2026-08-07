@@ -1,10 +1,11 @@
+use crate::exact_candidate_index;
 use crate::fft::FftWindow;
 
 use super::CandidateAoaError;
 use super::common::{
     CandidateCubeInput, CandidateCubeLayout, CandidateIndexColumns, CandidateMatrixInput,
-    candidate_integer, candidate_row, extract_candidate_vectors, row_spectra, validate_candidates,
-    validate_column, validate_index_columns,
+    candidate_row, extract_candidate_vectors, row_spectra, validate_candidates, validate_column,
+    validate_index_columns,
 };
 
 /// Additional candidate columns required for elevation recovery.
@@ -123,11 +124,8 @@ pub fn estimate_candidate_elevations(
     let mut magnitudes = Vec::with_capacity(candidate_count);
     for candidate_index in 0..candidate_count {
         let row = candidate_row(input.candidates, candidate_index);
-        let peak_bin = candidate_integer(row[input.columns.azimuth_bin])
+        let peak_bin = exact_candidate_index(row[input.columns.azimuth_bin], config.n_fft)
             .ok_or(CandidateAoaError::AzimuthBinOutOfBounds)?;
-        if peak_bin >= config.n_fft {
-            return Err(CandidateAoaError::AzimuthBinOutOfBounds);
-        }
         let azimuth_peak = azimuth_spectra[candidate_index * config.n_fft + peak_bin];
         let elevation_peak = elevation_spectra[candidate_index * config.n_fft + peak_bin];
         let lateral_direction = row[input.columns.azimuth_rad].sin();

@@ -4,6 +4,7 @@ use num_complex::Complex32;
 
 use crate::angle::AngleCalibrationError;
 use crate::cube::{CubeTransformError, checked_product, contiguous_strides, validate_axis};
+use crate::exact_candidate_index;
 use crate::fft::{ComplexFftSpec, FftTransformError, FftWindow, fft_complex_axis};
 
 /// Named cube axes consumed by candidate-level angle recovery.
@@ -312,18 +313,12 @@ pub(super) fn extract_candidate_vectors(
     let mut vectors = Vec::with_capacity(capacity);
     for candidate_index in 0..candidates.shape[0] {
         let row = candidate_row(candidates, candidate_index);
-        let frame = candidate_integer(row[columns.frame])
+        let frame = exact_candidate_index(row[columns.frame], cube.shape[cube.axes.frame])
             .ok_or(CandidateAoaError::CandidateIndexOutOfBounds)?;
-        let doppler = candidate_integer(row[columns.doppler])
+        let doppler = exact_candidate_index(row[columns.doppler], cube.shape[cube.axes.doppler])
             .ok_or(CandidateAoaError::CandidateIndexOutOfBounds)?;
-        let range = candidate_integer(row[columns.range])
+        let range = exact_candidate_index(row[columns.range], cube.shape[cube.axes.range])
             .ok_or(CandidateAoaError::CandidateIndexOutOfBounds)?;
-        if frame >= cube.shape[cube.axes.frame]
-            || doppler >= cube.shape[cube.axes.doppler]
-            || range >= cube.shape[cube.axes.range]
-        {
-            return Err(CandidateAoaError::CandidateIndexOutOfBounds);
-        }
         for &antenna in antenna_indices {
             vectors.push(cube.value(frame, doppler, antenna, range));
         }
@@ -334,15 +329,6 @@ pub(super) fn extract_candidate_vectors(
 pub(super) fn candidate_row(input: CandidateMatrixInput<'_>, index: usize) -> &[f32] {
     let width = input.shape[1];
     &input.values[index * width..(index + 1) * width]
-}
-
-pub(super) fn candidate_integer(value: f32) -> Option<usize> {
-    let value = value.trunc();
-    if value < 0.0 || value > usize::MAX as f32 {
-        None
-    } else {
-        Some(value as usize)
-    }
 }
 
 pub(super) fn row_spectra(
@@ -380,7 +366,10 @@ pub(super) fn first_peak(spectrum: &[Complex32]) -> (usize, f32) {
 mod tests {
     use num_complex::Complex32;
 
-    use super::first_peak;
+    use super::{
+        CandidateAoaError, CandidateCubeAxes, CandidateCubeInput, CandidateCubeLayout,
+        CandidateIndexColumns, CandidateMatrixInput, extract_candidate_vectors, first_peak,
+    };
 
     #[test]
     fn keeps_the_first_nan_peak_like_numpy_argmax() {
@@ -391,5 +380,40 @@ mod tests {
         ];
 
         assert_eq!(first_peak(&spectrum).0, 1);
+    }
+
+    #[test]
+    fn rejects_inexact_or_non_finite_candidate_indices() {
+        let cube_values = [Complex32::new(1.0, 0.0); 2];
+        let cube = CandidateCubeLayout::new(CandidateCubeInput {
+            data: &cube_values,
+            shape: &[1, 1, 1, 2],
+            axes: CandidateCubeAxes {
+                frame: 0,
+                doppler: 1,
+                antenna: 2,
+                range: 3,
+            },
+        })
+        .unwrap();
+
+        for invalid in [1.9, -0.5, f32::NAN, f32::INFINITY] {
+            let candidates = [0.0, invalid, 0.0];
+            let result = extract_candidate_vectors(
+                &cube,
+                CandidateMatrixInput {
+                    values: &candidates,
+                    shape: [1, 3],
+                },
+                CandidateIndexColumns {
+                    frame: 0,
+                    range: 1,
+                    doppler: 2,
+                },
+                &[0],
+            );
+
+            assert_eq!(result, Err(CandidateAoaError::CandidateIndexOutOfBounds));
+        }
     }
 }

@@ -512,6 +512,28 @@ def test_estimate_candidate_azimuths_selects_one_physical_peak() -> None:
     assert detections.metadata["candidate_azimuth"]["output_detections"] == 1
 
 
+@pytest.mark.parametrize("range_bin", [1.9, -0.5])
+def test_estimate_candidate_azimuths_rejects_inexact_candidate_indices(
+    range_bin: float,
+) -> None:
+    layout = VirtualAntennaLayout.uniform_linear(4, spacing_wavelengths=0.5)
+    cube = RadarCube(
+        np.ones((1, 1, 4, 2), dtype=np.complex64),
+        axes=("frame", "doppler_bin", "virtual_rx", "range_bin"),
+    )
+    candidates = DetectionFrame(
+        np.array([[0, range_bin, 0, 4]], dtype=np.float32),
+        channels=("frame", "range_bin", "doppler_bin", "magnitude"),
+    )
+
+    with pytest.raises(ValueError, match="outside the angle-estimation cube"):
+        estimate_candidate_azimuths(
+            cube,
+            candidates,
+            AngleFFTSpec(input_axis="virtual_rx", virtual_layout=layout),
+        )
+
+
 def test_estimate_candidate_azimuths_preserves_empty_candidate_frame() -> None:
     layout = VirtualAntennaLayout.uniform_linear(4, spacing_wavelengths=0.5)
     cube = RadarCube(
