@@ -47,6 +47,27 @@ above it; it is a deterministic diagnostic, not a learned result.
 
 ## Python API
 
+### Open a capture from an xWR68xx CLI config
+
+The strict parser accepts the supported legacy raw-capture subset: complex 16-bit ADC, legacy
+`frameCfg`, one-hot TDM chirps, `adcbufCfg -1 0 1 1 1`, and headerless hardware ADC LVDS.
+
+```python
+from mmwcore.config import parse_ti_cli_capture_spec_file
+from mmwcore.core import ADCComplexLayout
+from mmwcore.io import ADCFileFrameReader
+
+capture = parse_ti_cli_capture_spec_file(
+    "radar.cfg",
+    layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+)
+reader = ADCFileFrameReader.from_capture("capture.bin", capture)
+```
+
+Choose `layout` from the actual DCA1000 write format; the TI CLI config does not prove it. This
+extracts an offline waveform, frame, and decode contract. It does not validate device readiness or
+execute the configuration.
+
 ### Inspect ADC geometry
 
 Inspect a capture with an explicit frame shape:

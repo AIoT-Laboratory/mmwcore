@@ -2,6 +2,11 @@
 
 All notable changes to mmwcore are documented here.
 
+## Unreleased
+
+- Parse the supported xWR68xx legacy raw-capture subset into validated `RadarCaptureSpec` values
+  while preserving the existing permissive ADC-shape parser.
+
 ## [0.2.2] - 2026-08-06
 
 - Fix Linux wheel builds by selecting CPython 3.12 inside the manylinux container.
