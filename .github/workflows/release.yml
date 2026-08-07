@@ -68,19 +68,58 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64
+            python-version: "3.10"
+            interpreter: python3.10
+          - os: ubuntu-latest
+            target: x86_64
+            python-version: "3.11"
+            interpreter: python3.11
+          - os: ubuntu-latest
+            target: x86_64
+            python-version: "3.12"
             interpreter: python3.12
+          - os: ubuntu-latest
+            target: x86_64
+            python-version: "3.13"
+            interpreter: python3.13
           - os: windows-latest
             target: x64
+            python-version: "3.10"
+            interpreter: python
+          - os: windows-latest
+            target: x64
+            python-version: "3.11"
+            interpreter: python
+          - os: windows-latest
+            target: x64
+            python-version: "3.12"
+            interpreter: python
+          - os: windows-latest
+            target: x64
+            python-version: "3.13"
             interpreter: python
           - os: macos-latest
             target: universal2-apple-darwin
+            python-version: "3.10"
+            interpreter: python
+          - os: macos-latest
+            target: universal2-apple-darwin
+            python-version: "3.11"
+            interpreter: python
+          - os: macos-latest
+            target: universal2-apple-darwin
+            python-version: "3.12"
+            interpreter: python
+          - os: macos-latest
+            target: universal2-apple-darwin
+            python-version: "3.13"
             interpreter: python
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -89,16 +128,25 @@ jobs:
             --interpreter ${{ matrix.interpreter }}
             --compatibility pypi
           manylinux: 2_17
-      - name: Smoke-test wheel
+      - name: Install wheel
         run: >-
           python -c "import glob, subprocess, sys;
           subprocess.check_call([sys.executable, '-m', 'pip', 'install',
           '--force-reinstall', *glob.glob('dist/*.whl')])"
-      - run: python -c "import mmwcore; from mmwcore import _native; print(mmwcore.__version__)"
-      - run: mmwcore --help
+      - name: Smoke-test installed native ADC decoding
+        run: >-
+          python -c "import numpy as np; import mmwcore;
+          from mmwcore import _native;
+          raw = np.array([1, 10, 2, 20], dtype=np.int16);
+          decoded = _native.decode_adc_i16(raw, 1, 1, 2, 0, False);
+          expected = np.array([[[[1 + 10j, 2 + 20j]]]], dtype=np.complex64);
+          assert decoded.shape == (1, 1, 1, 2);
+          assert decoded.dtype == np.dtype(np.complex64);
+          np.testing.assert_array_equal(decoded, expected);
+          print(mmwcore.__version__)"
       - uses: actions/upload-artifact@v7
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-python-${{ matrix.python-version }}
           path: dist/*
 
   sdist:
