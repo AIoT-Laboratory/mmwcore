@@ -29,12 +29,20 @@ class RawADCFrame:
 
     def __post_init__(self) -> None:
         samples = self.samples if isinstance(self.samples, np.memmap) else np.asarray(self.samples)
-        if samples.dtype != np.int16:
-            samples = samples.astype(np.int16)
         if samples.ndim != 1:
             raise ValueError(f"RawADCFrame.samples must be one-dimensional; got {samples.shape}.")
         if samples.size == 0:
             raise ValueError("RawADCFrame.samples must not be empty.")
+        if samples.dtype != np.int16:
+            if not np.issubdtype(samples.dtype, np.integer):
+                raise TypeError(
+                    "RawADCFrame.samples must contain integer ADC values; "
+                    f"got dtype {samples.dtype}."
+                )
+            limits = np.iinfo(np.int16)
+            if np.any(samples < limits.min) or np.any(samples > limits.max):
+                raise ValueError("RawADCFrame.samples contains values outside the int16 range.")
+            samples = samples.astype(np.int16)
 
         object.__setattr__(self, "samples", samples)
         object.__setattr__(self, "profile", _metadata_copy(self.profile))

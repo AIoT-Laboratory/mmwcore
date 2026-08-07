@@ -47,12 +47,29 @@ def test_mmwcore_import_is_lightweight() -> None:
     assert mmwcore.__version__ == "0.2.2"
 
 
-def test_raw_adc_frame_normalizes_to_int16() -> None:
+def test_raw_adc_frame_normalizes_representable_integers_to_int16() -> None:
     frame = RawADCFrame(np.arange(8, dtype=np.int32), frame_id="f0")
 
     assert frame.samples.dtype == np.int16
     assert frame.samples.shape == (8,)
     assert frame.frame_id == "f0"
+
+
+@pytest.mark.parametrize(
+    ("samples", "error", "message"),
+    [
+        (np.array([1.0, 2.0]), TypeError, "integer ADC values"),
+        (np.array([np.iinfo(np.int16).min - 1]), ValueError, "outside the int16 range"),
+        (np.array([np.iinfo(np.int16).max + 1]), ValueError, "outside the int16 range"),
+    ],
+)
+def test_raw_adc_frame_rejects_lossy_int16_conversion(
+    samples: np.ndarray,
+    error: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error, match=message):
+        RawADCFrame(samples)
 
 
 def test_raw_adc_frame_rejects_empty_samples() -> None:
