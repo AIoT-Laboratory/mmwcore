@@ -247,6 +247,31 @@ def test_iwr6843_range_doppler_recipe_can_match_range_dc_policy() -> None:
     assert recipe.range_fft.remove_dc is True
 
 
+def test_iwr6843_range_doppler_recipe_supports_active_tx_subset() -> None:
+    profile = iwr6843_profile(num_tx=2, num_chirps_per_tx=32)
+
+    recipe = mmwcore.config.iwr6843_isk_range_doppler_recipe(
+        profile,
+        adc_layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        tx_order=(0, 2),
+    )
+
+    assert recipe.decode.adc == profile.to_adc_frame_spec(layout=ADCComplexLayout.GROUP2_I_THEN_Q)
+    assert recipe.tdm_virtual_array is not None
+    assert recipe.tdm_virtual_array.tx_order == (0, 2)
+    assert recipe.tdm_virtual_array.geometry.num_tx == 3
+
+
+def test_iwr6843_range_doppler_recipe_rejects_active_tx_count_mismatch() -> None:
+    profile = iwr6843_profile(num_tx=2)
+
+    with pytest.raises(ValueError, match="active-Tx count"):
+        mmwcore.config.iwr6843_isk_range_doppler_recipe(
+            profile,
+            tx_order=(0, 2, 1),
+        )
+
+
 def test_iwr6843_isk_planar_aperture_tracks_virtual_channel_order() -> None:
     layout = iwr6843_isk_planar_aperture_layout()
 

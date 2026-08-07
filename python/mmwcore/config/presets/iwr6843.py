@@ -157,7 +157,7 @@ def iwr6843_isk_range_doppler_recipe(
     """Build the standard ISK ADC-to-range-Doppler recipe."""
 
     radar = profile or iwr6843_profile()
-    _require_isk_shape(radar)
+    _require_isk_shape(radar, tx_order=tx_order)
     return RangeDopplerRecipe(
         decode=ADCDecodeRecipe(radar.to_adc_frame_spec(layout=adc_layout)),
         range_fft=RangeFFTSpec(
@@ -386,6 +386,8 @@ def iwr6843_isk_3d_cfar_point_cloud_recipe(
     )
 
 
-def _require_isk_shape(profile: RadarProfile) -> None:
-    if profile.num_tx != 3 or profile.num_rx != 4:
-        raise ValueError("IWR6843 ISK recipes require 3 Tx and 4 Rx antennas.")
+def _require_isk_shape(profile: RadarProfile, *, tx_order: tuple[int, ...]) -> None:
+    if profile.num_rx != 4:
+        raise ValueError("IWR6843 ISK recipes require 4 Rx antennas.")
+    if profile.num_tx != len(tx_order):
+        raise ValueError("IWR6843 ISK profile active-Tx count must match the configured Tx order.")

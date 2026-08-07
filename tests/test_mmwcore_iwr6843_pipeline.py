@@ -10,6 +10,7 @@ from mmwcore.config import (
     iwr6843_isk_3d_point_cloud_recipe,
     iwr6843_isk_antenna_geometry,
     iwr6843_isk_point_cloud_recipe,
+    iwr6843_isk_range_doppler_recipe,
 )
 from mmwcore.core import FFTWindow, RawADCFrame, VirtualChannelCalibration
 from mmwcore.dsp import (
@@ -99,6 +100,30 @@ def test_iwr6843_recipe_maps_tdm_adc_to_virtual_range_doppler_cube() -> None:
     assert cube.axes == ("frame", "doppler_bin", "virtual_rx", "range_bin")
     assert cube.data.shape == (1, 8, 12, 5)
     assert cube.metadata["tdm_doppler_compensation"]["tx_order"] == [0, 2, 1]
+
+
+def test_iwr6843_recipe_maps_active_tx_subset_to_virtual_range_doppler_cube() -> None:
+    profile = replace(_small_isk_profile(), num_tx=2)
+    raw = _synthesize_isk_target(
+        profile,
+        range_bin=2,
+        doppler_bin=1,
+        azimuth_rad=np.pi / 6,
+        tx_order=(0, 2),
+    )
+    recipe = iwr6843_isk_range_doppler_recipe(
+        profile,
+        range_window=FFTWindow.NONE,
+        doppler_window=FFTWindow.NONE,
+        tx_order=(0, 2),
+    )
+
+    cube = process_adc_to_range_doppler(raw, recipe)
+
+    assert cube.axes == ("frame", "doppler_bin", "virtual_rx", "range_bin")
+    assert cube.data.shape == (1, 8, 8, 5)
+    assert cube.metadata["tdm_doppler_compensation"]["tx_order"] == [0, 2]
+    assert cube.metadata["tdm_doppler_compensation"]["num_tx"] == 2
 
 
 def test_iwr6843_static_clutter_removal_preserves_moving_target() -> None:
