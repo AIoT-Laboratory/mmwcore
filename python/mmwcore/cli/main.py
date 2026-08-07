@@ -19,18 +19,8 @@ def _inspect(argv: list[str]) -> int:
     return main(argv)
 
 
-def _preprocess_adc(argv: list[str]) -> int:
-    from .preprocess_adc import main
-
-    return main(argv)
-
-
 _COMMANDS = {
     "inspect": Command(_inspect, "Inspect raw radar inputs."),
-    "preprocess-adc": Command(
-        _preprocess_adc,
-        "Preprocess ADC into declared radar artifacts.",
-    ),
 }
 
 
@@ -57,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
 def _print_help() -> None:
     print("usage: mmwcore <command> [args]")
     print()
-    print("Low-level mmWave radar input and DSP utilities.")
+    print("Low-level mmWave radar input inspection.")
     print()
     print("commands:")
     width = max(len(name) for name in _COMMANDS)

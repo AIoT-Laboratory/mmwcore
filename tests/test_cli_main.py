@@ -3,13 +3,13 @@ from __future__ import annotations
 from mmwcore.cli import main as main_module
 
 
-def test_mmwcore_help_exposes_low_level_command_groups(capsys) -> None:
+def test_mmwcore_help_exposes_inspection_only(capsys) -> None:
     result = main_module.main(["--help"])
 
     assert result == 0
     output = capsys.readouterr().out
     assert "inspect" in output
-    assert "preprocess-adc" in output
+    assert "preprocess-adc" not in output
     assert "export-config" not in output
 
 
