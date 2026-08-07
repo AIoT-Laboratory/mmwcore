@@ -29,10 +29,10 @@ impl TryFrom<u8> for AdcComplexLayout {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AdcFrameSpec {
-    pub num_chirps: usize,
-    pub num_rx: usize,
-    pub num_samples: usize,
-    pub layout: AdcComplexLayout,
+    num_chirps: usize,
+    num_rx: usize,
+    num_samples: usize,
+    layout: AdcComplexLayout,
 }
 
 impl AdcFrameSpec {
@@ -57,6 +57,22 @@ impl AdcFrameSpec {
             num_samples,
             layout,
         })
+    }
+
+    pub const fn num_chirps(self) -> usize {
+        self.num_chirps
+    }
+
+    pub const fn num_rx(self) -> usize {
+        self.num_rx
+    }
+
+    pub const fn num_samples(self) -> usize {
+        self.num_samples
+    }
+
+    pub const fn layout(self) -> AdcComplexLayout {
+        self.layout
     }
 
     pub fn raw_values_per_frame(self) -> Result<usize, AdcDecodeError> {
@@ -307,6 +323,16 @@ fn cube_index(frame: usize, chirp: usize, rx: usize, sample: usize, spec: AdcFra
 mod tests {
     use super::{AdcComplexLayout, AdcDecodeError, AdcFrameSpec, decode_adc_i16};
     use num_complex::Complex32;
+
+    #[test]
+    fn exposes_validated_frame_spec_fields() {
+        let spec = AdcFrameSpec::new(2, 3, 4, AdcComplexLayout::Group2IThenQ).unwrap();
+
+        assert_eq!(spec.num_chirps(), 2);
+        assert_eq!(spec.num_rx(), 3);
+        assert_eq!(spec.num_samples(), 4);
+        assert_eq!(spec.layout(), AdcComplexLayout::Group2IThenQ);
+    }
 
     #[test]
     fn decodes_iq_interleaved_layout() {
