@@ -31,6 +31,92 @@ def test_parse_dca1000_packet_rejects_short_header() -> None:
         parse_dca1000_packet(b"\x01\x00")
 
 
+def test_dca1000_packet_preserves_safe_native_integer_values() -> None:
+    packet = DCA1000Packet(
+        packet_number=np.int64(np.iinfo(np.int64).max),  # type: ignore[arg-type]
+        byte_count=np.uint64(np.iinfo(np.uint64).max),  # type: ignore[arg-type]
+        payload=np.array([-32768, 32767], dtype=np.int32),
+    )
+
+    assert packet.packet_number == np.iinfo(np.int64).max
+    assert packet.byte_count == np.iinfo(np.uint64).max
+    assert type(packet.packet_number) is int
+    assert type(packet.byte_count) is int
+    assert packet.payload.dtype == np.dtype(np.int16)
+    np.testing.assert_array_equal(packet.payload, [-32768, 32767])
+
+
+def test_dca1000_packet_reuses_native_int16_payload() -> None:
+    payload = np.array([1, -2, 3], dtype=np.int16)
+
+    packet = DCA1000Packet(1, 0, payload)
+
+    assert packet.payload is payload
+
+
+def test_dca1000_packet_normalizes_object_integer_payload() -> None:
+    packet = DCA1000Packet(1, 0, np.array([-2, 3], dtype=object))
+
+    assert packet.payload.dtype == np.dtype(np.int16)
+    np.testing.assert_array_equal(packet.payload, [-2, 3])
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("packet_number", 1.0),
+        ("packet_number", True),
+        ("byte_count", 0.0),
+        ("byte_count", False),
+    ],
+)
+def test_dca1000_packet_rejects_non_integer_header_fields(
+    field_name: str,
+    value: object,
+) -> None:
+    packet_number = value if field_name == "packet_number" else 1
+    byte_count = value if field_name == "byte_count" else 0
+
+    with pytest.raises(TypeError, match=rf"DCA1000Packet\.{field_name} must be an integer"):
+        DCA1000Packet(
+            packet_number,  # type: ignore[arg-type]
+            byte_count,  # type: ignore[arg-type]
+            np.array([0], dtype=np.int16),
+        )
+
+
+@pytest.mark.parametrize("packet_number", [-(1 << 63) - 1, 1 << 63])
+def test_dca1000_packet_rejects_packet_numbers_outside_native_int64(
+    packet_number: int,
+) -> None:
+    with pytest.raises(ValueError, match="packet_number must fit native int64"):
+        DCA1000Packet(packet_number, 0, np.array([0], dtype=np.int16))
+
+
+def test_dca1000_packet_rejects_byte_count_outside_native_uint64() -> None:
+    with pytest.raises(ValueError, match="byte_count must fit native uint64"):
+        DCA1000Packet(1, 1 << 64, np.array([0], dtype=np.int16))
+
+
+@pytest.mark.parametrize("payload", [np.array([1.0]), np.array([True])])
+def test_dca1000_packet_rejects_non_integer_payload(payload: np.ndarray) -> None:
+    with pytest.raises(TypeError, match="payload must contain integer values"):
+        DCA1000Packet(1, 0, payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        np.array([-32769], dtype=np.int32),
+        np.array([32768], dtype=np.uint16),
+        np.array([1 << 63], dtype=np.uint64),
+    ],
+)
+def test_dca1000_packet_rejects_payload_outside_int16(payload: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="payload contains values outside the int16 range"):
+        DCA1000Packet(1, 0, payload)
+
+
 def test_reorder_dca1000_packets_places_out_of_order_payloads() -> None:
     packets = [
         DCA1000Packet(2, 4, np.array([20, 21], dtype=np.int16)),

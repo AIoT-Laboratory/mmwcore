@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from operator import index as integer_index
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,6 +15,11 @@ from mmwcore.core import ADCFrameSpec, RawADCFrame
 DCA1000_PACKET_HEADER_BYTES = 10
 DCA1000_PACKET_PAYLOAD_BYTES = 1456
 DCA1000_PACKET_PAYLOAD_INT16_VALUES = DCA1000_PACKET_PAYLOAD_BYTES // np.dtype(np.int16).itemsize
+_INT16_MIN = -(1 << 15)
+_INT16_MAX = (1 << 15) - 1
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
+_UINT64_MAX = (1 << 64) - 1
 
 
 @dataclass(frozen=True)
@@ -25,18 +31,70 @@ class DCA1000Packet:
     payload: np.ndarray
 
     def __post_init__(self) -> None:
-        payload = np.asarray(self.payload, dtype=np.int16)
-        if payload.ndim != 1:
-            raise ValueError(f"DCA1000Packet.payload must be 1-D; got {payload.shape}.")
-        if self.packet_number <= 0:
+        packet_number = _integer(self.packet_number, name="DCA1000Packet.packet_number")
+        byte_count = _integer(self.byte_count, name="DCA1000Packet.byte_count")
+        payload_values = np.asarray(self.payload)
+        if payload_values.ndim != 1:
+            raise ValueError(f"DCA1000Packet.payload must be 1-D; got {payload_values.shape}.")
+        payload = _as_int16_array(payload_values, name="DCA1000Packet.payload")
+        if packet_number < _INT64_MIN or packet_number > _INT64_MAX:
             raise ValueError(
-                f"DCA1000Packet.packet_number must be positive; got {self.packet_number}."
+                "DCA1000Packet.packet_number must fit native int64; "
+                f"got {packet_number}."
             )
-        if self.byte_count < 0:
+        if packet_number <= 0:
             raise ValueError(
-                f"DCA1000Packet.byte_count must be non-negative; got {self.byte_count}."
+                f"DCA1000Packet.packet_number must be positive; got {packet_number}."
             )
+        if byte_count < 0:
+            raise ValueError(
+                f"DCA1000Packet.byte_count must be non-negative; got {byte_count}."
+            )
+        if byte_count > _UINT64_MAX:
+            raise ValueError(
+                f"DCA1000Packet.byte_count must fit native uint64; got {byte_count}."
+            )
+        object.__setattr__(self, "packet_number", packet_number)
+        object.__setattr__(self, "byte_count", byte_count)
         object.__setattr__(self, "payload", payload)
+
+
+def _integer(value: int, *, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer.")
+    try:
+        return integer_index(value)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an integer.") from exc
+
+
+def _as_int16_array(values: np.ndarray, *, name: str) -> np.ndarray:
+    array = np.asarray(values)
+    if array.dtype == np.dtype(np.int16):
+        return array
+
+    if np.issubdtype(array.dtype, np.integer):
+        if array.size and (
+            int(array.min()) < _INT16_MIN or int(array.max()) > _INT16_MAX
+        ):
+            raise ValueError(f"{name} contains values outside the int16 range.")
+        return array.astype(np.int16, copy=False)
+
+    if array.dtype == np.dtype(object):
+        normalized = np.empty(array.shape, dtype=np.int16)
+        for offset, value in enumerate(array.flat):
+            if isinstance(value, (bool, np.bool_)):
+                raise TypeError(f"{name} must contain integer values.")
+            try:
+                item = integer_index(value)
+            except TypeError as exc:
+                raise TypeError(f"{name} must contain integer values.") from exc
+            if item < _INT16_MIN or item > _INT16_MAX:
+                raise ValueError(f"{name} contains values outside the int16 range.")
+            normalized.flat[offset] = item
+        return normalized
+
+    raise TypeError(f"{name} must contain integer values; got dtype {array.dtype}.")
 
 
 @dataclass(frozen=True)
