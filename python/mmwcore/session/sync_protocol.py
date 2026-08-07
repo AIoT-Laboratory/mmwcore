@@ -7,10 +7,11 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self, TextIO
+from typing import Any, TextIO
+
+from mmwcore._compat import Self, StrEnum
 
 CAPTURE_SYNC_CONTROL_VERSION = "OPENMMW_SYNC_V2"
 CAPTURE_SYNC_EVENT_SCHEMA = "openmmw.capture_sync_event.v1"

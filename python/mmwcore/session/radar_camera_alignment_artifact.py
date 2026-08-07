@@ -9,9 +9,10 @@ import os
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 from uuid import uuid4
 
+from mmwcore._compat import Self
 from mmwcore.config import RadarCaptureSpec
 
 from ._capture_paths import (

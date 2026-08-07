@@ -6,10 +6,10 @@ import json
 import math
 import time
 from collections.abc import Callable, Mapping
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from mmwcore._compat import StrEnum
 from mmwcore.config import RadarCaptureSpec
 
 from .sync_protocol import (

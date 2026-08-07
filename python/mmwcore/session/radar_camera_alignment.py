@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 from bisect import bisect_left
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
+
+from mmwcore._compat import Self, StrEnum
 
 from .sync_protocol import CaptureSyncEvent, CaptureSyncEventKind
 from .synchronized_capture import RadarCaptureTiming

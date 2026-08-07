@@ -6,10 +6,10 @@ import json
 import math
 import os
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
+from mmwcore._compat import Self, StrEnum
 from mmwcore.config import RadarCaptureSpec
 
 from ._capture_paths import (
