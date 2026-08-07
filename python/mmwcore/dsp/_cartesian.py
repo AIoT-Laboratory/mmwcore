@@ -1,13 +1,17 @@
 """Native Cartesian radar-volume projection boundary."""
 
+# ruff: noqa: UP040
+
 from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
 from mmwcore import _native
 
-type NativePlanarCartesianConfig = tuple[
+NativePlanarCartesianConfig: TypeAlias = tuple[
     float,
     int,
     float,
@@ -22,7 +26,7 @@ type NativePlanarCartesianConfig = tuple[
     int,
     float,
 ]
-type NativePlanarCartesianResult = tuple[
+NativePlanarCartesianResult: TypeAlias = tuple[
     NDArray[np.float32],
     int,
     int,

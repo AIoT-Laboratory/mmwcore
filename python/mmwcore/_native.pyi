@@ -1,10 +1,13 @@
+# ruff: noqa: UP040
+
 from collections.abc import Sequence
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
-type DCA1000PacketResult = tuple[int, int, NDArray[np.int16]]
-type DCA1000AssemblyResult = tuple[
+DCA1000PacketResult: TypeAlias = tuple[int, int, NDArray[np.int16]]
+DCA1000AssemblyResult: TypeAlias = tuple[
     NDArray[np.int16],
     int,
     int,
@@ -12,35 +15,35 @@ type DCA1000AssemblyResult = tuple[
     list[int],
     list[int],
 ]
-type NativeThresholdDetections = tuple[NDArray[np.int64], NDArray[np.float32]]
-type NativeDetectionAxes = tuple[int, int, int, int]
-type NativeDetectionIndexColumns = tuple[int, int, int]
-type NativePeakGroupingConfig = tuple[int, int, bool, bool]
-type NativeCfar1DConfig = tuple[int, int, float, int, bool, int, int]
-type NativeCfar2DConfig = tuple[int, int, float]
-type NativeCfar1DResult = tuple[NDArray[np.int64], NDArray[np.float32]]
-type NativeCfarDetections = tuple[
+NativeThresholdDetections: TypeAlias = tuple[NDArray[np.int64], NDArray[np.float32]]
+NativeDetectionAxes: TypeAlias = tuple[int, int, int, int]
+NativeDetectionIndexColumns: TypeAlias = tuple[int, int, int]
+NativePeakGroupingConfig: TypeAlias = tuple[int, int, bool, bool]
+NativeCfar1DConfig: TypeAlias = tuple[int, int, float, int, bool, int, int]
+NativeCfar2DConfig: TypeAlias = tuple[int, int, float]
+NativeCfar1DResult: TypeAlias = tuple[NDArray[np.int64], NDArray[np.float32]]
+NativeCfarDetections: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.float32],
 ]
-type NativePointColumns = tuple[int, int, int, int | None]
-type NativeDbscanConfig = tuple[float, int, float, bool]
-type NativeClusterResult = tuple[
+NativePointColumns: TypeAlias = tuple[int, int, int, int | None]
+NativeDbscanConfig: TypeAlias = tuple[float, int, float, bool]
+NativeClusterResult: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.int64],
 ]
-type NativeTrackerDynamicsConfig = tuple[float, tuple[float, float], float, float, float]
-type NativeTrackerGatingConfig = tuple[float, float | None, float | None]
-type NativeTrackerAllocationConfig = tuple[int, float, float | None, int | None]
-type NativeTrackerLifecycleConfig = tuple[int, int, int]
-type NativeTrackingBox = tuple[float, float, float, float]
-type NativeTrackerSceneryConfig = tuple[list[NativeTrackingBox], int]
-type NativeClusterTrackerConfig = tuple[
+NativeTrackerDynamicsConfig: TypeAlias = tuple[float, tuple[float, float], float, float, float]
+NativeTrackerGatingConfig: TypeAlias = tuple[float, float | None, float | None]
+NativeTrackerAllocationConfig: TypeAlias = tuple[int, float, float | None, int | None]
+NativeTrackerLifecycleConfig: TypeAlias = tuple[int, int, int]
+NativeTrackingBox: TypeAlias = tuple[float, float, float, float]
+NativeTrackerSceneryConfig: TypeAlias = tuple[list[NativeTrackingBox], int]
+NativeClusterTrackerConfig: TypeAlias = tuple[
     NativeTrackerDynamicsConfig,
     NativeTrackerGatingConfig,
     NativeTrackerAllocationConfig,
@@ -48,8 +51,8 @@ type NativeClusterTrackerConfig = tuple[
     NativeTrackerSceneryConfig,
     int,
 ]
-type NativeMeasurementTrackerConfig = tuple[NativeClusterTrackerConfig, NativeDbscanConfig]
-type NativeTrackerStepResult = tuple[
+NativeMeasurementTrackerConfig: TypeAlias = tuple[NativeClusterTrackerConfig, NativeDbscanConfig]
+NativeTrackerStepResult: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
@@ -60,15 +63,15 @@ type NativeTrackerStepResult = tuple[
     NDArray[np.int64],
     NDArray[np.int64],
 ]
-type NativeTrackingMetricsHeader = tuple[int, int, int, int]
-type NativeTrackingMetricsInput = tuple[
+NativeTrackingMetricsHeader: TypeAlias = tuple[int, int, int, int]
+NativeTrackingMetricsInput: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.uint8],
 ]
-type NativeTrackingMetricsIdentity = tuple[
+NativeTrackingMetricsIdentity: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.int64],
     NDArray[np.int64],
@@ -78,19 +81,19 @@ type NativeTrackingMetricsIdentity = tuple[
     NDArray[np.float32],
     NDArray[np.float32],
 ]
-type NativeTrackingMetricsMotion = tuple[
+NativeTrackingMetricsMotion: TypeAlias = tuple[
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.float32],
 ]
-type NativeTrackingMetricsIntervals = tuple[
+NativeTrackingMetricsIntervals: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.int64],
     NDArray[np.int64],
     NDArray[np.int64],
 ]
-type NativeTrackingMetricsResult = tuple[
+NativeTrackingMetricsResult: TypeAlias = tuple[
     NativeTrackingMetricsHeader,
     NativeTrackingMetricsIdentity,
     NativeTrackingMetricsMotion,
@@ -111,8 +114,8 @@ def vital_phase_to_displacement(
     wavelength_m: float,
 ) -> NDArray[np.float32]: ...
 
-type NativeAssignmentResult = tuple[NDArray[np.int64], NDArray[np.int64]]
-type NativePlanarCartesianResult = tuple[
+NativeAssignmentResult: TypeAlias = tuple[NDArray[np.int64], NDArray[np.int64]]
+NativePlanarCartesianResult: TypeAlias = tuple[
     NDArray[np.float32],
     int,
     int,
@@ -121,11 +124,11 @@ type NativePlanarCartesianResult = tuple[
     int,
     int,
 ]
-type NativeDopplerAxis = tuple[int, float, float]
-type NativeGridShape = tuple[int, int, int]
-type NativeGridCoordinates = tuple[float, float, float]
-type NativePlanarAngleConfig = tuple[int, int, float]
-type NativePlanarCartesianFfiConfig = tuple[
+NativeDopplerAxis: TypeAlias = tuple[int, float, float]
+NativeGridShape: TypeAlias = tuple[int, int, int]
+NativeGridCoordinates: TypeAlias = tuple[float, float, float]
+NativePlanarAngleConfig: TypeAlias = tuple[int, int, float]
+NativePlanarCartesianFfiConfig: TypeAlias = tuple[
     float,
     NativeDopplerAxis,
     NativeDopplerAxis,
@@ -134,27 +137,27 @@ type NativePlanarCartesianFfiConfig = tuple[
     NativeGridCoordinates,
     NativePlanarAngleConfig,
 ]
-type NativeCartesianAxes = tuple[
+NativeCartesianAxes: TypeAlias = tuple[
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.float32],
     NDArray[np.float32],
 ]
-type NativeCartesianSparsificationThresholdConfig = tuple[float, int]
-type NativeCartesianSparsificationPeakConfig = tuple[int, int, int | None, int]
-type NativeCartesianSparsificationBackgroundConfig = tuple[float, float, float, bool]
-type NativeCartesianSparsificationConfig = tuple[
+NativeCartesianSparsificationThresholdConfig: TypeAlias = tuple[float, int]
+NativeCartesianSparsificationPeakConfig: TypeAlias = tuple[int, int, int | None, int]
+NativeCartesianSparsificationBackgroundConfig: TypeAlias = tuple[float, float, float, bool]
+NativeCartesianSparsificationConfig: TypeAlias = tuple[
     NativeCartesianSparsificationThresholdConfig,
     NativeCartesianSparsificationPeakConfig,
     NativeCartesianSparsificationBackgroundConfig,
 ]
-type NativeCartesianSparsificationResult = tuple[
+NativeCartesianSparsificationResult: TypeAlias = tuple[
     NDArray[np.float32],
     tuple[float, float, float],
     tuple[int, int, int, int, int, int, int],
     tuple[bool, int],
 ]
-type NativeDetectionPointCloudColumns = tuple[
+NativeDetectionPointCloudColumns: TypeAlias = tuple[
     int,
     int,
     int,
@@ -163,24 +166,24 @@ type NativeDetectionPointCloudColumns = tuple[
     tuple[int, int] | None,
     list[int],
 ]
-type NativeDetectionPointCloudConfig = tuple[float, float, bool, int | None, bool]
-type NativeCandidateCubeAxes = tuple[int, int, int, int]
-type NativeCandidateIndexColumns = tuple[int, int, int]
-type NativeCandidateElevationColumns = tuple[int, int, int, int, int]
-type NativeCandidateAzimuthConfig = tuple[int, int, bool, int]
-type NativeCandidateSubarrays = tuple[
+NativeDetectionPointCloudConfig: TypeAlias = tuple[float, float, bool, int | None, bool]
+NativeCandidateCubeAxes: TypeAlias = tuple[int, int, int, int]
+NativeCandidateIndexColumns: TypeAlias = tuple[int, int, int]
+NativeCandidateElevationColumns: TypeAlias = tuple[int, int, int, int, int]
+NativeCandidateAzimuthConfig: TypeAlias = tuple[int, int, bool, int]
+NativeCandidateSubarrays: TypeAlias = tuple[
     list[int],
     list[int],
     NDArray[np.float64],
     NDArray[np.float64],
 ]
-type NativeCandidateElevationConfig = tuple[int, int, bool]
-type NativeCandidateAzimuthResult = tuple[
+NativeCandidateElevationConfig: TypeAlias = tuple[int, int, bool]
+NativeCandidateAzimuthResult: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
 ]
-type NativeCandidateElevationResult = tuple[
+NativeCandidateElevationResult: TypeAlias = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],

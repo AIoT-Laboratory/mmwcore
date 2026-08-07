@@ -1,6 +1,10 @@
 """Native Cartesian RPC sparsification boundary."""
 
+# ruff: noqa: UP040
+
 from __future__ import annotations
+
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -8,7 +12,7 @@ from numpy.typing import NDArray
 from mmwcore import _native
 from mmwcore.core import CartesianVolumeSparsificationSpec
 
-type NativeCartesianSparsificationResult = tuple[
+NativeCartesianSparsificationResult: TypeAlias = tuple[
     NDArray[np.float32],
     tuple[float, float, float],
     tuple[int, int, int, int, int, int, int],
