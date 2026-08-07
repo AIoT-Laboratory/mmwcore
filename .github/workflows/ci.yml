@@ -23,12 +23,8 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo publish -p mmwcore --dry-run --locked
 
-  python:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  quality:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -38,13 +34,30 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --extra dev --locked
-      - run: uv run ruff check python tests
-      - run: uv run ruff format --check python tests
+      - run: uv run ruff check python tests benchmarks
+      - run: uv run ruff format --check python tests benchmarks
       - run: uv run pyright
-      - run: uv run pytest --cov=mmwcore
+
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --python ${{ matrix.python-version }} --extra dev --locked
+      - run: uv run --python ${{ matrix.python-version }} pytest --cov=mmwcore
 
   package:
-    needs: [rust, python]
+    needs: [rust, quality, python]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -66,5 +79,12 @@ jobs:
           args: --out dist
       - run: uv venv --python 3.12 .package-venv
       - run: uv pip install --python .package-venv/bin/python dist/*.whl
-      - run: .package-venv/bin/python -c "import mmwcore; from mmwcore import _native; print(mmwcore.__version__)"
-      - run: .package-venv/bin/mmwcore --help
+      - name: Smoke-test installed native ADC decoding
+        run: >-
+          .package-venv/bin/python -c "import numpy as np; import mmwcore;
+          from mmwcore import _native;
+          raw = np.array([1, 10, 2, 20], dtype=np.int16);
+          decoded = _native.decode_adc_i16(raw, 1, 1, 2, 0, False);
+          expected = np.array([[[[1 + 10j, 2 + 20j]]]], dtype=np.complex64);
+          np.testing.assert_array_equal(decoded, expected);
+          print(mmwcore.__version__)"
