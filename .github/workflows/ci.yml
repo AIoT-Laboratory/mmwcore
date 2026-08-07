@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -43,7 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -63,21 +63,21 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
       - uses: PyO3/maturin-action@v1
         with:
           target: x86_64
           args: >-
             --release --locked --out dist
-            --interpreter python3.12
+            --interpreter python3.14
             --compatibility pypi
           manylinux: 2_17
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
-      - run: uv venv --python 3.12 .package-venv
+      - run: uv venv --python 3.14 .package-venv
       - run: uv pip install --python .package-venv/bin/python dist/*.whl
       - name: Smoke-test installed native ADC decoding
         run: >-
