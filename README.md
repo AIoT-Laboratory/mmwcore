@@ -47,21 +47,30 @@ above it; it is a deterministic diagnostic, not a learned result.
 
 ## Python API
 
-### Open an mmwcli capture directory
+### Open and process an mmwcli capture directory
 
 `mmwcli ... capture --session-dir` publishes `adc.bin`, `radar.cfg`, and `capture.json` together.
-Open the completed directory without restating ADC geometry:
+Open the completed directory and reuse its physical contract:
 
 ```python
+from mmwcore.config import iwr6843_isk_range_doppler_recipe
 from mmwcore.io import open_capture
 
 capture = open_capture("capture-session")
-frame = capture.reader.read_frame(0)
+contract = capture.radar_capture
+recipe = iwr6843_isk_range_doppler_recipe(
+    contract.profile,
+    adc_layout=contract.adc.layout,
+    tx_order=contract.tx_order,
+)
+cube = capture.range_doppler(recipe, frame_index=0)
+print(cube.axes, cube.data.shape)
 ```
 
 `open_capture` verifies the v1 schema, hashes, byte count, and finite CFG-derived contract. Use the
 completed directory and keep it unchanged while reading; SHA-256 verifies self-consistency, not
-provenance.
+provenance. The recipe explicitly selects IWR6843ISK antenna geometry; use a recipe matching the
+actual board. `capture.frames()` lazily yields validated raw frames without loading the full file.
 
 ### Open a capture from an xWR68xx CLI config
 
@@ -84,23 +93,6 @@ Choose `layout` from the actual DCA1000 write format; the TI CLI config does not
 extracts an offline waveform, frame, and decode contract. It does not validate device readiness or
 execute the configuration.
 
-### Inspect ADC geometry
-
-Inspect a capture with an explicit frame shape:
-
-```console
-mmwcore inspect adc capture.bin --num-chirps 192 --num-rx 4 --num-samples 256 --json
-```
-
-When the shape is unknown, list byte-compatible candidates instead of silently selecting one:
-
-```console
-mmwcore inspect adc capture.bin --infer-shapes --json
-```
-
-Shape inference only checks storage compatibility. Chirp order, ADC layout, antenna geometry,
-slope, sample rate, timing, and calibration must still come from the capture configuration.
-
 ### Decode one frame
 
 ```python
@@ -116,32 +108,6 @@ cube = organize_adc_samples(
 )
 print(cube.axes, cube.data.shape)
 ```
-
-### Stream range-Doppler frames
-
-`ADCFileFrameReader` memory-maps fixed-size frames, so the full capture is never loaded at once.
-This preset is valid only when the file was captured with the matching IWR6843ISK profile and Tx
-order.
-
-```python
-from mmwcore.config import iwr6843_isk_range_doppler_recipe
-from mmwcore.dsp import process_adc_to_range_doppler
-from mmwcore.io import ADCFileFrameReader
-
-recipe = iwr6843_isk_range_doppler_recipe(remove_static_clutter=True)
-reader = ADCFileFrameReader(
-    "capture.bin",
-    recipe.decode.adc,
-    frame_periodicity_s=0.1,
-)
-
-for index in range(min(reader.num_frames, 3)):
-    cube = process_adc_to_range_doppler(reader.read_frame(index), recipe)
-    print(index, cube.axes, cube.data.shape)
-```
-
-Pass an explicit `RadarProfile`, ADC layout, Tx order, and channel calibration when the capture
-differs from the preset.
 
 ### Build point clouds and tracks
 
@@ -192,13 +158,11 @@ Keep one tracker instance for a sequence. Recreating it for every frame discards
 | --- | --- |
 | `mmwcore.core` | Typed ADC, cube, detection, point-cloud, clustering, tracking, and vital-sign contracts |
 | `mmwcore.config` | Radar profiles, capture contracts, presets, and configuration rendering |
-| `mmwcore.io` | ADC files, DCA1000 packets and streams, capture controllers, and serial transport |
+| `mmwcore.io` | ADC files, packets, capture-session readers, and compatibility hardware adapters |
 | `mmwcore.dsp` | FFT, clutter suppression, calibration, CFAR, AoA, point-cloud, and clustering pipelines |
 | `mmwcore.tracking` | Stateful 2D trackers, assignment, runners, and tracking metrics |
 | `mmwcore.session` | Radar/camera capture and causal timestamp-alignment contracts |
 | `mmwcore.plot` | Research visualizations kept outside the Rust compute core |
-
-Run `mmwcore --help` for command groups and operation-specific help.
 
 ## Rust API
 
@@ -235,8 +199,8 @@ assert_eq!(result.indices, [3]);
 - radar/camera capture-session synchronization contracts
 - Rust kernels exposed through PyO3; plotting remains in Python
 
-The project is alpha. Physical conventions are explicit and tested, but hardware coverage and
-public validation vectors are still being expanded.
+The project is alpha. Physical conventions are explicit and tested, but supported capture formats
+and public validation vectors are still being expanded.
 
 ## Positioning
 

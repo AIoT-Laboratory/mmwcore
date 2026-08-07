@@ -8,6 +8,8 @@ All notable changes to mmwcore are documented here.
   while preserving the existing permissive ADC-shape parser.
 - Open integrity-checked `mmwcli.capture_session.v1` directories as validated ADC readers and
   physical capture contracts.
+- Iterate capture frames lazily and run explicit, contract-matched range-Doppler recipes, including
+  IWR6843 active-Tx subsets.
 
 ## [0.2.2] - 2026-08-06
 

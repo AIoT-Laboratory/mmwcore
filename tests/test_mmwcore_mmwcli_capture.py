@@ -3,16 +3,26 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from mmwcore.core import ADCComplexLayout
+from mmwcore.config import iwr6843_isk_range_doppler_recipe
+from mmwcore.core import (
+    ADCComplexLayout,
+    ADCDecodeRecipe,
+    AntennaArrayGeometry,
+    RangeDopplerRecipe,
+    TDMVirtualArraySpec,
+)
+from mmwcore.dsp import process_adc_to_range_doppler
 from mmwcore.io import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
     ADCFileCapture,
+    ADCFileFrameReader,
     open_capture,
 )
 
@@ -29,6 +39,19 @@ lvdsStreamCfg -1 0 1 0
 """
 _CONFIG_BYTES = _CONFIG_TEXT.encode()
 _ADC_BYTES = struct.pack("<16h", *range(16))
+_TDM_CONFIG_BYTES = b"""\
+flushCfg
+dfeDataOutputMode 1
+channelCfg 15 5 0
+adcCfg 2 1
+adcbufCfg -1 0 1 1 1
+profileCfg 0 60 7 3 24 0 0 166 1 4 12500 0 0 158
+chirpCfg 0 0 0 0 0 0 0 1
+chirpCfg 1 1 0 0 0 0 0 4
+frameCfg 0 1 1 2 10 1 0
+lvdsStreamCfg -1 0 1 0
+"""
+_TDM_ADC_BYTES = struct.pack("<128h", *range(128))
 
 
 def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None:
@@ -57,6 +80,166 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert first.timestamp == pytest.approx(0.0)
     assert second.timestamp == pytest.approx(0.01)
     assert first.metadata["tx_order"] == [0]
+
+
+def test_capture_facade_reads_and_iterates_frames_lazily(tmp_path: Path) -> None:
+    capture = open_capture(_write_capture(tmp_path))
+
+    assert capture.num_frames == 2
+    second = capture.frame(1)
+    assert isinstance(second.samples, np.memmap)
+    np.testing.assert_array_equal(second.samples, np.arange(8, 16, dtype=np.int16))
+    assert second.timestamp == pytest.approx(0.01)
+    assert second.source == str(capture.adc_path)
+
+    frames = capture.frames(start=1, stop=2)
+    assert iter(frames) is frames
+    assert [frame.frame_id for frame in frames] == [1]
+    assert list(capture.frames(start=2, stop=2)) == []
+
+
+@pytest.mark.parametrize(
+    ("start", "stop", "error"),
+    [
+        (True, None, TypeError),
+        ("0", None, TypeError),
+        (0, False, TypeError),
+        (-1, None, ValueError),
+        (3, None, ValueError),
+        (1, 0, ValueError),
+        (0, 3, ValueError),
+    ],
+)
+def test_capture_facade_rejects_invalid_frame_intervals(
+    tmp_path: Path,
+    start: object,
+    stop: object,
+    error: type[Exception],
+) -> None:
+    capture = open_capture(_write_capture(tmp_path))
+
+    with pytest.raises(error):
+        capture.frames(start=start, stop=stop)  # type: ignore[arg-type]
+
+
+def test_capture_facade_rejects_non_integer_frame_index(tmp_path: Path) -> None:
+    capture = open_capture(_write_capture(tmp_path))
+
+    with pytest.raises(TypeError, match="index"):
+        capture.frame(True)
+
+
+def test_capture_facade_range_doppler_matches_explicit_runner(tmp_path: Path) -> None:
+    capture = open_capture(_write_capture(tmp_path))
+    recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(capture.radar_capture.adc))
+
+    actual = capture.range_doppler(recipe, frame_index=1)
+    expected = process_adc_to_range_doppler(capture.frame(1), recipe)
+
+    assert actual.axes == expected.axes
+    assert actual.frame_id == 1
+    assert actual.timestamp == pytest.approx(0.01)
+    np.testing.assert_allclose(actual.data, expected.data)
+
+
+def test_capture_facade_rejects_invalid_range_doppler_policy(tmp_path: Path) -> None:
+    capture = open_capture(_write_capture(tmp_path))
+    recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(capture.radar_capture.adc))
+
+    with pytest.raises(TypeError, match="RangeDopplerRecipe"):
+        capture.range_doppler(object())  # type: ignore[arg-type]
+
+    loop_recipe = replace(
+        recipe,
+        doppler_fft=replace(recipe.doppler_fft, input_axis="loop"),
+    )
+    with pytest.raises(ValueError, match="chirp Doppler axis"):
+        capture.range_doppler(loop_recipe)
+
+
+def test_capture_facade_rejects_mismatched_reader_and_recipe_specs(tmp_path: Path) -> None:
+    capture = open_capture(_write_capture(tmp_path))
+    alternate_adc = replace(
+        capture.radar_capture.adc,
+        layout=ADCComplexLayout.IQ_INTERLEAVED,
+    )
+    alternate_reader = ADCFileFrameReader.from_capture(
+        capture.adc_path,
+        replace(capture.radar_capture, adc=alternate_adc),
+    )
+    recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(capture.radar_capture.adc))
+
+    with pytest.raises(ValueError, match="reader ADC spec"):
+        replace(capture, reader=alternate_reader)
+
+    wrong_recipe = replace(recipe, decode=ADCDecodeRecipe(alternate_adc))
+    with pytest.raises(ValueError, match="recipe ADC spec"):
+        capture.range_doppler(wrong_recipe)
+
+    alternate_path = tmp_path / "alternate-adc.bin"
+    alternate_path.write_bytes(_ADC_BYTES)
+    alternate_path_reader = ADCFileFrameReader.from_capture(
+        alternate_path,
+        capture.radar_capture,
+    )
+    with pytest.raises(ValueError, match="reader path"):
+        replace(capture, reader=alternate_path_reader)
+
+
+def test_capture_facade_processes_explicit_two_tx_isk_recipe(tmp_path: Path) -> None:
+    root = _write_capture(
+        tmp_path,
+        config=_TDM_CONFIG_BYTES,
+        adc=_TDM_ADC_BYTES,
+    )
+    capture = open_capture(root)
+    contract = capture.radar_capture
+    recipe = iwr6843_isk_range_doppler_recipe(
+        contract.profile,
+        adc_layout=contract.adc.layout,
+        tx_order=contract.tx_order,
+    )
+
+    actual = capture.range_doppler(recipe, frame_index=1)
+    expected = process_adc_to_range_doppler(capture.frame(1), recipe)
+
+    assert actual.axes == ("frame", "doppler_bin", "virtual_rx", "range_bin")
+    assert actual.data.shape[2] == 8
+    assert actual.metadata["tdm_doppler_compensation"]["tx_order"] == [0, 2]
+    np.testing.assert_allclose(actual.data, expected.data)
+
+
+def test_capture_facade_requires_matching_explicit_tdm_geometry(tmp_path: Path) -> None:
+    root = _write_capture(
+        tmp_path,
+        config=_TDM_CONFIG_BYTES,
+        adc=_TDM_ADC_BYTES,
+    )
+    capture = open_capture(root)
+    contract = capture.radar_capture
+    no_tdm = RangeDopplerRecipe(decode=ADCDecodeRecipe(contract.adc))
+
+    with pytest.raises(ValueError, match="explicit TDM"):
+        capture.range_doppler(no_tdm)
+
+    wrong_order = iwr6843_isk_range_doppler_recipe(
+        contract.profile,
+        adc_layout=contract.adc.layout,
+        tx_order=(2, 0),
+    )
+    with pytest.raises(ValueError, match="Tx order"):
+        capture.range_doppler(wrong_order)
+
+    wrong_rx_geometry = AntennaArrayGeometry(
+        tx_positions_wavelengths=((0.0, 0.0, 0.0),) * 3,
+        rx_positions_wavelengths=((0.0, 0.0, 0.0),) * 3,
+    )
+    wrong_rx = replace(
+        wrong_order,
+        tdm_virtual_array=TDMVirtualArraySpec(wrong_rx_geometry, contract.tx_order),
+    )
+    with pytest.raises(ValueError, match="receiver geometry"):
+        capture.range_doppler(wrong_rx)
 
 
 @pytest.mark.parametrize(

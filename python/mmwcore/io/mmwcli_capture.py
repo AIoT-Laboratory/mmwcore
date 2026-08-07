@@ -8,11 +8,17 @@ import json
 import os
 import stat
 import sys
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from mmwcore.config import RadarCaptureSpec, parse_ti_cli_capture_spec
-from mmwcore.core import ADCComplexLayout
+from mmwcore.core import (
+    ADCComplexLayout,
+    RadarCube,
+    RangeDopplerRecipe,
+    RawADCFrame,
+)
 
 from .adc_file import ADCFileFrameReader
 
@@ -35,7 +41,7 @@ class ADCFileCapture:
     """Validated mmwcli capture paths, physical contract, and frame reader.
 
     The directory must remain unchanged from entry into :func:`open_capture`
-    through the final use of ``reader``. SHA-256 verifies bundle
+    through the final frame or reader use. SHA-256 verifies bundle
     self-consistency, not authenticity against a writer that can replace the
     complete bundle.
     """
@@ -47,12 +53,122 @@ class ADCFileCapture:
     radar_capture: RadarCaptureSpec
     reader: ADCFileFrameReader
 
+    def __post_init__(self) -> None:
+        _validate_capture_reader(self)
+
+    @property
+    def num_frames(self) -> int:
+        """Return the finite number of validated ADC frames."""
+
+        return self.reader.num_frames
+
+    def frame(self, index: int) -> RawADCFrame:
+        """Read one validated frame by zero-based index."""
+
+        if type(index) is not int:
+            raise TypeError("ADCFileCapture frame index must be an integer.")
+        return self.reader.read_frame(index)
+
+    def frames(
+        self,
+        *,
+        start: int = 0,
+        stop: int | None = None,
+    ) -> Iterator[RawADCFrame]:
+        """Iterate the validated half-open frame interval without loading the full file."""
+
+        indices = _frame_interval(self.num_frames, start=start, stop=stop)
+        return (self.reader.read_frame(index) for index in indices)
+
+    def range_doppler(
+        self,
+        recipe: RangeDopplerRecipe,
+        *,
+        frame_index: int = 0,
+    ) -> RadarCube:
+        """Process one frame with an explicit recipe matching the capture contract."""
+
+        _validate_range_doppler_recipe(self, recipe)
+        from mmwcore.dsp.runners import process_adc_to_range_doppler
+
+        return process_adc_to_range_doppler(self.frame(frame_index), recipe)
+
 
 @dataclass(frozen=True)
 class _ManifestV1:
     adc_size_bytes: int
     adc_sha256: str
     radar_config_sha256: str
+
+
+def _frame_interval(
+    num_frames: int,
+    *,
+    start: int,
+    stop: int | None,
+) -> range:
+    if type(start) is not int or (stop is not None and type(stop) is not int):
+        raise TypeError("ADCFileCapture frame bounds must be integers.")
+    final = num_frames if stop is None else stop
+    if start < 0 or start > num_frames:
+        raise ValueError(f"ADCFileCapture start must be within [0, {num_frames}].")
+    if final < start or final > num_frames:
+        raise ValueError(f"ADCFileCapture stop must be within [{start}, {num_frames}].")
+    return range(start, final)
+
+
+def _validate_range_doppler_recipe(
+    capture: ADCFileCapture,
+    recipe: RangeDopplerRecipe,
+) -> None:
+    if not isinstance(recipe, RangeDopplerRecipe):
+        raise TypeError("ADCFileCapture.range_doppler requires a RangeDopplerRecipe.")
+    contract = capture.radar_capture
+    if recipe.decode.adc != contract.adc:
+        raise ValueError("Range-Doppler recipe ADC spec does not match the capture contract.")
+
+    tdm = recipe.tdm_virtual_array
+    if tdm is None:
+        if len(contract.tx_order) > 1:
+            raise ValueError("Multi-Tx capture processing requires an explicit TDM virtual array.")
+        if recipe.doppler_fft.input_axis != "chirp":
+            raise ValueError("Single-Tx capture processing requires the chirp Doppler axis.")
+        return
+    if tdm.tx_order != contract.tx_order:
+        raise ValueError("Range-Doppler recipe Tx order does not match the capture contract.")
+    if tdm.geometry.num_rx != contract.profile.num_rx:
+        raise ValueError(
+            "Range-Doppler recipe receiver geometry does not match the capture contract."
+        )
+
+
+def _validate_capture_reader(capture: ADCFileCapture) -> None:
+    contract = capture.radar_capture
+    reader = capture.reader
+    expected_paths = (
+        (capture.manifest_path, capture.root / _MANIFEST_FILE_NAME, "manifest"),
+        (capture.adc_path, capture.root / _ADC_FILE_NAME, "ADC payload"),
+        (
+            capture.radar_config_path,
+            capture.root / _RADAR_CONFIG_FILE_NAME,
+            "radar configuration",
+        ),
+    )
+    for actual, expected, label in expected_paths:
+        if actual != expected:
+            raise ValueError(f"ADCFileCapture {label} path does not match its root.")
+    if Path(reader.path) != capture.adc_path:
+        raise ValueError("ADCFileCapture reader path does not match its ADC payload.")
+    if reader.spec != contract.adc:
+        raise ValueError("ADCFileCapture reader ADC spec does not match its capture contract.")
+    if reader.num_frames != contract.num_frames:
+        raise ValueError("ADCFileCapture reader frame count does not match its capture contract.")
+    if reader.frame_periodicity_s != contract.frame_periodicity_s:
+        raise ValueError("ADCFileCapture reader period does not match its capture contract.")
+    if reader.profile != asdict(contract.profile):
+        raise ValueError("ADCFileCapture reader profile does not match its capture contract.")
+    if reader.metadata.get("tx_order") != list(contract.tx_order):
+        raise ValueError("ADCFileCapture reader Tx order does not match its capture contract.")
 
 
 def open_capture(path: str | Path) -> ADCFileCapture:
