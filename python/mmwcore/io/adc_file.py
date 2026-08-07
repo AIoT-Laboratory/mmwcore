@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import operator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -43,8 +45,10 @@ class ADCFileFrameReader:
             )
         if complete_frames == 0:
             raise ValueError("ADC file contains no complete frames.")
-        if self.frame_periodicity_s is not None and self.frame_periodicity_s <= 0:
-            raise ValueError("ADCFileFrameReader.frame_periodicity_s must be positive.")
+        if self.frame_periodicity_s is not None and (
+            not math.isfinite(self.frame_periodicity_s) or self.frame_periodicity_s <= 0
+        ):
+            raise ValueError("ADCFileFrameReader.frame_periodicity_s must be finite and positive.")
         object.__setattr__(self, "path", path)
         object.__setattr__(self, "profile", dict(self.profile))
         object.__setattr__(self, "metadata", dict(self.metadata))
@@ -64,6 +68,8 @@ class ADCFileFrameReader:
     ) -> ADCFileFrameReader:
         """Open a file and validate it against an explicit capture contract."""
 
+        if metadata is not None and "tx_order" in metadata:
+            raise ValueError("ADCFileFrameReader metadata must not override capture tx_order.")
         reader = cls(
             path=path,
             spec=capture.adc,
@@ -81,6 +87,12 @@ class ADCFileFrameReader:
     def read_frame(self, index: int) -> RawADCFrame:
         """Map one frame by zero-based index without reading the full file."""
 
+        if isinstance(index, bool):
+            raise TypeError("ADC frame index must be an integer, not bool.")
+        try:
+            index = operator.index(index)
+        except TypeError as exc:
+            raise TypeError("ADC frame index must be an integer.") from exc
         if not 0 <= index < self.num_frames:
             raise IndexError(f"ADC frame index {index} is outside [0, {self.num_frames}).")
         values = self.spec.raw_values_per_frame

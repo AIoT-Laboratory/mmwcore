@@ -325,6 +325,10 @@ def test_adc_file_frame_reader_rejects_invalid_files_and_indices(tmp_path) -> No
     reader = ADCFileFrameReader(adc_path, spec)
     with pytest.raises(IndexError, match="outside"):
         reader.read_frame(2)
+    with pytest.raises(TypeError, match="not bool"):
+        reader.read_frame(True)
+    with pytest.raises(ValueError, match="finite and positive"):
+        ADCFileFrameReader(adc_path, spec, frame_periodicity_s=float("nan"))
 
 
 def test_adc_file_frame_reader_validates_explicit_capture(tmp_path) -> None:
@@ -352,6 +356,9 @@ def test_adc_file_frame_reader_validates_explicit_capture(tmp_path) -> None:
     assert frame.profile["num_tx"] == 1
     assert frame.metadata["tx_order"] == [0]
     assert frame.metadata["session"] == "test"
+
+    with pytest.raises(ValueError, match="must not override capture tx_order"):
+        ADCFileFrameReader.from_capture(adc_path, capture, metadata={"tx_order": [2]})
 
     invalid_capture = RadarCaptureSpec(
         profile=profile,
