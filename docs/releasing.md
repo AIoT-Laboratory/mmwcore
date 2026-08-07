@@ -11,10 +11,9 @@ Python and Rust artifacts use the same version from the Cargo workspace.
 
 ## PyPI
 
-The `release.yml` workflow builds separate wheels for ordinary CPython 3.10, 3.11, 3.12, and 3.13
-on Linux, Windows, and macOS, plus an sdist. These are interpreter-specific wheels, not one `abi3`
-wheel: every CPython version is built and smoke-tested independently. CPython 3.13 support refers
-to the standard GIL-enabled interpreter; free-threaded 3.13 (`cp313t`) is not built or promised.
+The `release.yml` workflow builds interpreter-specific wheels for ordinary, GIL-enabled CPython
+3.12–3.14 on Linux, Windows, and macOS, plus an sdist. Every wheel is built and smoke-tested
+independently; `abi3` and free-threaded CPython 3.14 (`cp314t`) are not built or promised.
 
 Configure the GitHub `pypi` environment as a PyPI trusted publisher. A pending trusted publisher
 can authorize the first release.
