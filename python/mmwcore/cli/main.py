@@ -25,21 +25,11 @@ def _preprocess_adc(argv: list[str]) -> int:
     return main(argv)
 
 
-def _export_config(argv: list[str]) -> int:
-    from .export_config import main
-
-    return main(argv)
-
-
 _COMMANDS = {
     "inspect": Command(_inspect, "Inspect raw radar inputs."),
     "preprocess-adc": Command(
         _preprocess_adc,
         "Preprocess ADC into declared radar artifacts.",
-    ),
-    "export-config": Command(
-        _export_config,
-        "Export a typed radar configuration.",
     ),
 }
 

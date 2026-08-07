@@ -10,7 +10,7 @@ def test_mmwcore_help_exposes_low_level_command_groups(capsys) -> None:
     output = capsys.readouterr().out
     assert "inspect" in output
     assert "preprocess-adc" in output
-    assert "export-config" in output
+    assert "export-config" not in output
 
 
 def test_mmwcore_rejects_unknown_command(capsys) -> None:

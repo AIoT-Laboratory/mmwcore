@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import cast
 
@@ -8,10 +7,8 @@ import pytest
 
 import mmwcore.config
 from mmwcore.config import (
-    DCA1000ConfigSpec,
     RadarCaptureSpec,
     RadarProfile,
-    TiCliConfigSpec,
     TiCliConfigSummary,
     awr1843_aop_antenna_geometry,
     iwr6843_aop_antenna_geometry,
@@ -26,10 +23,6 @@ from mmwcore.config import (
     iwr6843_profile,
     parse_ti_cli_capture_spec,
     parse_ti_cli_config,
-    render_dca1000_config,
-    render_ti_cli_config,
-    write_dca1000_config,
-    write_ti_cli_config,
     xwr1642_antenna_geometry,
     xwr1843_evm_antenna_geometry,
 )
@@ -418,35 +411,16 @@ def test_iwr6843_3d_cfar_recipe_declares_paired_elevation_row() -> None:
     assert recipe.detection.elevation_subarray == iwr6843_isk_elevation_subarray(tx_order=(0, 1, 2))
 
 
-def test_render_ti_cli_config_uses_profile_geometry() -> None:
-    profile = RadarProfile(
-        start_frequency_hz=60e9,
-        frequency_slope_hz_per_s=60e12,
-        adc_sample_rate_hz=4.4e6,
-        idle_time_s=300e-6,
-        adc_start_time_s=6e-6,
-        ramp_end_time_s=65e-6,
-        num_adc_samples=256,
-        num_chirps_per_tx=64,
-        num_tx=3,
-        num_rx=4,
-    )
-
-    text = render_ti_cli_config(profile)
-
-    assert text.endswith("\n")
-    assert "channelCfg 15 7 0" in text
-    assert "profileCfg 0 60.000 300.00 6.00 65.00 0 0 60.000 6.00 256 4400 0 0 30" in text
-    assert "chirpCfg 0 0 0 0 0 0 0 1" in text
-    assert "chirpCfg 1 1 0 0 0 0 0 4" in text
-    assert "chirpCfg 2 2 0 0 0 0 0 2" in text
-    assert "frameCfg 0 2 64 0 100.0 1 0" in text
-    assert "sensorStart" not in text
-
-
 def test_parse_ti_cli_config_recovers_capture_shape() -> None:
-    text = render_ti_cli_config(
-        RadarProfile(num_tx=3, num_rx=4, num_adc_samples=256, num_chirps_per_tx=64)
+    text = "\n".join(
+        [
+            "channelCfg 15 7 0",
+            "profileCfg 0 60 300 6 65 0 0 60 1 256 4400 0 0 30",
+            "chirpCfg 0 0 0 0 0 0 0 1",
+            "chirpCfg 1 1 0 0 0 0 0 4",
+            "chirpCfg 2 2 0 0 0 0 0 2",
+            "frameCfg 0 2 64 0 100 1 0",
+        ]
     )
 
     summary = parse_ti_cli_config(text)
@@ -551,8 +525,22 @@ def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None
 
 
 def test_parse_ti_cli_capture_spec_supports_continuous_frames() -> None:
+    text = "\n".join(
+        [
+            "dfeDataOutputMode 1",
+            "channelCfg 15 7 0",
+            "adcCfg 2 1",
+            "adcbufCfg -1 0 1 1 1",
+            "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+            "chirpCfg 0 0 0 0 0 0 0 1",
+            "chirpCfg 1 1 0 0 0 0 0 4",
+            "chirpCfg 2 2 0 0 0 0 0 2",
+            "frameCfg 0 2 64 0 100 1 0",
+            "lvdsStreamCfg -1 0 1 0",
+        ]
+    )
     capture = parse_ti_cli_capture_spec(
-        render_ti_cli_config(RadarProfile(num_tx=3)),
+        text,
         layout=ADCComplexLayout.IQ_INTERLEAVED,
     )
 
@@ -563,13 +551,15 @@ def test_parse_ti_cli_capture_spec_supports_continuous_frames() -> None:
 
 
 def test_parse_ti_cli_capture_spec_rejects_late_flush() -> None:
-    lines = render_ti_cli_config(RadarProfile(num_tx=1)).splitlines()
-    lines.remove("flushCfg")
-    lines.insert(lines.index("channelCfg 15 1 0") + 1, "flushCfg")
-
     with pytest.raises(ValueError, match="flushCfg must precede"):
         parse_ti_cli_capture_spec(
-            "\n".join(lines),
+            "\n".join(
+                [
+                    "dfeDataOutputMode 1",
+                    "channelCfg 15 1 0",
+                    "flushCfg",
+                ]
+            ),
             layout=ADCComplexLayout.IQ_INTERLEAVED,
         )
 
@@ -699,7 +689,16 @@ def test_ti_cli_capture_contract_checks_do_not_leak_into_shape_parser(
 
 @pytest.mark.parametrize("command", ["adcbufCfg", "lvdsStreamCfg"])
 def test_ti_cli_capture_spec_requires_raw_hardware_stream_commands(command: str) -> None:
-    lines = render_ti_cli_config(RadarProfile(num_tx=1)).splitlines()
+    lines = [
+        "dfeDataOutputMode 1",
+        "channelCfg 15 1 0",
+        "adcCfg 2 1",
+        "adcbufCfg -1 0 1 1 1",
+        "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
+        "chirpCfg 0 0 0 0 0 0 0 1",
+        "frameCfg 0 0 64 0 100 1 0",
+        "lvdsStreamCfg -1 0 1 0",
+    ]
     lines = [line for line in lines if not line.startswith(command)]
 
     with pytest.raises(ValueError, match=command):
@@ -719,107 +718,20 @@ def test_ti_cli_capture_spec_requires_raw_hardware_stream_commands(command: str)
 def test_ti_cli_capture_spec_rejects_odd_group2_sample_count(
     layout: ADCComplexLayout,
 ) -> None:
+    text = "\n".join(
+        [
+            "dfeDataOutputMode 1",
+            "channelCfg 15 1 0",
+            "adcCfg 2 1",
+            "adcbufCfg -1 0 1 1 1",
+            "profileCfg 0 60 7 3 24 0 0 166 1 255 12500 0 0 158",
+            "chirpCfg 0 0 0 0 0 0 0 1",
+            "frameCfg 0 0 64 0 100 1 0",
+            "lvdsStreamCfg -1 0 1 0",
+        ]
+    )
     with pytest.raises(ValueError, match="even numAdcSamples"):
         parse_ti_cli_capture_spec(
-            render_ti_cli_config(RadarProfile(num_tx=1, num_adc_samples=255)),
+            text,
             layout=layout,
         )
-
-
-def test_write_ti_cli_config_supports_custom_export_spec(tmp_path) -> None:
-    profile = RadarProfile(num_tx=2, num_rx=2, num_chirps_per_tx=8)
-    spec = TiCliConfigSpec(
-        profile_id=1,
-        frame_periodicity_s=0.05,
-        tx_enable_order=(1, 0),
-        include_sensor_start=True,
-    )
-
-    output = write_ti_cli_config(tmp_path / "profiles" / "radar.cfg", profile, spec)
-
-    text = output.read_text(encoding="utf-8")
-    assert "channelCfg 3 3 0" in text
-    assert "profileCfg 1" in text
-    assert "chirpCfg 0 0 1 0 0 0 0 2" in text
-    assert "chirpCfg 1 1 1 0 0 0 0 1" in text
-    assert "frameCfg 0 1 8 0 50.0 1 0" in text
-    assert text.rstrip().endswith("sensorStart")
-
-
-def test_ti_cli_config_rejects_invalid_export_spec() -> None:
-    with pytest.raises(ValueError, match="adc_bits"):
-        TiCliConfigSpec(adc_bits=10)
-
-    profile = RadarProfile(num_tx=3)
-    with pytest.raises(ValueError, match="one entry per TX"):
-        render_ti_cli_config(profile, TiCliConfigSpec(tx_enable_order=(0, 1)))
-
-
-def test_render_dca1000_config_uses_capture_settings() -> None:
-    profile = RadarProfile(num_rx=4)
-    spec = DCA1000ConfigSpec(
-        capture_path=r"dataset\subject\radar",
-        file_prefix="adc",
-        system_ip="192.168.1.10",
-        dca_ip="192.168.1.20",
-        dca_mac="00.11.22.33.44.55",
-        config_port=5000,
-        data_port=5002,
-        packet_delay_us=30,
-        frames_to_capture=4,
-    )
-
-    payload = render_dca1000_config(profile, spec)
-    config = payload["DCA1000Config"]
-
-    assert config["lvdsMode"] == 2
-    assert config["dataFormatMode"] == 3
-    assert config["packetDelay_us"] == 30
-    assert config["ethernetConfig"]["DCA1000IPAddress"] == "192.168.1.20"
-    assert config["ethernetConfigUpdate"]["systemIPAddress"] == "192.168.1.10"
-    assert config["captureConfig"]["fileBasePath"] == "dataset/subject/radar"
-    assert config["captureConfig"]["filePrefix"] == "adc"
-    assert config["captureConfig"]["framesToCapture"] == 4
-    assert config["dataFormatConfig"]["reorderEnable"] == 1
-    assert len(config["dataFormatConfig"]["dataPortConfig"]) == 4
-    assert config["dataFormatConfig"]["dataPortConfig"][0] == {
-        "portIdx": 0,
-        "dataType": "complex",
-    }
-
-
-def test_write_dca1000_config_writes_json(tmp_path) -> None:
-    profile = RadarProfile(num_rx=2)
-    spec = DCA1000ConfigSpec(
-        dca_mac="00.11.22.33.44.55",
-        capture_path="radar",
-        adc_bits=14,
-        lvds_lanes=4,
-        sequence_number_enable=False,
-        reorder_enable=False,
-        data_type="real",
-    )
-
-    output = write_dca1000_config(tmp_path / "dca" / "config.json", profile, spec)
-
-    payload = json.loads(output.read_text(encoding="utf-8"))
-    config = payload["DCA1000Config"]
-    assert config["dataFormatMode"] == 2
-    assert config["lvdsMode"] == 4
-    assert config["captureConfig"]["sequenceNumberEnable"] == 0
-    assert config["dataFormatConfig"]["reorderEnable"] == 0
-    assert config["dataFormatConfig"]["dataPortConfig"][-1] == {
-        "portIdx": 3,
-        "dataType": "real",
-    }
-
-
-def test_dca1000_config_rejects_invalid_export_spec() -> None:
-    with pytest.raises(ValueError, match="adc_bits"):
-        DCA1000ConfigSpec(dca_mac="00.11.22.33.44.55", adc_bits=10)
-
-    with pytest.raises(ValueError, match="data_type"):
-        DCA1000ConfigSpec(dca_mac="00.11.22.33.44.55", data_type="iq")
-
-    with pytest.raises(ValueError, match="dca_mac"):
-        DCA1000ConfigSpec(dca_mac="")

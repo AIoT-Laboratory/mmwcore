@@ -5,7 +5,6 @@ import json
 import numpy as np
 import pytest
 
-from mmwcore.cli.export_config import main as export_config_main
 from mmwcore.cli.inspect import inspect_adc_file
 from mmwcore.cli.inspect import main as inspect_main
 from mmwcore.cli.preprocess_adc import main
@@ -414,127 +413,6 @@ def test_preprocess_adc_cli_requires_shape_without_preset(tmp_path) -> None:
 
     with pytest.raises(SystemExit, match="required without a preset"):
         main([str(adc_path), "--output", str(output_path), "--threshold", "1.0"])
-
-
-def test_export_config_cli_writes_ti_and_dca_configs(tmp_path) -> None:
-    ti_path = tmp_path / "radar.cfg"
-    dca_path = tmp_path / "dca" / "config.json"
-
-    result = export_config_main(
-        [
-            "--ti-cfg",
-            str(ti_path),
-            "--dca-json",
-            str(dca_path),
-            "--num-tx",
-            "2",
-            "--num-rx",
-            "2",
-            "--num-adc-samples",
-            "32",
-            "--num-chirps-per-tx",
-            "8",
-            "--frame-periodicity-s",
-            "0.05",
-            "--capture-path",
-            r"dataset\radar",
-            "--dca-mac",
-            "00.11.22.33.44.55",
-            "--frames-to-capture",
-            "3",
-            "--include-sensor-start",
-        ]
-    )
-
-    assert result == 0
-    ti_text = ti_path.read_text(encoding="utf-8")
-    assert "channelCfg 3 5 0" in ti_text
-    assert "frameCfg 0 1 8 0 50.0 1 0" in ti_text
-    assert ti_text.rstrip().endswith("sensorStart")
-
-    dca_config = json.loads(dca_path.read_text(encoding="utf-8"))["DCA1000Config"]
-    assert dca_config["captureConfig"]["fileBasePath"] == "dataset/radar"
-    assert dca_config["captureConfig"]["framesToCapture"] == 3
-    assert dca_config["ethernetConfigUpdate"]["DCA1000MACAddress"] == "00.11.22.33.44.55"
-    assert len(dca_config["dataFormatConfig"]["dataPortConfig"]) == 2
-
-
-def test_export_config_cli_requires_dca_mac(tmp_path) -> None:
-    with pytest.raises(SystemExit, match="--dca-mac"):
-        export_config_main(
-            [
-                "--dca-json",
-                str(tmp_path / "dca.json"),
-                "--preset",
-                "iwr6843",
-            ]
-        )
-
-
-def test_export_config_cli_uses_iwr6843_preset(tmp_path) -> None:
-    ti_path = tmp_path / "radar.cfg"
-
-    result = export_config_main(["--preset", "iwr6843", "--ti-cfg", str(ti_path)])
-
-    assert result == 0
-    ti_text = ti_path.read_text(encoding="utf-8")
-    assert "channelCfg 15 7 0" in ti_text
-    assert "frameCfg 0 2 64 0 100.0 1 0" in ti_text
-
-
-def test_export_config_cli_preset_allows_profile_overrides(tmp_path) -> None:
-    ti_path = tmp_path / "radar.cfg"
-
-    result = export_config_main(
-        [
-            "--preset",
-            "iwr6843",
-            "--ti-cfg",
-            str(ti_path),
-            "--num-tx",
-            "2",
-            "--num-rx",
-            "2",
-            "--num-chirps-per-tx",
-            "8",
-        ]
-    )
-
-    assert result == 0
-    ti_text = ti_path.read_text(encoding="utf-8")
-    assert "channelCfg 3 5 0" in ti_text
-    assert "frameCfg 0 1 8 0 100.0 1 0" in ti_text
-
-
-def test_export_config_cli_requires_an_output() -> None:
-    with pytest.raises(SystemExit, match="at least one"):
-        export_config_main([])
-
-
-def test_export_config_cli_rejects_invalid_numeric_args(tmp_path) -> None:
-    ti_path = tmp_path / "radar.cfg"
-
-    with pytest.raises(SystemExit):
-        export_config_main(
-            [
-                "--ti-cfg",
-                str(ti_path),
-                "--num-adc-samples",
-                "0",
-            ]
-        )
-
-    with pytest.raises(SystemExit, match="before ramp"):
-        export_config_main(
-            [
-                "--ti-cfg",
-                str(ti_path),
-                "--adc-start-time-s",
-                "1",
-                "--ramp-end-time-s",
-                "0.5",
-            ]
-        )
 
 
 def test_inspect_adc_file_counts_frames_without_loading(tmp_path) -> None:
