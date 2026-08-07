@@ -11,6 +11,7 @@ All notable changes to mmwcore are documented here.
 - Iterate capture frames lazily and run explicit, contract-matched range-Doppler recipes, including
   IWR6843 active-Tx subsets.
 - Add a reproducible synthetic IWR6843 pipeline benchmark runner with versioned JSON results.
+- Support Python 3.10–3.13 with compatible typing and standard-library fallbacks.
 
 ## [0.2.2] - 2026-08-06
 

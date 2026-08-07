@@ -16,7 +16,7 @@ projects.
 
 ## Install
 
-Python 3.12 with native Rust kernels:
+Python 3.10–3.13 with native Rust kernels:
 
 ```console
 pip install mmwcore
