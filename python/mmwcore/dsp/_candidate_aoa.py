@@ -1,10 +1,6 @@
 """Native candidate-level angle-of-arrival boundaries."""
 
-# ruff: noqa: UP040
-
 from __future__ import annotations
-
-from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -13,12 +9,12 @@ from mmwcore import _native
 from mmwcore.core import AngleFFTSpec, VirtualAntennaLayout, VirtualSubarraySpec
 from mmwcore.dsp._fft import _window_code
 
-NativeCandidateAzimuthResult: TypeAlias = tuple[
+type NativeCandidateAzimuthResult = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
 ]
-NativeCandidateElevationResult: TypeAlias = tuple[
+type NativeCandidateElevationResult = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],

@@ -1,10 +1,6 @@
 """Native CFAR boundary for canonical range-Doppler radar cubes."""
 
-# ruff: noqa: UP040
-
 from __future__ import annotations
-
-from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,8 +8,8 @@ from numpy.typing import NDArray
 from mmwcore import _native
 from mmwcore.core import CFAR1DSpec, CFARInputScale, CFARMode
 
-NativeCfar1DResult: TypeAlias = tuple[NDArray[np.int64], NDArray[np.float32]]
-NativeCfarDetections: TypeAlias = tuple[
+type NativeCfar1DResult = tuple[NDArray[np.int64], NDArray[np.float32]]
+type NativeCfarDetections = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],

@@ -1,17 +1,13 @@
 """Native threshold-detection boundary for range-Doppler radar cubes."""
 
-# ruff: noqa: UP040
-
 from __future__ import annotations
-
-from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
 from mmwcore import _native
 
-NativeThresholdDetections: TypeAlias = tuple[NDArray[np.int64], NDArray[np.float32]]
+type NativeThresholdDetections = tuple[NDArray[np.int64], NDArray[np.float32]]
 
 
 def range_doppler_magnitude(

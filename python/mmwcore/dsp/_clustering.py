@@ -1,10 +1,6 @@
 """Native clustering boundary for Cartesian radar point clouds."""
 
-# ruff: noqa: UP040
-
 from __future__ import annotations
-
-from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,7 +8,7 @@ from numpy.typing import NDArray
 from mmwcore import _native
 from mmwcore.core import DBSCANClusteringSpec
 
-NativeClusterResult: TypeAlias = tuple[
+type NativeClusterResult = tuple[
     NDArray[np.int64],
     NDArray[np.float32],
     NDArray[np.float32],
