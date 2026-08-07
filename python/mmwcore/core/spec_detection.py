@@ -18,9 +18,10 @@ class PeakDetectionSpec:
     azimuth_peak_strict: bool = True
 
     def __post_init__(self) -> None:
-        if self.threshold < 0:
+        if not math.isfinite(self.threshold) or self.threshold < 0:
             raise ValueError(
-                f"PeakDetectionSpec.threshold must be non-negative; got {self.threshold}."
+                "PeakDetectionSpec.threshold must be finite and non-negative; "
+                f"got {self.threshold}."
             )
         if self.aggregate_rx not in {"max", "sum", "mean"}:
             raise ValueError(f"Unsupported RX aggregation: {self.aggregate_rx}.")
@@ -46,9 +47,9 @@ class CFARDetectionSpec:
             raise ValueError(
                 f"CFARDetectionSpec.guard_cells must be non-negative; got {self.guard_cells}."
             )
-        if self.threshold_scale < 0:
+        if not math.isfinite(self.threshold_scale) or self.threshold_scale < 0:
             raise ValueError(
-                "CFARDetectionSpec.threshold_scale must be non-negative; "
+                "CFARDetectionSpec.threshold_scale must be finite and non-negative; "
                 f"got {self.threshold_scale}."
             )
         if self.aggregate_rx not in {"max", "sum", "mean"}:
@@ -72,8 +73,8 @@ class CFAR1DSpec:
             raise ValueError("CFAR1DSpec.training_cells must be positive.")
         if self.guard_cells < 0:
             raise ValueError("CFAR1DSpec.guard_cells must be non-negative.")
-        if self.threshold_scale < 0:
-            raise ValueError("CFAR1DSpec.threshold_scale must be non-negative.")
+        if not math.isfinite(self.threshold_scale) or self.threshold_scale < 0:
+            raise ValueError("CFAR1DSpec.threshold_scale must be finite and non-negative.")
         if self.left_skip < 0 or self.right_skip < 0:
             raise ValueError("CFAR1DSpec skip lengths must be non-negative.")
         if not isinstance(self.mode, CFARMode):

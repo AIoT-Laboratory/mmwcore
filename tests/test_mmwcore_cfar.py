@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mmwcore.core import CFARDetectionSpec, RadarCube
+from mmwcore.core import CFAR1DSpec, CFARDetectionSpec, PeakDetectionSpec, RadarCube
 from mmwcore.dsp import detect_cfar
 
 
@@ -16,6 +16,16 @@ def test_cfar_detection_spec_validates_window_parameters() -> None:
 
     with pytest.raises(ValueError, match="threshold_scale"):
         CFARDetectionSpec(training_cells=1, guard_cells=1, threshold_scale=-1.0)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_detection_thresholds_must_be_finite(value: float) -> None:
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        PeakDetectionSpec(threshold=value)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        CFARDetectionSpec(training_cells=1, guard_cells=0, threshold_scale=value)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        CFAR1DSpec(training_cells=1, guard_cells=0, threshold_scale=value)
 
 
 def test_detect_cfar_returns_detection_frame_for_local_peak() -> None:
