@@ -24,6 +24,7 @@ from mmwcore.core import (
     FFTWindow,
     PeakDetectionSpec,
     PeakGroupingSpec,
+    PlanarAngleFFTSpec,
     PlanarApertureLayout,
     PointCloudFrame,
     PointCloudProjectionSpec,
@@ -47,6 +48,34 @@ from mmwcore.dsp import (
     range_fft,
 )
 from mmwcore.io import ADCFileFrameReader, load_adc_cube, load_adc_file
+
+type FFTSpec = RangeFFTSpec | DopplerFFTSpec | AngleFFTSpec | PlanarAngleFFTSpec
+
+_FFT_SIZE_FIELDS: tuple[tuple[FFTSpec, str], ...] = (
+    (RangeFFTSpec(), "n_fft"),
+    (DopplerFFTSpec(), "n_fft"),
+    (AngleFFTSpec(), "n_fft"),
+    (PlanarAngleFFTSpec(), "azimuth_n_fft"),
+    (PlanarAngleFFTSpec(), "elevation_n_fft"),
+)
+
+_FFT_BOOL_FIELDS: tuple[tuple[FFTSpec, str], ...] = (
+    (RangeFFTSpec(), "one_sided"),
+    (RangeFFTSpec(), "remove_dc"),
+    (DopplerFFTSpec(), "fftshift"),
+    (AngleFFTSpec(), "fftshift"),
+    (PlanarAngleFFTSpec(), "fftshift"),
+)
+
+_FFT_AXIS_FIELDS: tuple[tuple[FFTSpec, str], ...] = (
+    (DopplerFFTSpec(), "input_axis"),
+    (AngleFFTSpec(), "input_axis"),
+    (AngleFFTSpec(), "output_axis"),
+    (PlanarAngleFFTSpec(), "azimuth_input_axis"),
+    (PlanarAngleFFTSpec(), "elevation_input_axis"),
+    (PlanarAngleFFTSpec(), "azimuth_output_axis"),
+    (PlanarAngleFFTSpec(), "elevation_output_axis"),
+)
 
 
 def test_mmwcore_import_is_lightweight() -> None:
@@ -202,6 +231,113 @@ def test_adc_integer_contracts_reject_platform_overflow_before_allocation() -> N
 def test_uniform_linear_rejects_non_integral_antenna_counts(invalid: object) -> None:
     with pytest.raises(TypeError, match="num_antennas must be an integer"):
         VirtualAntennaLayout.uniform_linear(cast(int, invalid))
+
+
+@pytest.mark.parametrize(
+    ("spec", "field"),
+    _FFT_SIZE_FIELDS,
+    ids=[f"{type(spec).__name__}.{field}" for spec, field in _FFT_SIZE_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [pytest.param(True, id="bool"), pytest.param(1.5, id="float")],
+)
+def test_fft_specs_reject_non_integral_sizes(
+    spec: FFTSpec,
+    field: str,
+    invalid: object,
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match=rf"{type(spec).__name__}\.{field} must be an integer",
+    ):
+        replace(spec, **{field: invalid})
+
+
+@pytest.mark.parametrize(
+    ("spec", "field"),
+    _FFT_SIZE_FIELDS,
+    ids=[f"{type(spec).__name__}.{field}" for spec, field in _FFT_SIZE_FIELDS],
+)
+def test_fft_specs_normalize_numpy_integer_sizes(spec: FFTSpec, field: str) -> None:
+    normalized = replace(spec, **{field: np.int64(8)})
+
+    value = getattr(normalized, field)
+    assert value == 8
+    assert type(value) is int
+
+
+@pytest.mark.parametrize(
+    ("spec", "field"),
+    _FFT_SIZE_FIELDS,
+    ids=[f"{type(spec).__name__}.{field}" for spec, field in _FFT_SIZE_FIELDS],
+)
+def test_fft_specs_preserve_positive_size_domains(spec: FFTSpec, field: str) -> None:
+    with pytest.raises(
+        ValueError,
+        match=rf"{type(spec).__name__}\.{field} must be positive",
+    ):
+        replace(spec, **{field: 0})
+
+
+@pytest.mark.parametrize(
+    ("spec", "field"),
+    _FFT_SIZE_FIELDS,
+    ids=[f"{type(spec).__name__}.{field}" for spec, field in _FFT_SIZE_FIELDS],
+)
+def test_fft_specs_reject_platform_size_overflow(spec: FFTSpec, field: str) -> None:
+    with pytest.raises(
+        OverflowError,
+        match=rf"{type(spec).__name__}\.{field} must fit the platform index range",
+    ):
+        replace(spec, **{field: maxsize + 1})
+
+
+@pytest.mark.parametrize(
+    ("spec", "field"),
+    _FFT_BOOL_FIELDS,
+    ids=[f"{type(spec).__name__}.{field}" for spec, field in _FFT_BOOL_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [pytest.param(1, id="integer"), pytest.param(np.bool_(True), id="numpy-bool")],
+)
+def test_fft_specs_require_boolean_policy_fields(
+    spec: FFTSpec,
+    field: str,
+    invalid: object,
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match=rf"{type(spec).__name__}\.{field} must be a bool",
+    ):
+        replace(spec, **{field: invalid})
+
+
+@pytest.mark.parametrize(
+    ("spec", "field"),
+    _FFT_AXIS_FIELDS,
+    ids=[f"{type(spec).__name__}.{field}" for spec, field in _FFT_AXIS_FIELDS],
+)
+@pytest.mark.parametrize(
+    ("invalid", "error", "message"),
+    [
+        pytest.param(1, TypeError, "must be a string", id="truthy-integer"),
+        pytest.param("", ValueError, "must not be empty", id="empty"),
+    ],
+)
+def test_fft_specs_require_nonempty_string_axes(
+    spec: FFTSpec,
+    field: str,
+    invalid: object,
+    error: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(
+        error,
+        match=rf"{type(spec).__name__}\.{field} {message}",
+    ):
+        replace(spec, **{field: invalid})
 
 
 def test_organize_adc_samples_interleaved_iq_layout() -> None:
