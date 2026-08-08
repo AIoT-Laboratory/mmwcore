@@ -14,10 +14,12 @@ from mmwcore.config import RadarCaptureSpec, RadarProfile
 from mmwcore.core import ADCDecodeRecipe, ADCFrameSpec, RangeDopplerRecipe
 from mmwcore.io import (
     MMWCLI_MULTISENSOR_STREAM_SCHEMA_V1,
+    MappedTimeInterval,
     MultisensorStreamAborted,
     MultisensorStreamError,
     MultisensorStreamStateError,
     ProvisionalMultisensorRangeDoppler,
+    causal_match,
     open_multisensor_stream,
 )
 
@@ -48,13 +50,18 @@ def test_decodes_exact_go_golden_and_discards_failed_optional_source() -> None:
     items = list(stream.items())
 
     assert [(item.source_id, item.item_index, item.payload) for item in items] == [
-        ("radar-0", 0, b"R000"),
         ("camera-0", 0, b"JPEG-A"),
+        ("radar-0", 0, b"R000"),
         ("radar-0", 1, b"R1"),
         ("camera-0", 1, b"JPEG-B"),
     ]
     assert items[0].sync_event_id == 7
     assert items[2].sync_event_id is None
+    assert [item.mapped_time for item in items if item.source_id == "camera-0"] == [None, None]
+    assert [item.mapped_time for item in items if item.source_id == "radar-0"] == [
+        MappedTimeInterval(1_000_100_000, 1_000_110_100),
+        MappedTimeInterval(1_000_110_000, 1_000_120_100),
+    ]
     assert stream.radar_config is not None
     assert stream.radar_config.payload == b"sensorStop\n"
 
@@ -77,10 +84,26 @@ def test_preserves_delivery_observed_camera_ticks_without_exposure_claim() -> No
     assert camera.wrap_ticks == 0
     assert camera.timestamp_semantics == "delivery_observed"
 
-    camera_items = [item for item in stream.items() if item.source_id == "camera-0"]
-    assert [item.tick for item in camera_items] == [1_000_000_123, 1_000_000_456]
+    items = list(stream.items())
+    camera_items = [item for item in items if item.source_id == "camera-0"]
+    assert [item.tick for item in camera_items] == [1_000_105_000, 1_000_115_000]
     assert all(item.timestamp_semantics == "delivery_observed" for item in camera_items)
     assert all(item.duration_ticks == 0 for item in camera_items)
+    assert [item.mapped_time for item in camera_items] == [
+        MappedTimeInterval(1_000_105_000, 1_000_105_000),
+        MappedTimeInterval(1_000_115_000, 1_000_115_000),
+    ]
+    radar_items = [item for item in items if item.source_id == "radar-0"]
+    radar_time = radar_items[0].mapped_time
+    camera_time = camera_items[0].mapped_time
+    assert radar_time is not None
+    assert camera_time is not None
+    assert causal_match(
+        radar_time,
+        camera_time,
+        lag_min_ns=0,
+        lag_max_ns=0,
+    )
     stream.require_commit()
 
 
@@ -111,7 +134,7 @@ def test_rejects_delivery_observed_stream_duration() -> None:
     item = next(
         metadata
         for kind, _sequence, metadata, _payload in records
-        if kind == 3 and metadata.get("source_id") == "camera-0"
+        if kind == 4 and metadata.get("source_id") == "camera-0"
     )
     item["duration_ticks"] = 1
     stream = open_multisensor_stream(io.BytesIO(b"".join(_record(*record) for record in records)))
@@ -122,11 +145,69 @@ def test_rejects_delivery_observed_stream_duration() -> None:
     assert "delivery_observed" in str(failure.value.__cause__)
 
 
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [
+        ("missing", "preceding RADAR_START"),
+        ("duplicate", "unique"),
+        ("reversed", "reversed"),
+        ("camera", "declared radar"),
+        ("extra", "exact key set"),
+    ],
+)
+def test_rejects_invalid_radar_start_contract(mode: str, message: str) -> None:
+    records = _records(_golden())
+    start_index = next(index for index, record in enumerate(records) if record[0] == 3)
+    if mode == "missing":
+        records.pop(start_index)
+    elif mode == "duplicate":
+        kind, sequence, metadata, payload = records[start_index]
+        records.insert(start_index + 1, (kind, sequence, dict(metadata), payload))
+    elif mode == "reversed":
+        records[start_index][2]["host_lower_ns"] = 201
+        records[start_index][2]["host_upper_ns"] = 200
+    elif mode == "camera":
+        records[start_index][2]["source_id"] = "camera-0"
+    else:
+        records[start_index][2]["extra"] = True
+    stream = open_multisensor_stream(io.BytesIO(_encode_records(records)))
+
+    with pytest.raises(MultisensorStreamError) as failure:
+        list(stream.items())
+    assert failure.value.__cause__ is not None
+    assert message in str(failure.value.__cause__)
+
+
+@pytest.mark.parametrize("mode", ["anchor addition", "tick multiplication"])
+def test_rejects_radar_mapped_time_overflow(mode: str) -> None:
+    records = _records(_golden())
+    radar_start = next(metadata for kind, _, metadata, _ in records if kind == 3)
+    radar_item = next(
+        metadata
+        for kind, _, metadata, _ in records
+        if kind == 4 and metadata.get("source_id") == "radar-0"
+    )
+    if mode == "anchor addition":
+        radar_start["host_lower_ns"] = (1 << 64) - 1
+        radar_start["host_upper_ns"] = (1 << 64) - 1
+    else:
+        radar_start["host_lower_ns"] = 0
+        radar_start["host_upper_ns"] = 0
+        radar_item["tick"] = ((1 << 64) - 1) // 1_000_000_000 + 1
+        radar_item["duration_ticks"] = 0
+    stream = open_multisensor_stream(io.BytesIO(_encode_records(records)))
+
+    with pytest.raises(MultisensorStreamError) as failure:
+        list(stream.items())
+    assert failure.value.__cause__ is not None
+    assert "overflows" in str(failure.value.__cause__)
+
+
 def test_radar_item_supports_explicit_and_caller_bound_preset() -> None:
     stream = open_multisensor_stream(io.BytesIO(_golden()))
     iterator = stream.items()
-    radar = next(iterator)
     camera = next(iterator)
+    radar = next(iterator)
     adc = ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=1)
     recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(adc))
 
@@ -184,7 +265,7 @@ def test_requires_item_exhaustion_commit_explicit_eof_and_transport_eof() -> Non
 
 def test_rejects_end_lineage_and_required_failed_commit() -> None:
     records = _records(_golden())
-    camera_end = records[6][2]
+    camera_end = records[7][2]
     camera_end["payload_sha256"] = "0" * 64
     broken_lineage = b"".join(_record(*record) for record in records)
     stream = open_multisensor_stream(io.BytesIO(broken_lineage))
@@ -192,7 +273,7 @@ def test_rejects_end_lineage_and_required_failed_commit() -> None:
         list(stream.items())
 
     records = _records(_golden())
-    radar_end = records[7][2]
+    radar_end = records[8][2]
     radar_end["outcome"] = "failed"
     required_failed = b"".join(_record(*record) for record in records)
     stream = open_multisensor_stream(io.BytesIO(required_failed))
@@ -215,8 +296,8 @@ def test_abort_is_not_a_success_and_does_not_close_source() -> None:
     encoded = b"".join(
         (
             _record(*session),
-            _record(6, 1, abort, b""),
-            _record(7, 2, eof, b""),
+            _record(7, 1, abort, b""),
+            _record(8, 2, eof, b""),
         )
     )
     source = io.BytesIO(encoded)
@@ -267,6 +348,13 @@ def _record(kind: int, sequence: int, metadata: dict[str, Any], payload: bytes) 
     return prefix + digest + encoded + payload
 
 
+def _encode_records(records: list[tuple[int, int, dict[str, Any], bytes]]) -> bytes:
+    return b"".join(
+        _record(kind, sequence, metadata, payload)
+        for sequence, (kind, _old_sequence, metadata, payload) in enumerate(records)
+    )
+
+
 def _delivery_observed_stream() -> bytes:
     records = _records(_golden())
     camera = next(
@@ -278,9 +366,9 @@ def _delivery_observed_stream() -> bytes:
         "wrap_ticks": 0,
         "timestamp_semantics": "delivery_observed",
     }
-    ticks = iter((1_000_000_123, 1_000_000_456))
+    ticks = iter((1_000_105_000, 1_000_115_000))
     for kind, _sequence, metadata, _payload in records:
-        if kind == 3 and metadata.get("source_id") == "camera-0":
+        if kind == 4 and metadata.get("source_id") == "camera-0":
             metadata["tick"] = next(ticks)
             metadata["wrap_count"] = 0
             metadata["duration_ticks"] = 0

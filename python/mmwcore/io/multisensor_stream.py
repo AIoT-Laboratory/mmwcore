@@ -22,11 +22,13 @@ from ._range_doppler import (
     _resolve_range_doppler_recipe,
     _validate_range_doppler_recipe,
 )
+from .multisensor_capture import MappedTimeInterval
 
 MMWCLI_MULTISENSOR_STREAM_SCHEMA_V1 = "mmwcli.multisensor_stream.v1"
 MMWCLI_MULTISENSOR_STREAM_TERMINAL_SCHEMA_V1 = "mmwcli.multisensor_stream_terminal.v1"
 
 _RADAR_CONFIG_SCHEMA = "mmwcli.multisensor_stream_radar_config.v1"
+_RADAR_START_SCHEMA = "mmwcli.multisensor_stream_radar_start.v1"
 _ITEM_SCHEMA = "mmwcli.multisensor_stream_item.v1"
 _END_SCHEMA = "mmwcli.multisensor_stream_end.v1"
 _EOF_SCHEMA = "mmwcli.multisensor_stream_eof.v1"
@@ -44,6 +46,7 @@ _MAX_ITEMS = 1 << 24
 _MAX_SOURCES = 32
 _MAX_U64 = (1 << 64) - 1
 _NO_SYNC_EVENT = _MAX_U64
+_NANOSECONDS_PER_SECOND = 1_000_000_000
 _SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 _SOURCE_ID = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 _OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
@@ -168,6 +171,7 @@ class ProvisionalMultisensorItem:
     tick_hz: int
     wrap_ticks: int
     timestamp_semantics: str
+    mapped_time: MappedTimeInterval | None
 
     def range_doppler(
         self,
@@ -278,11 +282,12 @@ class MultisensorStreamAbort:
 class _RecordType(IntEnum):
     SESSION = 1
     RADAR_CONFIG = 2
-    ITEM = 3
-    END = 4
-    COMMIT = 5
-    ABORT = 6
-    EOF = 7
+    RADAR_START = 3
+    ITEM = 4
+    END = 5
+    COMMIT = 6
+    ABORT = 7
+    EOF = 8
 
 
 @dataclass(frozen=True)
@@ -300,6 +305,7 @@ class _SourceProgress:
     payload_bytes: int = 0
     payload_hash: object = field(default_factory=hashlib.sha256)
     end: MultisensorSourceEnd | None = None
+    radar_start: MappedTimeInterval | None = None
 
 
 class MultisensorStreamReader:
@@ -356,6 +362,7 @@ class MultisensorStreamReader:
                     frozenset(
                         {
                             _RecordType.RADAR_CONFIG,
+                            _RecordType.RADAR_START,
                             _RecordType.ITEM,
                             _RecordType.END,
                             _RecordType.ABORT,
@@ -364,6 +371,9 @@ class MultisensorStreamReader:
                 )
                 if record.kind is _RecordType.RADAR_CONFIG:
                     self._accept_radar_config(record)
+                    continue
+                if record.kind is _RecordType.RADAR_START:
+                    self._accept_radar_start(record)
                     continue
                 if record.kind is _RecordType.ITEM:
                     yield self._accept_item(record)
@@ -430,6 +440,27 @@ class MultisensorStreamReader:
             sha256=digest,
         )
 
+    def _accept_radar_start(self, record: _Record) -> None:
+        if self._ending_started:
+            raise ValueError("RADAR_START cannot follow the first source END")
+        _exact_keys(
+            record.metadata,
+            {"schema", "source_id", "host_lower_ns", "host_upper_ns"},
+            context="RADAR_START",
+        )
+        _literal(record.metadata, "schema", _RADAR_START_SCHEMA, "RADAR_START")
+        source_id = _string(record.metadata, "source_id", "RADAR_START")
+        progress = self._progress.get(source_id)
+        if progress is None or progress.contract.kind != "radar":
+            raise ValueError("RADAR_START source is not a declared radar")
+        if progress.radar_start is not None or progress.next_item != 0 or progress.end is not None:
+            raise ValueError("RADAR_START must be unique and precede its radar ITEM/END")
+        lower = _uint(record.metadata, "host_lower_ns", 0, _MAX_U64, "RADAR_START")
+        upper = _uint(record.metadata, "host_upper_ns", 0, _MAX_U64, "RADAR_START")
+        if lower > upper:
+            raise ValueError("RADAR_START host bounds are reversed")
+        progress.radar_start = MappedTimeInterval(lower, upper)
+
     def _accept_item(self, record: _Record) -> ProvisionalMultisensorItem:
         if self._ending_started:
             raise ValueError("ITEM cannot follow the first source END")
@@ -470,7 +501,8 @@ class MultisensorStreamReader:
             raise ValueError(f"source {source_id!r} ITEM exceeds its static limits")
         if source.timestamp_semantics == "delivery_observed" and duration != 0:
             raise ValueError("delivery_observed ITEM.duration_ticks must be zero")
-        _unwrap_ticks(tick, wrap_count, source.wrap_ticks, duration)
+        unwrapped = _unwrap_ticks(tick, wrap_count, source.wrap_ticks, duration)
+        mapped_time = _map_live_item(progress, unwrapped, duration)
         progress.payload_hash.update(record.payload)  # type: ignore[attr-defined]
         progress.payload_bytes += len(record.payload)
         progress.next_item += 1
@@ -490,6 +522,7 @@ class MultisensorStreamReader:
             tick_hz=source.tick_hz,
             wrap_ticks=source.wrap_ticks,
             timestamp_semantics=source.timestamp_semantics,
+            mapped_time=mapped_time,
         )
 
     def _accept_end(self, record: _Record) -> None:
@@ -981,6 +1014,52 @@ def _unwrap_ticks(tick: int, wrap_count: int, wrap_ticks: int, duration: int = 0
     if duration > _MAX_U64 - unwrapped:
         raise ValueError("source item duration overflows uint64")
     return unwrapped
+
+
+def _map_live_item(
+    progress: _SourceProgress,
+    unwrapped_tick: int,
+    duration_ticks: int,
+) -> MappedTimeInterval | None:
+    source = progress.contract
+    if source.kind == "camera":
+        if source.timestamp_semantics == "delivery_observed":
+            return MappedTimeInterval(unwrapped_tick, unwrapped_tick)
+        return None
+    radar_start = progress.radar_start
+    if radar_start is None:
+        raise ValueError("radar ITEM requires a preceding RADAR_START")
+    start_offset = _ticks_to_nanoseconds(
+        unwrapped_tick,
+        source.tick_hz,
+        round_up=False,
+    )
+    end_offset = _ticks_to_nanoseconds(
+        unwrapped_tick + duration_ticks,
+        source.tick_hz,
+        round_up=True,
+    )
+    return MappedTimeInterval(
+        _checked_u64_add(radar_start.start_ns, start_offset, "radar mapped start"),
+        _checked_u64_add(radar_start.end_ns, end_offset, "radar mapped end"),
+    )
+
+
+def _ticks_to_nanoseconds(tick: int, tick_hz: int, *, round_up: bool) -> int:
+    if tick > _MAX_U64 // _NANOSECONDS_PER_SECOND:
+        raise ValueError("radar tick-to-nanosecond multiplication overflows uint64")
+    quotient, remainder = divmod(tick * _NANOSECONDS_PER_SECOND, tick_hz)
+    if round_up and remainder:
+        if quotient == _MAX_U64:
+            raise ValueError("radar tick-to-nanosecond rounding overflows uint64")
+        quotient += 1
+    return quotient
+
+
+def _checked_u64_add(left: int, right: int, context: str) -> int:
+    if right > _MAX_U64 - left:
+        raise ValueError(f"{context} addition overflows uint64")
+    return left + right
 
 
 __all__ = [
