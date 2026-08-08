@@ -30,6 +30,7 @@ All notable changes to mmwcore are documented here.
 - Remove live serial control, DCA control, UDP packet-source, and frame-reader APIs.
 - Remove synchronized acquisition, radar-only capture sessions, legacy JSONL artifact
   writers/manifests, and the `mmwcore.session` package.
+- Remove the permissive TI CLI shape-summary parser; finite capture contracts use strict parsing.
 - Remove compatibility bridges and fallbacks for Python versions older than 3.12.
 
 ## [0.2.2] - 2026-08-06

@@ -9,7 +9,6 @@ import mmwcore.config
 from mmwcore.config import (
     RadarCaptureSpec,
     RadarProfile,
-    TiCliConfigSummary,
     awr1843_aop_antenna_geometry,
     iwr6843_aop_antenna_geometry,
     iwr6843_isk_3d_cfar_point_cloud_recipe,
@@ -22,7 +21,6 @@ from mmwcore.config import (
     iwr6843_isk_tdm_virtual_array,
     iwr6843_profile,
     parse_ti_cli_capture_spec,
-    parse_ti_cli_config,
     xwr1642_antenna_geometry,
     xwr1843_evm_antenna_geometry,
 )
@@ -437,80 +435,6 @@ def test_iwr6843_3d_cfar_recipe_declares_paired_elevation_row() -> None:
     assert recipe.detection.elevation_subarray == iwr6843_isk_elevation_subarray(tx_order=(0, 1, 2))
 
 
-def test_parse_ti_cli_config_recovers_capture_shape() -> None:
-    text = "\n".join(
-        [
-            "channelCfg 15 7 0",
-            "profileCfg 0 60 300 6 65 0 0 60 1 256 4400 0 0 30",
-            "chirpCfg 0 0 0 0 0 0 0 1",
-            "chirpCfg 1 1 0 0 0 0 0 4",
-            "chirpCfg 2 2 0 0 0 0 0 2",
-            "frameCfg 0 2 64 0 100 1 0",
-        ]
-    )
-
-    summary = parse_ti_cli_config(text)
-
-    assert summary.num_tx == 3
-    assert summary.num_rx == 4
-    assert summary.num_adc_samples == 256
-    assert summary.num_loops == 64
-    assert summary.num_chirps_per_loop == 3
-    assert summary.num_chirps_per_tx == 64
-    assert summary.chirps_per_frame == 192
-    assert summary.to_adc_frame_spec().raw_values_per_frame == 393216
-
-
-def test_parse_ti_cli_config_preserves_legacy_shape_contract() -> None:
-    text = "\n".join(
-        [
-            "channelCfg 15 1 0",
-            "profileCfg 0 60 30 7 57.14 0 0 60 1 128 5209 0 0 158",
-            "chirpCfg 0 0 0 0 0 0 0 1",
-            "frameCfg 0 0 2 0 10 1 0",
-        ]
-    )
-
-    summary = parse_ti_cli_config(text)
-
-    assert summary.num_tx == 1
-    assert summary.num_rx == 4
-    assert summary.num_adc_samples == 128
-    assert summary.num_loops == 2
-    assert summary.num_chirps_per_loop == 1
-    assert summary.num_chirps_per_tx == 2
-    assert summary.chirps_per_frame == 2
-    assert summary.frame_periodicity_s == pytest.approx(0.01)
-
-
-def test_ti_cli_config_summary_keeps_public_constructor_defaults() -> None:
-    summary = TiCliConfigSummary(4, 2, 256, 32, 2, 0, 1)
-
-    assert summary.frame_periodicity_s is None
-    assert summary.to_adc_frame_spec() == ADCFrameSpec(
-        num_chirps=64,
-        num_rx=4,
-        num_samples=256,
-    )
-
-
-def test_ti_cli_shape_parser_keeps_missing_chirp_fallback() -> None:
-    text = "\n".join(
-        [
-            "channelCfg 15 5 0",
-            "profileCfg 0 60 7 3 24 0 0 166 1 256 12500 0 0 158",
-            "frameCfg 0 1 32 100 100 1 0",
-        ]
-    )
-
-    assert parse_ti_cli_config(text).num_tx == 2
-    with pytest.raises(ValueError, match="dfeDataOutputMode.*adcCfg.*chirpCfg"):
-        parse_ti_cli_capture_spec(
-            text,
-            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-        )
-
-
 def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None:
     text = "\n".join(
         [
@@ -672,7 +596,6 @@ def test_parse_ti_cli_capture_spec_rejects_ambiguous_physical_contracts(
     command = replacement.split(maxsplit=1)[0]
     lines[next(index for index, line in enumerate(lines) if line.startswith(command))] = replacement
 
-    assert parse_ti_cli_config("\n".join(lines)).num_tx == 2
     with pytest.raises(ValueError, match=match):
         parse_ti_cli_capture_spec(
             "\n".join(lines),
@@ -689,7 +612,7 @@ def test_parse_ti_cli_capture_spec_rejects_ambiguous_physical_contracts(
         (["dfeDataOutputMode 1", "adcCfg 2 0"], "16-bit complex"),
     ],
 )
-def test_ti_cli_capture_contract_checks_do_not_leak_into_shape_parser(
+def test_ti_cli_capture_spec_rejects_missing_or_invalid_capture_commands(
     contract_lines: list[str],
     match: str,
 ) -> None:
@@ -705,7 +628,6 @@ def test_ti_cli_capture_contract_checks_do_not_leak_into_shape_parser(
         ]
     )
 
-    assert parse_ti_cli_config(text).num_tx == 1
     with pytest.raises(ValueError, match=match):
         parse_ti_cli_capture_spec(
             text,
