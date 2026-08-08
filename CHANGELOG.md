@@ -4,8 +4,12 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+## [0.3.0] - 2026-08-08
+
 ### Added
 
+- Add runnable capture-directory, raw-frame, explicit xWR18xx, radar-stream, and multi-sensor
+  offline/live examples.
 - Open integrity-checked versioned capture directories as lazy ADC readers and physical contracts.
 - Decode finite `mmwcli.capture_stream.v1` records from caller-owned binary streams, keeping frames
   provisional until COMMIT and terminal EOF validate.

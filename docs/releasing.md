@@ -15,13 +15,11 @@ The `release.yml` workflow builds interpreter-specific wheels for ordinary, GIL-
 3.12–3.14 on Linux, Windows, and macOS, plus an sdist. Every wheel is built and smoke-tested
 independently; `abi3` and free-threaded CPython 3.14 (`cp314t`) are not built or promised.
 
-Configure the GitHub `pypi` environment as a PyPI trusted publisher. A pending trusted publisher
-can authorize the first release.
+The GitHub `pypi` environment and PyPI trusted publisher have completed a release successfully.
 
 ## crates.io
 
-crates.io trusted publishing can be enabled only after the first crate version exists. Publish the
-first version manually with `cargo publish -p mmwcore --locked`, then configure this repository as
-the crate's trusted publisher. Future workflow dispatches may set `publish_crate=true`.
+The GitHub `crates-io` environment and crates.io trusted publisher have completed a release
+successfully. Release workflow dispatches may set `publish_crate=true`.
 
 Publishing is intentionally separate from ordinary CI.
