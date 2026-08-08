@@ -13,6 +13,8 @@ All notable changes to mmwcore are documented here.
   Range-Doppler recipe or preset, with matching stdout producers from both mmwcli capture routes.
 - Expose a frozen raw-capture descriptor and bind mmwcli directory/stream v1 decoding to its closed
   hardware, config-format, lane, byte-order, and layout tuple.
+- Accept closed xWR16xx, xWR18xx, and xWR68xx mmwcli descriptors with explicit family-bound RF and
+  transmitter validation, without inferring board geometry or a processing preset.
 - Decode explicit TI complex16 two-lane and four-lane capture layouts.
 - Add source-backed antenna geometries for XWR1642, standard XWR1843 EVM, IWR6843ISK,
   IWR6843 AOP, and AWR1843 AOP.

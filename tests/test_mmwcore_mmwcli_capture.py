@@ -102,6 +102,56 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert first.metadata["tx_order"] == [0]
 
 
+@pytest.mark.parametrize(
+    ("family", "expected_tx_order"),
+    [
+        ("xwr16xx", (1, 0)),
+        ("xwr18xx", (2, 0, 1)),
+    ],
+)
+def test_open_capture_supports_versioned_77_ghz_family_descriptors(
+    tmp_path: Path,
+    family: str,
+    expected_tx_order: tuple[int, ...],
+) -> None:
+    config, adc = _family_capture_fixture(family)
+    record = _manifest_record(config=config, adc=adc, family=family)
+    root = _write_capture(tmp_path, config=config, adc=adc, record=record)
+
+    opened = open_capture(root)
+
+    assert opened.raw_capture.family == family
+    assert opened.raw_capture.model == ""
+    assert opened.raw_capture.revision == ""
+    assert opened.raw_capture.identity_source == "route_declaration"
+    assert opened.radar_capture.profile.start_frequency_hz == pytest.approx(77e9)
+    assert opened.radar_capture.profile.num_tx == len(expected_tx_order)
+    assert opened.radar_capture.tx_order == expected_tx_order
+    assert opened.reader.num_frames == 2
+
+
+@pytest.mark.parametrize(
+    ("declared_family", "config_family"),
+    [
+        ("xwr16xx", "xwr18xx"),
+        ("xwr16xx", "xwr68xx"),
+        ("xwr18xx", "xwr68xx"),
+        ("xwr68xx", "xwr18xx"),
+    ],
+)
+def test_open_capture_rejects_descriptor_family_config_mismatch(
+    tmp_path: Path,
+    declared_family: str,
+    config_family: str,
+) -> None:
+    config, adc = _family_capture_fixture(config_family)
+    record = _manifest_record(config=config, adc=adc, family=declared_family)
+    root = _write_capture(tmp_path, config=config, adc=adc, record=record)
+
+    with pytest.raises(ValueError, match="start frequency|TX mask"):
+        open_capture(root)
+
+
 def test_capture_facade_reads_and_iterates_frames_lazily(tmp_path: Path) -> None:
     capture = open_capture(_write_capture(tmp_path))
 
@@ -361,7 +411,7 @@ def test_open_capture_requires_manifest_fields(
         (None, "schema", "mmwcli.capture_session.v2"),
         ("hardware", "vendor", "TI"),
         ("hardware", "vendor", 1),
-        ("hardware", "family", "xwr18xx"),
+        ("hardware", "family", "xwr14xx"),
         ("hardware", "model", "iwr6843"),
         ("hardware", "revision", "es2"),
         ("hardware", "identity_source", "observed_device"),
@@ -533,12 +583,13 @@ def _manifest_record(
     *,
     config: bytes = _CONFIG_BYTES,
     adc: bytes = _ADC_BYTES,
+    family: str = "xwr68xx",
 ) -> dict[str, Any]:
     return {
         "schema": MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
         "hardware": {
             "vendor": "ti",
-            "family": "xwr68xx",
+            "family": family,
             "model": "",
             "revision": "",
             "identity_source": "route_declaration",
@@ -562,6 +613,39 @@ def _manifest_record(
 
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _family_capture_fixture(family: str) -> tuple[bytes, bytes]:
+    if family == "xwr16xx":
+        start_frequency_ghz, channel_tx_mask, chirp_tx_masks = 77, 3, (2, 1)
+    elif family == "xwr18xx":
+        start_frequency_ghz, channel_tx_mask, chirp_tx_masks = 77, 7, (4, 1, 2)
+    elif family == "xwr68xx":
+        start_frequency_ghz, channel_tx_mask, chirp_tx_masks = 60, 7, (1, 4, 2)
+    else:
+        raise AssertionError(f"unsupported test family {family!r}")
+    chirps = [
+        f"chirpCfg {index} {index} 0 0 0 0 0 {tx_mask}"
+        for index, tx_mask in enumerate(chirp_tx_masks)
+    ]
+    config = (
+        "\n".join(
+            [
+                "flushCfg",
+                "dfeDataOutputMode 1",
+                f"channelCfg 1 {channel_tx_mask} 0",
+                "adcCfg 2 1",
+                "adcbufCfg -1 0 1 1 1",
+                f"profileCfg 0 {start_frequency_ghz} 7 3 24 0 0 166 1 4 12500 0 0 158",
+                *chirps,
+                f"frameCfg 0 {len(chirps) - 1} 1 2 10 1 0",
+                "lvdsStreamCfg -1 0 1 0",
+            ]
+        )
+        + "\n"
+    ).encode()
+    frame_bytes = 16 * len(chirp_tx_masks)
+    return config, bytes(frame_bytes * 2)
 
 
 def _object(record: dict[str, Any], field: str) -> dict[str, Any]:

@@ -141,6 +141,55 @@ def test_decodes_exact_go_golden_as_provisional_until_commit() -> None:
     assert not source.closed
 
 
+@pytest.mark.parametrize(
+    ("family", "expected_tx_order"),
+    [
+        ("xwr16xx", (1, 0)),
+        ("xwr18xx", (2, 0, 1)),
+    ],
+)
+def test_capture_stream_supports_versioned_77_ghz_family_descriptors(
+    family: str,
+    expected_tx_order: tuple[int, ...],
+) -> None:
+    source = io.BytesIO(_family_capture_stream(family, family))
+    reader = CaptureStreamReader(source)
+
+    contract = reader.read_contract()
+    frames = list(reader.provisional_frames())
+    commit = reader.require_commit()
+
+    assert contract.raw_capture.family == family
+    assert contract.raw_capture.model == ""
+    assert contract.raw_capture.revision == ""
+    assert contract.raw_capture.identity_source == "route_declaration"
+    assert contract.radar_capture.profile.start_frequency_hz == pytest.approx(77e9)
+    assert contract.radar_capture.tx_order == expected_tx_order
+    assert len(frames) == 1
+    assert commit.frames == 1
+    assert commit.adc_bytes == len(frames[0].frame.samples) * 2
+    assert not source.closed
+
+
+@pytest.mark.parametrize(
+    ("declared_family", "config_family"),
+    [
+        ("xwr16xx", "xwr18xx"),
+        ("xwr16xx", "xwr68xx"),
+        ("xwr18xx", "xwr68xx"),
+        ("xwr68xx", "xwr18xx"),
+    ],
+)
+def test_capture_stream_rejects_descriptor_family_config_mismatch(
+    declared_family: str,
+    config_family: str,
+) -> None:
+    source = io.BytesIO(_family_capture_stream(declared_family, config_family))
+
+    with pytest.raises(CaptureStreamError):
+        CaptureStreamReader(source).read_contract()
+
+
 class _ChunkedSource(io.BytesIO):
     def read(self, size: int = -1, /) -> bytes:
         return super().read(min(size, 7) if size >= 0 else 7)
@@ -374,7 +423,7 @@ def test_session_json_is_closed_typed_and_bound_to_cfg() -> None:
     variants.append(numeric_lane_count)
 
     unknown_family = _golden_session()
-    _object(unknown_family, "hardware")["family"] = "xwr18xx"
+    _object(unknown_family, "hardware")["family"] = "xwr14xx"
     variants.append(unknown_family)
 
     invented_model = _golden_session()
@@ -586,6 +635,69 @@ def _golden_session() -> dict[str, Any]:
 
 def _json_line(record: object) -> bytes:
     return json.dumps(record, separators=(",", ":"), ensure_ascii=False).encode() + b"\n"
+
+
+def _family_capture_stream(declared_family: str, config_family: str) -> bytes:
+    config, frame = _family_stream_fixture(config_family)
+    session = _golden_session()
+    _object(session, "hardware")["family"] = declared_family
+    capture = _object(session, "capture")
+    capture["frame_count"] = 1
+    capture["frame_bytes"] = len(frame)
+    capture["expected_bytes"] = len(frame)
+    radar_config = _object(session, "radar_config")
+    radar_config["size_bytes"] = len(config)
+    radar_config["sha256"] = hashlib.sha256(config).hexdigest()
+    terminal = _json_line(
+        {
+            "schema": "mmwcli.capture_stream_terminal.v1",
+            "stream_id": _STREAM_ID,
+            "outcome": "commit",
+            "frames": 1,
+            "adc_bytes": len(frame),
+            "adc_sha256": hashlib.sha256(frame).hexdigest(),
+        }
+    )
+    return b"".join(
+        (
+            _record(1, 0, 0, _json_line(session)),
+            _record(2, 1, 0, config),
+            _record(3, 2, 0, frame),
+            _record(4, 3, 1, terminal),
+        )
+    )
+
+
+def _family_stream_fixture(family: str) -> tuple[bytes, bytes]:
+    if family == "xwr16xx":
+        start_frequency_ghz, channel_tx_mask, chirp_tx_masks = 77, 3, (2, 1)
+    elif family == "xwr18xx":
+        start_frequency_ghz, channel_tx_mask, chirp_tx_masks = 77, 7, (4, 1, 2)
+    elif family == "xwr68xx":
+        start_frequency_ghz, channel_tx_mask, chirp_tx_masks = 60, 7, (1, 4, 2)
+    else:
+        raise AssertionError(f"unsupported test family {family!r}")
+    chirps = [
+        f"chirpCfg {index} {index} 0 0 0 0 0 {tx_mask}"
+        for index, tx_mask in enumerate(chirp_tx_masks)
+    ]
+    config = (
+        "\n".join(
+            [
+                "flushCfg",
+                "dfeDataOutputMode 1",
+                f"channelCfg 1 {channel_tx_mask} 0",
+                "adcCfg 2 1",
+                "adcbufCfg -1 0 1 1 1",
+                f"profileCfg 0 {start_frequency_ghz} 7 3 24 0 0 166 1 4 12500 0 0 158",
+                *chirps,
+                f"frameCfg 0 {len(chirps) - 1} 1 1 10 1 0",
+                "lvdsStreamCfg -1 0 1 0",
+            ]
+        )
+        + "\n"
+    ).encode()
+    return config, bytes(range(16 * len(chirp_tx_masks)))
 
 
 def _object(record: dict[str, Any], field: str) -> dict[str, Any]:

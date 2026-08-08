@@ -44,11 +44,18 @@ origins when the stored format does not prove them.
   AWR1843 AOP.
 
 These explicit decoders and geometry presets are usable only when the caller proves the actual
-layout and board. They do not widen the versioned mmwcli contract: directory and stream v1 readers
-currently accept only `vendor=ti`, `family=xwr68xx`, empty `model`/`revision`,
-`identity_source=route_declaration`, `config_format=ti_mmwave_legacy_cli.v1`, `dtype=int16`,
-`byte_order=little`, `lane_count=2`, and `layout=group2_i_then_q`.
-`ADCFileCapture.raw_capture` and `CaptureStreamContract.raw_capture` expose that tuple;
+layout and board. Versioned mmwcli directory and stream v1 readers accept the three closed family
+tuples `family=xwr16xx`, `family=xwr18xx`, and `family=xwr68xx`; each also requires `vendor=ti`,
+empty `model`/`revision`, `identity_source=route_declaration`,
+`config_format=ti_mmwave_legacy_cli.v1`, `dtype=int16`, `byte_order=little`, `lane_count=2`, and
+`layout=group2_i_then_q`.
+
+The embedded legacy CFG must match the declared family: xWR16xx uses the 76–81 GHz range and up to
+two TX identifiers, xWR18xx uses 76–81 GHz and up to three, and xWR68xx uses 57–64 GHz and up to
+three. Chirp order determines the explicit `tx_order`; no family selects antenna geometry or a
+preset. The standalone TI CLI parser likewise requires an explicit `family` keyword and has no
+default. `ADCFileCapture.raw_capture` and `CaptureStreamContract.raw_capture` expose the declared
+tuple, but decoder acceptance does not claim that an mmwcli acquisition route has been validated.
 `route_declaration` is not an observed device identity. See the
 [mmwcli hardware-support matrix](https://github.com/AIoT-Laboratory/mmwcli/blob/main/docs/hardware-support.md).
 

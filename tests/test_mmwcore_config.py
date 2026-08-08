@@ -505,6 +505,7 @@ def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None
     capture = parse_ti_cli_capture_spec(
         text,
         layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        family="xwr68xx",
     )
 
     assert capture.tx_order == (0, 2)
@@ -526,6 +527,74 @@ def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None
     assert capture.expected_size_bytes == 26_214_400
 
 
+@pytest.mark.parametrize(
+    ("family", "channel_tx_mask", "chirp_tx_masks", "expected_tx_order"),
+    [
+        ("xwr16xx", 3, (2, 1), (1, 0)),
+        ("xwr18xx", 7, (4, 1, 2), (2, 0, 1)),
+    ],
+)
+def test_parse_ti_cli_capture_spec_accepts_77_ghz_family_tx_contracts(
+    family: str,
+    channel_tx_mask: int,
+    chirp_tx_masks: tuple[int, ...],
+    expected_tx_order: tuple[int, ...],
+) -> None:
+    text = _ti_family_capture_config(
+        start_frequency_ghz=77,
+        channel_tx_mask=channel_tx_mask,
+        chirp_tx_masks=chirp_tx_masks,
+    )
+
+    capture = parse_ti_cli_capture_spec(
+        text,
+        layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        family=family,
+    )
+
+    assert capture.profile.start_frequency_hz == pytest.approx(77e9)
+    assert capture.profile.num_tx == len(chirp_tx_masks)
+    assert capture.tx_order == expected_tx_order
+
+
+@pytest.mark.parametrize(
+    ("family", "start_frequency_ghz", "channel_tx_mask", "chirp_tx_masks"),
+    [
+        ("xwr16xx", 60, 3, (1, 2)),
+        ("xwr18xx", 60, 7, (1, 4, 2)),
+        ("xwr68xx", 77, 7, (1, 4, 2)),
+        ("xwr16xx", 77, 7, (1, 4)),
+    ],
+)
+def test_parse_ti_cli_capture_spec_rejects_family_config_mismatch(
+    family: str,
+    start_frequency_ghz: int,
+    channel_tx_mask: int,
+    chirp_tx_masks: tuple[int, ...],
+) -> None:
+    text = _ti_family_capture_config(
+        start_frequency_ghz=start_frequency_ghz,
+        channel_tx_mask=channel_tx_mask,
+        chirp_tx_masks=chirp_tx_masks,
+    )
+
+    with pytest.raises(ValueError, match="start frequency|TX mask"):
+        parse_ti_cli_capture_spec(
+            text,
+            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+            family=family,
+        )
+
+
+def test_parse_ti_cli_capture_spec_rejects_unknown_family() -> None:
+    with pytest.raises(ValueError, match="xwr16xx, xwr18xx, xwr68xx"):
+        parse_ti_cli_capture_spec(
+            "",
+            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+            family="xwr14xx",
+        )
+
+
 def test_parse_ti_cli_capture_spec_supports_continuous_frames() -> None:
     text = "\n".join(
         [
@@ -544,6 +613,7 @@ def test_parse_ti_cli_capture_spec_supports_continuous_frames() -> None:
     capture = parse_ti_cli_capture_spec(
         text,
         layout=ADCComplexLayout.IQ_INTERLEAVED,
+        family="xwr68xx",
     )
 
     assert capture.tx_order == (0, 2, 1)
@@ -563,6 +633,7 @@ def test_parse_ti_cli_capture_spec_rejects_late_flush() -> None:
                 ]
             ),
             layout=ADCComplexLayout.IQ_INTERLEAVED,
+            family="xwr68xx",
         )
 
 
@@ -601,6 +672,7 @@ def test_parse_ti_cli_capture_spec_rejects_non_tdm_tx_sequences(
         parse_ti_cli_capture_spec(
             text,
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+            family="xwr68xx",
         )
 
 
@@ -652,6 +724,7 @@ def test_parse_ti_cli_capture_spec_rejects_ambiguous_physical_contracts(
         parse_ti_cli_capture_spec(
             "\n".join(lines),
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+            family="xwr68xx",
         )
 
 
@@ -684,6 +757,7 @@ def test_ti_cli_capture_spec_rejects_missing_or_invalid_capture_commands(
         parse_ti_cli_capture_spec(
             text,
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+            family="xwr68xx",
         )
 
 
@@ -705,6 +779,7 @@ def test_ti_cli_capture_spec_requires_raw_hardware_stream_commands(command: str)
         parse_ti_cli_capture_spec(
             "\n".join(lines),
             layout=ADCComplexLayout.IQ_INTERLEAVED,
+            family="xwr68xx",
         )
 
 
@@ -734,4 +809,30 @@ def test_ti_cli_capture_spec_rejects_odd_group2_sample_count(
         parse_ti_cli_capture_spec(
             text,
             layout=layout,
+            family="xwr68xx",
         )
+
+
+def _ti_family_capture_config(
+    *,
+    start_frequency_ghz: int,
+    channel_tx_mask: int,
+    chirp_tx_masks: tuple[int, ...],
+) -> str:
+    chirps = [
+        f"chirpCfg {index} {index} 0 0 0 0 0 {tx_mask}"
+        for index, tx_mask in enumerate(chirp_tx_masks)
+    ]
+    return "\n".join(
+        [
+            "flushCfg",
+            "dfeDataOutputMode 1",
+            f"channelCfg 15 {channel_tx_mask} 0",
+            "adcCfg 2 1",
+            "adcbufCfg -1 0 1 1 1",
+            f"profileCfg 0 {start_frequency_ghz} 7 3 24 0 0 166 1 4 12500 0 0 158",
+            *chirps,
+            f"frameCfg 0 {len(chirps) - 1} 1 1 10 1 0",
+            "lvdsStreamCfg -1 0 1 0",
+        ]
+    )

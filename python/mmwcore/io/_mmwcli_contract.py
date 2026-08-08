@@ -19,19 +19,28 @@ _MAX_INT64 = (1 << 63) - 1
 
 type _RawCaptureKey = tuple[str, str, str, str, str, str, str, str, int, str]
 
-_XWR68XX_RAW_CAPTURE_KEY: _RawCaptureKey = (
-    "ti",
-    "xwr68xx",
-    "",
-    "",
-    "route_declaration",
-    "ti_mmwave_legacy_cli.v1",
-    "int16",
-    "little",
-    2,
-    "group2_i_then_q",
-)
+
+def _two_lane_ti_raw_capture_key(family: str) -> _RawCaptureKey:
+    return (
+        "ti",
+        family,
+        "",
+        "",
+        "route_declaration",
+        "ti_mmwave_legacy_cli.v1",
+        "int16",
+        "little",
+        2,
+        "group2_i_then_q",
+    )
+
+
+_XWR16XX_RAW_CAPTURE_KEY = _two_lane_ti_raw_capture_key("xwr16xx")
+_XWR18XX_RAW_CAPTURE_KEY = _two_lane_ti_raw_capture_key("xwr18xx")
+_XWR68XX_RAW_CAPTURE_KEY = _two_lane_ti_raw_capture_key("xwr68xx")
 _RAW_CAPTURE_LAYOUTS: dict[_RawCaptureKey, ADCComplexLayout] = {
+    _XWR16XX_RAW_CAPTURE_KEY: ADCComplexLayout.GROUP2_I_THEN_Q,
+    _XWR18XX_RAW_CAPTURE_KEY: ADCComplexLayout.GROUP2_I_THEN_Q,
     _XWR68XX_RAW_CAPTURE_KEY: ADCComplexLayout.GROUP2_I_THEN_Q,
 }
 
@@ -170,6 +179,7 @@ def _parse_mmwcli_radar_config(
     capture = parse_ti_cli_capture_spec(
         text,
         layout=layout,
+        family=raw_capture.family,
     )
     if capture.num_frames is None or capture.expected_size_bytes is None:
         raise ValueError(f"{context} requires a finite radar frame count.")
