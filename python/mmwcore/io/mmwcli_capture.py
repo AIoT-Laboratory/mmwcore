@@ -12,28 +12,26 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from mmwcore.config import RadarCaptureSpec, parse_ti_cli_capture_spec
-from mmwcore.core import (
-    ADCComplexLayout,
-    RadarCube,
-    RangeDopplerRecipe,
-    RawADCFrame,
-)
+from mmwcore.config import RadarCaptureSpec
+from mmwcore.core import RadarCube, RangeDopplerRecipe, RawADCFrame
 
+from ._mmwcli_contract import (
+    _ADC_BYTE_ORDER,
+    _ADC_DATA_TYPE,
+    _ADC_FILE_NAME,
+    _ADC_LAYOUT,
+    _MANIFEST_FILE_NAME,
+    _MAX_INT64,
+    _MAX_RADAR_CONFIG_BYTES,
+    _RADAR_CONFIG_FILE_NAME,
+    _RADAR_CONFIG_FORMAT,
+    MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
+    _parse_mmwcli_radar_config,
+    _valid_lower_sha256,
+)
 from .adc_file import ADCFileFrameReader
 
-MMWCLI_CAPTURE_SESSION_SCHEMA_V1 = "mmwcli.capture_session.v1"
-
-_MANIFEST_FILE_NAME = "capture.json"
-_ADC_FILE_NAME = "adc.bin"
-_RADAR_CONFIG_FILE_NAME = "radar.cfg"
-_ADC_DATA_TYPE = "int16"
-_ADC_BYTE_ORDER = "little"
-_ADC_LAYOUT = "group2_i_then_q"
-_RADAR_CONFIG_FORMAT = "ti_xwr68xx_legacy_cli"
 _MAX_MANIFEST_BYTES = 64 << 10
-_MAX_RADAR_CONFIG_BYTES = 4 << 20
-_MAX_INT64 = (1 << 63) - 1
 
 
 @dataclass(frozen=True)
@@ -205,20 +203,11 @@ def open_capture(path: str | Path) -> ADCFileCapture:
         label="radar configuration",
         maximum_bytes=_MAX_RADAR_CONFIG_BYTES,
     )
-    config_digest = hashlib.sha256(config_bytes).hexdigest()
-    if not hmac.compare_digest(config_digest, manifest.radar_config_sha256):
-        raise ValueError("mmwcli capture radar.cfg SHA-256 does not match capture.json.")
-    try:
-        config_text = config_bytes.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError("mmwcli capture radar.cfg is not valid UTF-8.") from exc
-
-    radar_capture = parse_ti_cli_capture_spec(
-        config_text,
-        layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+    radar_capture = _parse_mmwcli_radar_config(
+        config_bytes,
+        expected_sha256=manifest.radar_config_sha256,
+        context="mmwcli capture",
     )
-    if radar_capture.num_frames is None or radar_capture.expected_size_bytes is None:
-        raise ValueError("mmwcli capture session requires a finite radar frame count.")
     if radar_capture.expected_size_bytes != manifest.adc_size_bytes:
         raise ValueError(
             "mmwcli capture CFG-derived size does not match capture.json: "
@@ -372,12 +361,9 @@ def _require_literal(
 
 def _required_sha256(record: dict[str, object], field: str, label: str) -> str:
     value = record.get(field)
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(character not in "0123456789abcdef" for character in value)
-    ):
+    if not _valid_lower_sha256(value):
         raise ValueError(f"mmwcli capture manifest {label} must be lowercase SHA-256.")
+    assert isinstance(value, str)
     return value
 
 

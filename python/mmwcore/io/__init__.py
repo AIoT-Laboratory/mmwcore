@@ -3,6 +3,18 @@
 from __future__ import annotations
 
 from .adc_file import ADCFileFrameReader, load_adc_cube, load_adc_file
+from .capture_stream import (
+    MMWCLI_CAPTURE_STREAM_SCHEMA_V1,
+    MMWCLI_CAPTURE_STREAM_TERMINAL_SCHEMA_V1,
+    CaptureStreamAbort,
+    CaptureStreamAborted,
+    CaptureStreamCommit,
+    CaptureStreamContract,
+    CaptureStreamError,
+    CaptureStreamReader,
+    CaptureStreamStateError,
+    ProvisionalADCFrame,
+)
 from .mmwcli_capture import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
     ADCFileCapture,
@@ -30,6 +42,16 @@ __all__ = [
     "DCA1000Packet",
     "PacketLossStats",
     "MMWCLI_CAPTURE_SESSION_SCHEMA_V1",
+    "MMWCLI_CAPTURE_STREAM_SCHEMA_V1",
+    "MMWCLI_CAPTURE_STREAM_TERMINAL_SCHEMA_V1",
+    "CaptureStreamAbort",
+    "CaptureStreamAborted",
+    "CaptureStreamCommit",
+    "CaptureStreamContract",
+    "CaptureStreamError",
+    "CaptureStreamReader",
+    "CaptureStreamStateError",
+    "ProvisionalADCFrame",
     "assemble_dca1000_frame",
     "assemble_dca1000_frame_bytes",
     "load_adc_cube",
