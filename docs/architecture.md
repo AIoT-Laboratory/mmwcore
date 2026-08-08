@@ -88,6 +88,20 @@ threads. mmwcore does not open a process, socket, device, or hardware session an
 source. The caller owns both the producer process and source and must make reads honor any required
 deadline or cancellation.
 
+## Multi-sensor boundary
+
+`open_multisensor_capture` validates a published `mmwcli.multisensor_session.v1` directory,
+artifact hashes, fixed indices, source outcomes, and clock mappings. Radar sources can open their
+nested capture session with an explicit recipe or preset. `causal_pairs` joins source items by
+conservative mapped intervals and an explicit lag window; it does not infer synchronization from
+item indices.
+
+`open_multisensor_stream` decodes caller-owned `mmwcli.multisensor_stream.v1` data. It exposes
+cross-source provisional items, source outcomes, and final COMMIT+EOF validation. RADAR_START maps
+radar tick zero to a conservative host interval, while `delivery_observed` camera ticks are exact
+host-relative delivery observations. Neither is silently promoted to an exposure timestamp.
+Failed or omitted optional-source items are rejected by the final commit lineage.
+
 ## Validation
 
 Unit tests cover dimensions, integer domains, finite values, counter wrap, integrity checks, and

@@ -1,8 +1,8 @@
 # mmwcore
 
-mmwcore is an offline radar decoding and signal-processing library for captured mmWave data.
-Its boundary starts at bytes plus explicit physical contracts, then produces range-Doppler cubes,
-detections, calibrated point clouds, clusters, tracks, and vital-sign products.
+mmwcore decodes captured and live mmWave data for offline training and real-time inference. Its
+boundary starts at caller-owned bytes plus explicit physical contracts, then produces
+range-Doppler cubes, detections, calibrated point clouds, clusters, tracks, and vital-sign products.
 
 [![PyPI](https://img.shields.io/pypi/v/mmwcore.svg?logo=pypi&logoColor=white)](https://pypi.org/project/mmwcore/) [![crates.io](https://img.shields.io/crates/v/mmwcore.svg?logo=rust)](https://crates.io/crates/mmwcore)
 [![docs.rs](https://img.shields.io/docsrs/mmwcore.svg?logo=docs.rs)](https://docs.rs/mmwcore) [![CI](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/AIoT-Laboratory/mmwcore.svg)](LICENSE)
@@ -28,7 +28,9 @@ Maintained inputs are:
 - archived DCA1000 datagrams;
 - headerless `int16` ADC files with an explicit frame contract;
 - completed versioned capture directories opened with `open_capture`;
-- finite `mmwcli.capture_stream.v1` data supplied through a caller-owned `BinaryIO`.
+- finite `mmwcli.capture_stream.v1` data supplied through a caller-owned `BinaryIO`;
+- published radar-plus-camera sessions opened with `open_multisensor_capture`;
+- finite `mmwcli.multisensor_stream.v1` data opened with `open_multisensor_stream`.
 
 The library does not configure devices, render firmware commands, or manage live acquisition.
 Callers must supply ADC layout, frame geometry, timing, antenna geometry, and trusted packet/frame
@@ -98,6 +100,46 @@ closes the source nor opens a process, socket, or device. The source must make `
 required deadline or cancellation. Processing is synchronous and pull-driven, without prefetch or
 worker threads.
 
+### Train from synchronized radar and camera data
+
+```python
+from mmwcore import open_multisensor_capture
+from mmwcore.config import iwr6843_isk_range_doppler_recipe
+
+session = open_multisensor_capture("training-session")
+radar = session.source("radar-0")
+radar_capture = radar.open_radar_capture(
+    range_doppler=iwr6843_isk_range_doppler_recipe,
+)
+for camera_item, radar_item in session.causal_pairs(
+    "camera-0", "radar-0", lag_min_ns=0, lag_max_ns=50_000_000
+):
+    train(
+        camera_item.payload,
+        radar_capture.range_doppler(frame_index=radar_item.item_index),
+    )
+```
+
+The join uses conservative mapped time intervals, not equal frame numbers or nearest arrival time.
+The preset is an explicit board-geometry declaration; choose the preset or recipe that matches the
+actual radar.
+
+### Consume a live aggregate stream
+
+```python
+from mmwcore import open_multisensor_stream
+
+stream = open_multisensor_stream(source)  # caller-owned BinaryIO
+provisional = list(stream.items())
+commit = stream.require_commit()
+accepted = [item for item in provisional if commit.accepts(item)]
+```
+
+Radar and `delivery_observed` camera items expose `mapped_time` on the same host-relative axis.
+A camera `exposure_midpoint` remains unmapped in the live stream unless the producer supplies a
+live mapping; mmwcore never substitutes delivery time for exposure time. Items and derived results
+remain provisional until global COMMIT and EOF.
+
 ### Read a headerless ADC file
 
 ```python
@@ -157,7 +199,7 @@ assert_eq!(cube.shape(), [1, 1, 1, 2]);
 
 - `mmwcore.core`: axes, units, ADC, cube, detection, point-cloud, and tracking contracts.
 - `mmwcore.config`: finite radar profiles, capture contracts, antenna geometries, and recipes.
-- `mmwcore.io`: packet, ADC-file, capture-directory, and finite capture-stream readers.
+- `mmwcore.io`: packet, ADC-file, radar/multi-sensor directory, and finite live-stream readers.
 - `mmwcore.dsp`: FFT, clutter removal, CFAR, calibration, AoA, projection, and clustering.
 - `mmwcore.tracking`: assignment, stateful trackers, runners, metrics, and validation artifacts.
 - `mmwcore.plot`: optional research visualizations outside the Rust compute core.

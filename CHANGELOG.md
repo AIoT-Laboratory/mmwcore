@@ -15,6 +15,10 @@ All notable changes to mmwcore are documented here.
   hardware, config-format, lane, byte-order, and layout tuple.
 - Accept closed xWR16xx, xWR18xx, and xWR68xx mmwcli descriptors with explicit family-bound RF and
   transmitter validation, without inferring board geometry or a processing preset.
+- Open published multi-sensor sessions, nested radar captures, and lazy causal training pairs with
+  integrity-bound indices and conservative clock mappings.
+- Decode aggregate live radar/camera streams, expose mapped provisional item times, and bind
+  accepted results to source outcomes plus global COMMIT and EOF.
 - Decode explicit TI complex16 two-lane and four-lane capture layouts.
 - Add source-backed antenna geometries for XWR1642, standard XWR1843 EVM, IWR6843ISK,
   IWR6843 AOP, and AWR1843 AOP.
