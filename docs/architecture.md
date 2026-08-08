@@ -48,11 +48,13 @@ Packet assembly distinguishes diagnostics from exact frame construction:
 - a first packet or modulo relation never proves radar-frame phase.
 
 ADC files require an explicit shape, complex layout, and timing when used by temporal algorithms.
-Versioned capture directories additionally validate fixed file names, schema, hashes, byte counts,
-and their embedded physical contract.
+The listed TI-family layout decoders and board geometries remain caller-selected capabilities;
+firmware profiles do not prove lane layout, board geometry, orientation, or provenance.
 
-TI layouts and antenna geometries are selected explicitly. Firmware profiles do not prove lane
-layout, board geometry, orientation, or capture provenance.
+Versioned mmwcli directory and stream v1 readers additionally require the closed tuple `ti`,
+`xwr68xx`, empty model/revision, `route_declaration`, `ti_mmwave_legacy_cli.v1`, `int16`, little
+endian, two lanes, and `group2_i_then_q`. Their public `raw_capture` field exposes this declaration;
+it is not observed device identity.
 
 ## Physical data path
 

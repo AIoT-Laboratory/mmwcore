@@ -9,6 +9,8 @@ All notable changes to mmwcore are documented here.
 - Open integrity-checked versioned capture directories as lazy ADC readers and physical contracts.
 - Decode finite `mmwcli.capture_stream.v1` records from caller-owned binary streams, keeping frames
   provisional until COMMIT and terminal EOF validate.
+- Expose a frozen raw-capture descriptor and bind mmwcli directory/stream v1 decoding to its closed
+  hardware, config-format, lane, byte-order, and layout tuple.
 - Decode explicit TI complex16 two-lane and four-lane capture layouts.
 - Add source-backed antenna geometries for XWR1642, standard XWR1843 EVM, IWR6843ISK,
   IWR6843 AOP, and AWR1843 AOP.

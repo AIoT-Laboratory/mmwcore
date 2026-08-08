@@ -43,8 +43,14 @@ origins when the stored format does not prove them.
 - Source-backed antenna geometries: XWR1642, standard XWR1843 EVM, IWR6843ISK, IWR6843 AOP, and
   AWR1843 AOP.
 
-Select the layout and geometry from the actual capture setup. A radar profile alone does not prove
-the byte layout or board placement.
+These explicit decoders and geometry presets are usable only when the caller proves the actual
+layout and board. They do not widen the versioned mmwcli contract: directory and stream v1 readers
+currently accept only `vendor=ti`, `family=xwr68xx`, empty `model`/`revision`,
+`identity_source=route_declaration`, `config_format=ti_mmwave_legacy_cli.v1`, `dtype=int16`,
+`byte_order=little`, `lane_count=2`, and `layout=group2_i_then_q`.
+`ADCFileCapture.raw_capture` and `CaptureStreamContract.raw_capture` expose that tuple;
+`route_declaration` is not an observed device identity. See the
+[mmwcli hardware-support matrix](https://github.com/AIoT-Laboratory/mmwcli/blob/main/docs/hardware-support.md).
 
 ## Python examples
 
