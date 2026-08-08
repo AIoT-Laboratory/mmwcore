@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from sys import maxsize
+
 import matplotlib
 import numpy as np
 import pytest
@@ -132,3 +135,97 @@ def test_vital_sign_waveform_rejects_invalid_samples(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         VitalSignWaveform(values, sample_rate_hz=sample_rate_hz)
+
+
+@pytest.mark.parametrize("field_name", ["sample_rate_hz", "start_time_s"])
+@pytest.mark.parametrize("value", [True, np.bool_(True), "1.0"])
+def test_vital_sign_waveform_rejects_non_real_physical_scalars(
+    field_name: str,
+    value: object,
+) -> None:
+    waveform = VitalSignWaveform(np.array([0.0, 1.0]), sample_rate_hz=2.0)
+
+    with pytest.raises(TypeError, match=field_name):
+        replace(waveform, **{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["sample_rate_hz", "start_time_s"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_vital_sign_waveform_rejects_nonfinite_physical_scalars(
+    field_name: str,
+    value: float,
+) -> None:
+    waveform = VitalSignWaveform(np.array([0.0, 1.0]), sample_rate_hz=2.0)
+
+    with pytest.raises(ValueError, match=field_name):
+        replace(waveform, **{field_name: value})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "expected"),
+    [
+        ("sample_rate_hz", np.float32(2.5), 2.5),
+        ("start_time_s", np.float64(-1.25), -1.25),
+    ],
+)
+def test_vital_sign_waveform_normalizes_numpy_physical_scalars(
+    field_name: str,
+    value: object,
+    expected: float,
+) -> None:
+    waveform = VitalSignWaveform(np.array([0.0, 1.0]), sample_rate_hz=2.0)
+    normalized = getattr(replace(waveform, **{field_name: value}), field_name)
+
+    assert normalized == pytest.approx(expected)
+    assert type(normalized) is float
+
+
+@pytest.mark.parametrize("value", [True, np.bool_(True), 1.5])
+def test_vital_sign_waveform_rejects_nonintegral_range_bin(value: object) -> None:
+    with pytest.raises(TypeError, match="range_bin"):
+        VitalSignWaveform(
+            np.array([0.0, 1.0]),
+            sample_rate_hz=2.0,
+            range_bin=value,  # type: ignore[arg-type]
+        )
+
+
+def test_vital_sign_waveform_normalizes_numpy_range_bin() -> None:
+    waveform = replace(
+        VitalSignWaveform(np.array([0.0, 1.0]), sample_rate_hz=2.0),
+        range_bin=np.int64(4),
+    )
+
+    assert waveform.range_bin == 4
+    assert type(waveform.range_bin) is int
+
+
+def test_vital_sign_waveform_rejects_invalid_range_bin_domain() -> None:
+    with pytest.raises(ValueError, match="range_bin"):
+        VitalSignWaveform(np.array([0.0, 1.0]), sample_rate_hz=2.0, range_bin=-1)
+    with pytest.raises(OverflowError, match="range_bin.*platform index"):
+        VitalSignWaveform(
+            np.array([0.0, 1.0]),
+            sample_rate_hz=2.0,
+            range_bin=maxsize + 1,
+        )
+
+
+@pytest.mark.parametrize(
+    "values",
+    [np.array([True, False]), np.array([True, False], dtype=np.bool_)],
+)
+def test_vital_sign_waveform_rejects_boolean_values_dtype(values: np.ndarray) -> None:
+    with pytest.raises(TypeError, match="values.*boolean dtype"):
+        VitalSignWaveform(values, sample_rate_hz=2.0)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [np.array([1, 2], dtype=np.int16), np.array([1.0, 2.0], dtype=np.float64)],
+)
+def test_vital_sign_waveform_normalizes_numeric_values(values: np.ndarray) -> None:
+    waveform = VitalSignWaveform(values, sample_rate_hz=2.0)
+
+    assert waveform.values.dtype == np.float32
+    np.testing.assert_allclose(waveform.values, [1.0, 2.0])
