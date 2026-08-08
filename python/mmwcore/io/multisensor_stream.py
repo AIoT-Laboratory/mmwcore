@@ -149,6 +149,9 @@ class ProvisionalMultisensorItem:
     A committed source outcome other than ``complete`` invalidates every item
     previously yielded for that source. Use :meth:`MultisensorStreamCommit.accepts`
     before retaining provisional data.
+
+    A ``delivery_observed`` camera tick is the recorder's raw host-relative
+    delivery time, not a camera exposure timestamp.
     """
 
     session_id: str
@@ -465,6 +468,8 @@ class MultisensorStreamReader:
             or len(record.payload) > source.max_payload_bytes - progress.payload_bytes
         ):
             raise ValueError(f"source {source_id!r} ITEM exceeds its static limits")
+        if source.timestamp_semantics == "delivery_observed" and duration != 0:
+            raise ValueError("delivery_observed ITEM.duration_ticks must be zero")
         _unwrap_ticks(tick, wrap_count, source.wrap_ticks, duration)
         progress.payload_hash.update(record.payload)  # type: ignore[attr-defined]
         progress.payload_bytes += len(record.payload)
@@ -806,9 +811,7 @@ def _parse_source(value: object, index: int) -> MultisensorStreamSource:
     if wrap_ticks == 1:
         raise ValueError("source clock wrap_ticks must be zero or greater than one")
     semantics = _string(clock, "timestamp_semantics", f"source {source_id}.clock")
-    expected_semantics = "frame_start" if kind == "radar" else "exposure_midpoint"
-    if semantics != expected_semantics:
-        raise ValueError(f"{kind} source clock timestamp semantics are invalid")
+    _validate_source_clock(source_id, kind, clock_id, tick_hz, wrap_ticks, semantics)
     max_items = _uint(limits, "max_items", 1, _MAX_ITEMS, f"source {source_id}.limits")
     max_item_bytes = _uint(
         limits,
@@ -840,6 +843,27 @@ def _parse_source(value: object, index: int) -> MultisensorStreamSource:
         max_item_bytes=max_item_bytes,
         max_payload_bytes=max_payload_bytes,
     )
+
+
+def _validate_source_clock(
+    source_id: str,
+    kind: str,
+    clock_id: str,
+    tick_hz: int,
+    wrap_ticks: int,
+    semantics: str,
+) -> None:
+    if kind == "radar" and semantics != "frame_start":
+        raise ValueError(f"{kind} source clock timestamp semantics are invalid")
+    if kind == "camera" and semantics not in {"exposure_midpoint", "delivery_observed"}:
+        raise ValueError(f"{kind} source clock timestamp semantics are invalid")
+    if semantics == "delivery_observed" and (
+        clock_id != f"{source_id}-delivery-observed" or tick_hz != 1_000_000_000 or wrap_ticks != 0
+    ):
+        raise ValueError(
+            "delivery_observed camera clock must use its dedicated clock_id, "
+            "tick_hz=1000000000, and wrap_ticks=0"
+        )
 
 
 def _strict_json_object(encoded: bytes, *, context: str) -> dict[str, object]:

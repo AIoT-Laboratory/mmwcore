@@ -68,6 +68,60 @@ def test_decodes_exact_go_golden_and_discards_failed_optional_source() -> None:
     assert not source.closed
 
 
+def test_preserves_delivery_observed_camera_ticks_without_exposure_claim() -> None:
+    stream = open_multisensor_stream(io.BytesIO(_delivery_observed_stream()))
+
+    camera = stream.source("camera-0")
+    assert camera.clock_id == "camera-0-delivery-observed"
+    assert camera.tick_hz == 1_000_000_000
+    assert camera.wrap_ticks == 0
+    assert camera.timestamp_semantics == "delivery_observed"
+
+    camera_items = [item for item in stream.items() if item.source_id == "camera-0"]
+    assert [item.tick for item in camera_items] == [1_000_000_123, 1_000_000_456]
+    assert all(item.timestamp_semantics == "delivery_observed" for item in camera_items)
+    assert all(item.duration_ticks == 0 for item in camera_items)
+    stream.require_commit()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("clock_id", "camera-clock"),
+        ("tick_hz", 1_000_000),
+        ("wrap_ticks", 1 << 32),
+    ],
+)
+def test_rejects_invalid_delivery_observed_stream_clock(field: str, value: object) -> None:
+    records = _records(_delivery_observed_stream())
+    camera = next(
+        source for source in records[0][2]["sources"] if source["source_id"] == "camera-0"
+    )
+    camera["clock"][field] = value
+    encoded = b"".join(_record(*record) for record in records)
+
+    with pytest.raises(MultisensorStreamError) as failure:
+        open_multisensor_stream(io.BytesIO(encoded))
+    assert failure.value.__cause__ is not None
+    assert "delivery_observed" in str(failure.value.__cause__)
+
+
+def test_rejects_delivery_observed_stream_duration() -> None:
+    records = _records(_delivery_observed_stream())
+    item = next(
+        metadata
+        for kind, _sequence, metadata, _payload in records
+        if kind == 3 and metadata.get("source_id") == "camera-0"
+    )
+    item["duration_ticks"] = 1
+    stream = open_multisensor_stream(io.BytesIO(b"".join(_record(*record) for record in records)))
+
+    with pytest.raises(MultisensorStreamError) as failure:
+        list(stream.items())
+    assert failure.value.__cause__ is not None
+    assert "delivery_observed" in str(failure.value.__cause__)
+
+
 def test_radar_item_supports_explicit_and_caller_bound_preset() -> None:
     stream = open_multisensor_stream(io.BytesIO(_golden()))
     iterator = stream.items()
@@ -211,3 +265,23 @@ def _record(kind: int, sequence: int, metadata: dict[str, Any], payload: bytes) 
     )
     digest = hashlib.sha256(_DOMAIN + prefix + encoded + payload).digest()
     return prefix + digest + encoded + payload
+
+
+def _delivery_observed_stream() -> bytes:
+    records = _records(_golden())
+    camera = next(
+        source for source in records[0][2]["sources"] if source["source_id"] == "camera-0"
+    )
+    camera["clock"] = {
+        "clock_id": "camera-0-delivery-observed",
+        "tick_hz": 1_000_000_000,
+        "wrap_ticks": 0,
+        "timestamp_semantics": "delivery_observed",
+    }
+    ticks = iter((1_000_000_123, 1_000_000_456))
+    for kind, _sequence, metadata, _payload in records:
+        if kind == 3 and metadata.get("source_id") == "camera-0":
+            metadata["tick"] = next(ticks)
+            metadata["wrap_count"] = 0
+            metadata["duration_ticks"] = 0
+    return b"".join(_record(*record) for record in records)

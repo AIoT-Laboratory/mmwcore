@@ -52,7 +52,10 @@ _SOURCE_ID = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 _KINDS = frozenset({"radar", "camera"})
 _OUTCOMES = frozenset({"complete", "failed", "omitted"})
 _GRADES = frozenset({"software_barrier"})
-_TIMESTAMP_SEMANTICS = {"radar": "frame_start", "camera": "exposure_midpoint"}
+_TIMESTAMP_SEMANTICS = {
+    "radar": frozenset({"frame_start"}),
+    "camera": frozenset({"exposure_midpoint", "delivery_observed"}),
+}
 _ARTIFACT_ROLES = frozenset({"payload", "index", "configuration", "manifest", "metadata"})
 _SYNC_EDGES = frozenset({"rising", "falling"})
 _EVIDENCE_KINDS = frozenset({"trigger_generation", "hardware_observation"})
@@ -132,6 +135,7 @@ class _AffineSegment:
     host_origin_ns: int
     scale_num: int
     scale_den: int
+    observation_ids: tuple[str, ...]
     uncertainty_ns: int
 
 
@@ -714,12 +718,28 @@ def _parse_source(value: object) -> _SourceContract:
         raise ValueError("source item_count and payload_bytes must both be zero or both nonzero.")
 
     clock = _parse_clock(_object(value, "clock", f"source {source_id}"), kind=kind)
+    if clock.timestamp_semantics == "delivery_observed" and (
+        clock.clock_id != f"{source_id}-delivery-observed"
+        or clock.tick_hz != 1_000_000_000
+        or clock.wrap_ticks != 0
+    ):
+        raise ValueError(
+            "delivery_observed camera clock must use its dedicated clock_id, "
+            "tick_hz=1000000000, and wrap_ticks=0."
+        )
     observations = _parse_observations(value, source_id=source_id, clock=clock)
     segments = _parse_segments(
         value,
         source_id=source_id,
         clock=clock,
         observations=observations,
+    )
+    _validate_delivery_observed_mapping(
+        source_id=source_id,
+        item_count=item_count,
+        clock=clock,
+        observations=observations,
+        segments=segments,
     )
     cardinality = (
         _parse_cardinality(value["sync_event_cardinality"], source_id, max_items)
@@ -849,6 +869,7 @@ def _validate_index(  # noqa: C901
     _require_file_size(path, _checked_index_size(contract.item_count), "sensor index")
     event_counts: Counter[int] = Counter()
     expected_offset = 0
+    first_tick: int | None = None
     previous_tick: int | None = None
     with path.open("rb") as file:
         _read_index_header(
@@ -868,6 +889,10 @@ def _validate_index(  # noqa: C901
             if expected_offset > contract.payload_bytes:
                 raise ValueError("Sensor index payload range exceeds the declared payload.")
             unwrapped = _unwrapped_tick(contract.clock, entry.ticks, entry.wrap_count)
+            if contract.clock.timestamp_semantics == "delivery_observed" and entry.duration_ticks:
+                raise ValueError("delivery_observed sensor index duration_ticks must be zero.")
+            if first_tick is None:
+                first_tick = unwrapped
             if previous_tick is not None and unwrapped < previous_tick:
                 raise ValueError("Sensor index source ticks must be monotonic.")
             previous_tick = unwrapped
@@ -888,6 +913,18 @@ def _validate_index(  # noqa: C901
             raise ValueError("Sensor index does not exactly cover the declared payload.")
         if file.read(1):
             raise ValueError("Sensor index contains trailing data.")
+    if contract.clock.timestamp_semantics == "delivery_observed" and first_tick is not None:
+        assert previous_tick is not None
+        segment = contract.segments[0]
+        if (
+            first_tick != segment.start_tick
+            or previous_tick == _MAX_U64
+            or segment.end_tick != previous_tick + 1
+        ):
+            raise ValueError(
+                "delivery_observed affine range must exactly cover the first through "
+                "last item tick."
+            )
     return event_counts
 
 
@@ -958,11 +995,11 @@ def _parse_clock(record: dict[str, object], *, kind: str) -> _Clock:
         timestamp_semantics=_closed_text(
             record,
             "timestamp_semantics",
-            frozenset({"host_monotonic", "frame_start", "exposure_midpoint"}),
+            frozenset({"host_monotonic", "frame_start", "exposure_midpoint", "delivery_observed"}),
             f"{kind} clock",
         ),
     )
-    if kind in _KINDS and clock.timestamp_semantics != _TIMESTAMP_SEMANTICS[kind]:
+    if kind in _KINDS and clock.timestamp_semantics not in _TIMESTAMP_SEMANTICS[kind]:
         raise ValueError(f"{kind} source clock timestamp semantics are invalid.")
     if clock.wrap_ticks == 1:
         raise ValueError(f"{kind} clock.wrap_ticks must be zero or greater than one.")
@@ -1072,6 +1109,7 @@ def _parse_segments(  # noqa: C901
             ),
             scale_num=_uint(value, "scale_num", 1, _MAX_U64, "affine segment"),
             scale_den=_uint(value, "scale_den", 1, _MAX_U64, "affine segment"),
+            observation_ids=tuple(observation_values),
             uncertainty_ns=_uint(
                 value,
                 "uncertainty_ns",
@@ -1102,6 +1140,47 @@ def _parse_segments(  # noqa: C901
         _validate_segment_domain(segment)
         previous = segment
     return tuple(segments)
+
+
+def _validate_delivery_observed_mapping(
+    *,
+    source_id: str,
+    item_count: int,
+    clock: _Clock,
+    observations: dict[str, _ClockObservation],
+    segments: tuple[_AffineSegment, ...],
+) -> None:
+    if clock.timestamp_semantics != "delivery_observed":
+        return
+    if item_count == 0:
+        if observations or segments:
+            raise ValueError("Empty delivery_observed sources must not declare a clock mapping.")
+        return
+    anchor_id = f"{source_id}-delivery-anchor"
+    if set(observations) != {anchor_id}:
+        raise ValueError("delivery_observed source must declare its exact delivery anchor.")
+    anchor = observations[anchor_id]
+    if (
+        anchor.wrap_count != 0
+        or anchor.host_before_ns != anchor.ticks
+        or anchor.host_after_ns != anchor.ticks
+    ):
+        raise ValueError("delivery_observed anchor must be an exact host-relative item tick.")
+    if len(segments) != 1:
+        raise ValueError("delivery_observed source must declare one identity affine segment.")
+    segment = segments[0]
+    if (
+        segment.start_tick != anchor.ticks
+        or segment.source_origin_tick != anchor.ticks
+        or segment.host_origin_ns != anchor.ticks
+        or segment.scale_num != 1
+        or segment.scale_den != 1
+        or segment.observation_ids != (anchor_id,)
+        or segment.uncertainty_ns != 0
+    ):
+        raise ValueError(
+            "delivery_observed source affine segment must be the generated identity mapping."
+        )
 
 
 def _parse_cardinality(

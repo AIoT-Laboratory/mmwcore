@@ -29,6 +29,7 @@ _SESSION_ID = "12345678-1234-4abc-8def-1234567890ab"
 _HEADER = struct.Struct("<8sHHHHQQ")
 _ENTRY = struct.Struct("<QQQQQQQII")
 _EVENT_ID = 7
+_NO_SYNC_EVENT = (1 << 64) - 1
 _NESTED_RADAR_CONFIG = b"""\
 flushCfg
 dfeDataOutputMode 1
@@ -78,6 +79,57 @@ def test_open_multisensor_capture_reads_training_items_and_time(tmp_path: Path) 
     )
     with pytest.raises(FrozenInstanceError):
         capture.session_id = "changed"  # type: ignore[misc]
+
+
+def test_opens_delivery_observed_camera_with_identity_mapping(tmp_path: Path) -> None:
+    root, record = _write_fixture(tmp_path, name="delivery-observed")
+    tick = 123_456_789
+    _make_camera_delivery_observed(root, record, tick=tick)
+
+    source = open_multisensor_capture(root).source("camera-0")
+    item = source.read_item(0)
+
+    assert source.clock_id == "camera-0-delivery-observed"
+    assert source.tick_hz == 1_000_000_000
+    assert source.wrap_ticks == 0
+    assert source.timestamp_semantics == "delivery_observed"
+    assert item.source_ticks == tick
+    assert item.duration_ticks == 0
+    assert item.mapped_time == MappedTimeInterval(tick, tick)
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ["clock_id", "tick_hz", "wrap_ticks", "anchor", "affine", "range", "duration"],
+)
+def test_rejects_invalid_delivery_observed_camera_contract(
+    tmp_path: Path,
+    mismatch: str,
+) -> None:
+    root, record = _write_fixture(tmp_path, name=f"bad-delivery-{mismatch}")
+    tick = 123_456_789
+    _make_camera_delivery_observed(root, record, tick=tick)
+    camera = _source(record, "camera-0")
+    if mismatch in {"clock_id", "tick_hz", "wrap_ticks"}:
+        camera["clock"][mismatch] = {
+            "clock_id": "camera-clock",
+            "tick_hz": 1_000_000,
+            "wrap_ticks": 1 << 32,
+        }[mismatch]
+    elif mismatch == "anchor":
+        camera["clock_observations"][0]["host_before_ns"] = tick + 1
+        camera["clock_observations"][0]["host_after_ns"] = tick + 1
+        camera["affine_segments"][0]["uncertainty_ns"] = 1
+    elif mismatch == "affine":
+        camera["affine_segments"][0]["scale_num"] = 2
+    elif mismatch == "range":
+        camera["affine_segments"][0]["end_unwrapped_tick"] = tick + 2
+    else:
+        _write_camera_delivery_index(root, record, tick=tick, duration=1)
+    _write_session(root, record)
+
+    with pytest.raises(ValueError, match="delivery_observed"):
+        open_multisensor_capture(root)
 
 
 def test_opens_the_exact_go_two_source_golden(tmp_path: Path) -> None:
@@ -696,6 +748,70 @@ def _index(payload: bytes, *, ticks: int, duration: int) -> bytes:
         0,
         0,
     )
+
+
+def _make_camera_delivery_observed(
+    root: Path,
+    record: dict[str, Any],
+    *,
+    tick: int,
+) -> None:
+    camera = _source(record, "camera-0")
+    camera["clock"] = {
+        "clock_id": "camera-0-delivery-observed",
+        "tick_hz": 1_000_000_000,
+        "wrap_ticks": 0,
+        "timestamp_semantics": "delivery_observed",
+    }
+    camera["clock_observations"] = [
+        {
+            "observation_id": "camera-0-delivery-anchor",
+            "tick": tick,
+            "wrap_count": 0,
+            "host_before_ns": tick,
+            "host_after_ns": tick,
+        }
+    ]
+    camera["affine_segments"] = [
+        {
+            "start_unwrapped_tick": tick,
+            "end_unwrapped_tick": tick + 1,
+            "source_origin_tick": tick,
+            "host_origin_ns": tick,
+            "scale_num": 1,
+            "scale_den": 1,
+            "observation_ids": ["camera-0-delivery-anchor"],
+            "uncertainty_ns": 0,
+        }
+    ]
+    camera.pop("sync_event_cardinality")
+    _write_camera_delivery_index(root, record, tick=tick, duration=0)
+    _write_session(root, record)
+
+
+def _write_camera_delivery_index(
+    root: Path,
+    record: dict[str, Any],
+    *,
+    tick: int,
+    duration: int,
+) -> None:
+    payload = (root / "sensors" / "camera-0" / "frames.bin").read_bytes()
+    index = _HEADER.pack(b"MMWSIDX1", 1, 32, 64, 0, 1, len(payload)) + _ENTRY.pack(
+        0,
+        0,
+        len(payload),
+        tick,
+        0,
+        duration,
+        _NO_SYNC_EVENT,
+        0,
+        0,
+    )
+    (root / "sensors" / "camera-0" / "index.bin").write_bytes(index)
+    artifact = _artifact(_source(record, "camera-0"), "index")
+    artifact["size_bytes"] = len(index)
+    artifact["sha256"] = hashlib.sha256(index).hexdigest()
 
 
 def _write_session(root: Path, record: dict[str, Any]) -> None:
