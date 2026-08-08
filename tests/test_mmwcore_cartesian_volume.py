@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from sys import maxsize
+
 import numpy as np
 import pytest
 
-from mmwcore.core import PlanarApertureLayout, RadarCube
+from mmwcore.core import CartesianVolumeSparsificationSpec, PlanarApertureLayout, RadarCube
 from mmwcore.dsp import PlanarCartesianProjector
 
 
@@ -116,3 +119,123 @@ def test_planar_cartesian_projector_rejects_real_source_contract() -> None:
 
     with pytest.raises(TypeError, match="complex antenna samples"):
         _projector().project(source)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "max_points",
+        "spatial_peak_radius",
+        "doppler_peak_radius",
+        "max_doppler_peaks_per_spatial",
+        "boundary_margin_voxels",
+    ],
+)
+@pytest.mark.parametrize("value", [True, 1.5])
+def test_cartesian_sparsification_rejects_nonintegral_integer_fields(
+    field_name: str,
+    value: object,
+) -> None:
+    with pytest.raises(TypeError, match=field_name):
+        replace(CartesianVolumeSparsificationSpec(), **{field_name: value})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("max_points", 17),
+        ("spatial_peak_radius", 2),
+        ("doppler_peak_radius", 3),
+        ("max_doppler_peaks_per_spatial", 4),
+        ("boundary_margin_voxels", 5),
+    ],
+)
+def test_cartesian_sparsification_normalizes_numpy_integer_fields(
+    field_name: str,
+    value: int,
+) -> None:
+    spec = replace(CartesianVolumeSparsificationSpec(), **{field_name: np.int64(value)})
+    normalized = getattr(spec, field_name)
+    assert normalized == value
+    assert type(normalized) is int
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "max_points",
+        "spatial_peak_radius",
+        "doppler_peak_radius",
+        "max_doppler_peaks_per_spatial",
+        "boundary_margin_voxels",
+    ],
+)
+def test_cartesian_sparsification_rejects_platform_index_overflow(field_name: str) -> None:
+    with pytest.raises(OverflowError, match=field_name):
+        replace(CartesianVolumeSparsificationSpec(), **{field_name: maxsize + 1})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "min_snr_db",
+        "noise_floor_scale",
+        "static_point_capacity_fraction",
+        "static_velocity_threshold_mps",
+    ],
+)
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf")])
+def test_cartesian_sparsification_rejects_invalid_physical_scalars(
+    field_name: str,
+    value: object,
+) -> None:
+    error = TypeError if value is True else ValueError
+    with pytest.raises(error, match=field_name):
+        replace(CartesianVolumeSparsificationSpec(), **{field_name: value})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("min_snr_db", -3.5),
+        ("noise_floor_scale", 2.0),
+        ("static_point_capacity_fraction", 0.5),
+        ("static_velocity_threshold_mps", 0.25),
+    ],
+)
+def test_cartesian_sparsification_normalizes_numpy_physical_scalars(
+    field_name: str,
+    value: float,
+) -> None:
+    spec = replace(CartesianVolumeSparsificationSpec(), **{field_name: np.float32(value)})
+    normalized = getattr(spec, field_name)
+    assert normalized == pytest.approx(value)
+    assert type(normalized) is float
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("max_points", 0),
+        ("spatial_peak_radius", -1),
+        ("doppler_peak_radius", -1),
+        ("max_doppler_peaks_per_spatial", 0),
+        ("boundary_margin_voxels", -1),
+        ("noise_floor_scale", 0.0),
+        ("static_point_capacity_fraction", 0.0),
+        ("static_point_capacity_fraction", 1.1),
+        ("static_velocity_threshold_mps", -0.1),
+    ],
+)
+def test_cartesian_sparsification_rejects_values_outside_field_domains(
+    field_name: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        replace(CartesianVolumeSparsificationSpec(), **{field_name: value})
+
+
+@pytest.mark.parametrize("value", [1, 0, "yes", np.bool_(True)])
+def test_cartesian_sparsification_requires_exact_boolean_fallback(value: object) -> None:
+    with pytest.raises(TypeError, match="strongest_point_fallback"):
+        CartesianVolumeSparsificationSpec(strongest_point_fallback=value)  # type: ignore[arg-type]
