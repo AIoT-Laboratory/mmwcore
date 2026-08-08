@@ -9,6 +9,8 @@ All notable changes to mmwcore are documented here.
 - Open integrity-checked versioned capture directories as lazy ADC readers and physical contracts.
 - Decode finite `mmwcli.capture_stream.v1` records from caller-owned binary streams, keeping frames
   provisional until COMMIT and terminal EOF validate.
+- Bind `open_capture` and the pull-driven `open_capture_stream` facade to an exact contract-derived
+  Range-Doppler recipe or preset, with matching stdout producers from both mmwcli capture routes.
 - Expose a frozen raw-capture descriptor and bind mmwcli directory/stream v1 decoding to its closed
   hardware, config-format, lane, byte-order, and layout tuple.
 - Decode explicit TI complex16 two-lane and four-lane capture layouts.

@@ -78,9 +78,12 @@ in the core.
 JSON, payload bounds, record and ADC digests, the embedded radar configuration, terminal state, and
 EOF. Frames remain provisional unless COMMIT and EOF both validate.
 
-The decoder is implemented; the matching mmwcli transport and CLI producer are not wired yet.
-mmwcore does not open a process, socket, device, or hardware session and never closes the source.
-The caller owns the source and must make its reads honor any required deadline or cancellation.
+Both mmwcli capture routes, `studio-cli capture --stream` and `debug-cli capture --stream`, provide
+the matching binary stdout producer. `open_capture_stream` validates the contract immediately and
+offers pull-driven ADC-frame or contract-bound Range-Doppler iteration without prefetch or worker
+threads. mmwcore does not open a process, socket, device, or hardware session and never closes the
+source. The caller owns both the producer process and source and must make reads honor any required
+deadline or cancellation.
 
 ## Validation
 
