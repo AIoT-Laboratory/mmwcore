@@ -4,12 +4,89 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
+from numbers import Real
+from operator import index as integer_index
+from sys import maxsize as _MAX_PLATFORM_INDEX
 
 import numpy as np
 
 from mmwcore.core import CartesianRadarVolume, PlanarApertureLayout, RadarCube
 
 from ._cartesian import NativePlanarCartesianConfig, NativePlanarCartesianProjector
+
+
+def _platform_index(value: int, *, name: str) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer.")
+    try:
+        normalized = int(integer_index(value))
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an integer.") from exc
+    if not -_MAX_PLATFORM_INDEX - 1 <= normalized <= _MAX_PLATFORM_INDEX:
+        raise OverflowError(f"{name} must fit the platform index range.")
+    return normalized
+
+
+def _integer_at_least(value: int, *, name: str, minimum: int) -> int:
+    normalized = _platform_index(value, name=name)
+    if normalized < minimum:
+        raise ValueError(f"{name} must be at least {minimum}; got {normalized}.")
+    return normalized
+
+
+def _integer_triplet(
+    values: tuple[int, int, int],
+    *,
+    name: str,
+) -> tuple[int, int, int]:
+    try:
+        raw_values = tuple(values)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an iterable of three integers.") from exc
+    if len(raw_values) != 3:
+        raise ValueError(f"{name} must contain exactly three values.")
+    normalized = tuple(
+        _integer_at_least(value, name=f"{name}[{index}]", minimum=1)
+        for index, value in enumerate(raw_values)
+    )
+    return normalized[0], normalized[1], normalized[2]
+
+
+def _finite_real(value: object, *, name: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number, not bool or string.")
+    normalized = float(value)
+    if not isfinite(normalized):
+        raise ValueError(f"{name} must be finite; got {normalized}.")
+    return normalized
+
+
+def _positive_real(value: object, *, name: str) -> float:
+    normalized = _finite_real(value, name=name)
+    if normalized <= 0.0:
+        raise ValueError(f"{name} must be positive; got {normalized}.")
+    return normalized
+
+
+def _real_triplet(
+    values: tuple[float, float, float],
+    *,
+    name: str,
+    positive: bool,
+) -> tuple[float, float, float]:
+    if isinstance(values, (str, bytes)):
+        raise TypeError(f"{name} must be an iterable of three real numbers.")
+    try:
+        raw_values = tuple(values)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an iterable of three real numbers.") from exc
+    if len(raw_values) != 3:
+        raise ValueError(f"{name} must contain exactly three values.")
+    normalize = _positive_real if positive else _finite_real
+    normalized = tuple(
+        normalize(value, name=f"{name}[{index}]") for index, value in enumerate(raw_values)
+    )
+    return normalized[0], normalized[1], normalized[2]
 
 
 @dataclass(frozen=True)
@@ -44,38 +121,95 @@ class PlanarCartesianProjector:
     )
 
     def __post_init__(self) -> None:
-        positive_scalars = (
+        if type(self.aperture_layout) is not PlanarApertureLayout:
+            raise TypeError(
+                "PlanarCartesianProjector.aperture_layout must be a PlanarApertureLayout."
+            )
+
+        range_resolution_m = _positive_real(
             self.range_resolution_m,
-            self.source_velocity_step_mps,
-            self.target_velocity_step_mps,
-            self.aperture_spacing_wavelengths,
+            name="PlanarCartesianProjector.range_resolution_m",
         )
-        if any(not isfinite(value) or value <= 0.0 for value in positive_scalars):
-            raise ValueError("Cartesian projection resolutions must be finite and positive.")
-        if (
-            self.source_range_bins <= 0
-            or self.source_doppler_bins <= 1
-            or self.target_doppler_bins <= 0
-            or self.azimuth_n_fft <= 1
-            or self.elevation_n_fft <= 1
-        ):
-            raise ValueError("Cartesian projection FFT and Doppler sizes are invalid.")
-        if not isfinite(self.source_velocity_start_mps) or not isfinite(
-            self.target_velocity_start_mps
-        ):
-            raise ValueError("Cartesian projection velocity origins must be finite.")
-        shape = tuple(int(value) for value in self.grid_shape_zyx)
-        origin = tuple(float(value) for value in self.grid_origin_xyz_m)
-        voxel_size = tuple(float(value) for value in self.grid_voxel_size_xyz_m)
-        if len(shape) != 3 or any(value <= 0 for value in shape):
-            raise ValueError("Cartesian projection grid_shape_zyx must be positive.")
-        if len(origin) != 3 or not all(isfinite(value) for value in origin):
-            raise ValueError("Cartesian projection grid origin must be finite.")
-        if len(voxel_size) != 3 or not all(isfinite(value) and value > 0.0 for value in voxel_size):
-            raise ValueError("Cartesian projection voxel sizes must be positive.")
+        source_range_bins = _integer_at_least(
+            self.source_range_bins,
+            name="PlanarCartesianProjector.source_range_bins",
+            minimum=1,
+        )
+        source_doppler_bins = _integer_at_least(
+            self.source_doppler_bins,
+            name="PlanarCartesianProjector.source_doppler_bins",
+            minimum=2,
+        )
+        source_velocity_start_mps = _finite_real(
+            self.source_velocity_start_mps,
+            name="PlanarCartesianProjector.source_velocity_start_mps",
+        )
+        source_velocity_step_mps = _positive_real(
+            self.source_velocity_step_mps,
+            name="PlanarCartesianProjector.source_velocity_step_mps",
+        )
+        target_doppler_bins = _integer_at_least(
+            self.target_doppler_bins,
+            name="PlanarCartesianProjector.target_doppler_bins",
+            minimum=1,
+        )
+        target_velocity_start_mps = _finite_real(
+            self.target_velocity_start_mps,
+            name="PlanarCartesianProjector.target_velocity_start_mps",
+        )
+        target_velocity_step_mps = _positive_real(
+            self.target_velocity_step_mps,
+            name="PlanarCartesianProjector.target_velocity_step_mps",
+        )
+        azimuth_n_fft = _integer_at_least(
+            self.azimuth_n_fft,
+            name="PlanarCartesianProjector.azimuth_n_fft",
+            minimum=2,
+        )
+        elevation_n_fft = _integer_at_least(
+            self.elevation_n_fft,
+            name="PlanarCartesianProjector.elevation_n_fft",
+            minimum=2,
+        )
+        aperture_spacing_wavelengths = _positive_real(
+            self.aperture_spacing_wavelengths,
+            name="PlanarCartesianProjector.aperture_spacing_wavelengths",
+        )
+        shape = _integer_triplet(
+            self.grid_shape_zyx,
+            name="PlanarCartesianProjector.grid_shape_zyx",
+        )
+        origin = _real_triplet(
+            self.grid_origin_xyz_m,
+            name="PlanarCartesianProjector.grid_origin_xyz_m",
+            positive=False,
+        )
+        voxel_size = _real_triplet(
+            self.grid_voxel_size_xyz_m,
+            name="PlanarCartesianProjector.grid_voxel_size_xyz_m",
+            positive=True,
+        )
+        if not isinstance(self.coordinate_frame, str):
+            raise TypeError("PlanarCartesianProjector.coordinate_frame must be a string.")
         frame = self.coordinate_frame.strip()
         if not frame:
-            raise ValueError("Cartesian projection coordinate_frame must not be empty.")
+            raise ValueError("PlanarCartesianProjector.coordinate_frame must not be empty.")
+
+        object.__setattr__(self, "range_resolution_m", range_resolution_m)
+        object.__setattr__(self, "source_range_bins", source_range_bins)
+        object.__setattr__(self, "source_doppler_bins", source_doppler_bins)
+        object.__setattr__(self, "source_velocity_start_mps", source_velocity_start_mps)
+        object.__setattr__(self, "source_velocity_step_mps", source_velocity_step_mps)
+        object.__setattr__(self, "target_doppler_bins", target_doppler_bins)
+        object.__setattr__(self, "target_velocity_start_mps", target_velocity_start_mps)
+        object.__setattr__(self, "target_velocity_step_mps", target_velocity_step_mps)
+        object.__setattr__(self, "azimuth_n_fft", azimuth_n_fft)
+        object.__setattr__(self, "elevation_n_fft", elevation_n_fft)
+        object.__setattr__(
+            self,
+            "aperture_spacing_wavelengths",
+            aperture_spacing_wavelengths,
+        )
         object.__setattr__(self, "grid_shape_zyx", shape)
         object.__setattr__(self, "grid_origin_xyz_m", origin)
         object.__setattr__(self, "grid_voxel_size_xyz_m", voxel_size)

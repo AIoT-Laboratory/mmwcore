@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from dataclasses import replace
 from sys import maxsize
 
@@ -8,6 +10,8 @@ import pytest
 
 from mmwcore.core import CartesianVolumeSparsificationSpec, PlanarApertureLayout, RadarCube
 from mmwcore.dsp import PlanarCartesianProjector
+
+type PhysicalProjectorFactory = Callable[[object], PlanarCartesianProjector]
 
 
 def _projector(
@@ -35,6 +39,331 @@ def _projector(
         azimuth_n_fft=4,
         elevation_n_fft=4,
     )
+
+
+def _projector_with(**changes: object) -> PlanarCartesianProjector:
+    return replace(_projector(), **changes)
+
+
+def _projector_with_triplet_component(
+    field_name: str,
+    index: int,
+    value: object,
+) -> PlanarCartesianProjector:
+    projector = _projector()
+    values = list(getattr(projector, field_name))
+    values[index] = value
+    return replace(projector, **{field_name: tuple(values)})
+
+
+_PROJECTOR_INTEGER_FIELDS: tuple[tuple[str, int, int], ...] = (
+    ("source_range_bins", 5, 1),
+    ("source_doppler_bins", 4, 2),
+    ("target_doppler_bins", 2, 1),
+    ("azimuth_n_fft", 5, 2),
+    ("elevation_n_fft", 5, 2),
+)
+
+_PROJECTOR_PHYSICAL_FIELDS: tuple[
+    tuple[str, PhysicalProjectorFactory, float, bool],
+    ...,
+] = (
+    (
+        "range_resolution_m",
+        lambda value: _projector_with(range_resolution_m=value),
+        0.75,
+        True,
+    ),
+    (
+        "source_velocity_start_mps",
+        lambda value: _projector_with(source_velocity_start_mps=value),
+        -1.25,
+        False,
+    ),
+    (
+        "source_velocity_step_mps",
+        lambda value: _projector_with(source_velocity_step_mps=value),
+        0.75,
+        True,
+    ),
+    (
+        "target_velocity_start_mps",
+        lambda value: _projector_with(target_velocity_start_mps=value),
+        0.25,
+        False,
+    ),
+    (
+        "target_velocity_step_mps",
+        lambda value: _projector_with(target_velocity_step_mps=value),
+        0.75,
+        True,
+    ),
+    (
+        "aperture_spacing_wavelengths",
+        lambda value: _projector_with(aperture_spacing_wavelengths=value),
+        0.75,
+        True,
+    ),
+    *tuple(
+        (
+            f"grid_origin_xyz_m[{index}]",
+            lambda value, index=index: _projector_with_triplet_component(
+                "grid_origin_xyz_m",
+                index,
+                value,
+            ),
+            (0.75, 0.25, 0.25)[index],
+            False,
+        )
+        for index in range(3)
+    ),
+    *tuple(
+        (
+            f"grid_voxel_size_xyz_m[{index}]",
+            lambda value, index=index: _projector_with_triplet_component(
+                "grid_voxel_size_xyz_m",
+                index,
+                value,
+            ),
+            0.75,
+            True,
+        )
+        for index in range(3)
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "_valid_value", "_minimum"),
+    _PROJECTOR_INTEGER_FIELDS,
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [pytest.param(True, id="bool"), pytest.param(1.5, id="float")],
+)
+def test_planar_cartesian_projector_rejects_nonintegral_scalar_dimensions(
+    field_name: str,
+    _valid_value: int,
+    _minimum: int,
+    invalid: object,
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match=rf"PlanarCartesianProjector.{field_name} must be an integer",
+    ):
+        _projector_with(**{field_name: invalid})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "valid_value", "_minimum"),
+    _PROJECTOR_INTEGER_FIELDS,
+)
+def test_planar_cartesian_projector_normalizes_numpy_scalar_dimensions(
+    field_name: str,
+    valid_value: int,
+    _minimum: int,
+) -> None:
+    projector = _projector_with(**{field_name: np.int64(valid_value)})
+
+    normalized = getattr(projector, field_name)
+    assert normalized == valid_value
+    assert type(normalized) is int
+
+
+@pytest.mark.parametrize(
+    ("field_name", "_valid_value", "_minimum"),
+    _PROJECTOR_INTEGER_FIELDS,
+)
+def test_planar_cartesian_projector_bounds_scalar_dimensions_to_platform(
+    field_name: str,
+    _valid_value: int,
+    _minimum: int,
+) -> None:
+    with pytest.raises(
+        OverflowError,
+        match=rf"PlanarCartesianProjector.{field_name}.*platform index",
+    ):
+        _projector_with(**{field_name: maxsize + 1})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "_valid_value", "minimum"),
+    _PROJECTOR_INTEGER_FIELDS,
+)
+def test_planar_cartesian_projector_preserves_scalar_dimension_domains(
+    field_name: str,
+    _valid_value: int,
+    minimum: int,
+) -> None:
+    with pytest.raises(ValueError, match=rf"PlanarCartesianProjector.{field_name}"):
+        _projector_with(**{field_name: minimum - 1})
+
+
+@pytest.mark.parametrize("index", range(3))
+@pytest.mark.parametrize(
+    "invalid",
+    [pytest.param(True, id="bool"), pytest.param(1.5, id="float")],
+)
+def test_planar_cartesian_projector_rejects_nonintegral_grid_shape(
+    index: int,
+    invalid: object,
+) -> None:
+    field_name = f"PlanarCartesianProjector.grid_shape_zyx[{index}]"
+    with pytest.raises(
+        TypeError,
+        match=rf"{re.escape(field_name)} must be an integer",
+    ):
+        _projector_with_triplet_component("grid_shape_zyx", index, invalid)
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_planar_cartesian_projector_normalizes_numpy_grid_shape(index: int) -> None:
+    projector = _projector_with_triplet_component("grid_shape_zyx", index, np.int64(2))
+
+    assert projector.grid_shape_zyx[index] == 2
+    assert type(projector.grid_shape_zyx[index]) is int
+    assert type(projector.grid_shape_zyx) is tuple
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_planar_cartesian_projector_bounds_grid_shape_to_platform(index: int) -> None:
+    with pytest.raises(
+        OverflowError,
+        match=rf"{re.escape(f'PlanarCartesianProjector.grid_shape_zyx[{index}]')}.*platform index",
+    ):
+        _projector_with_triplet_component("grid_shape_zyx", index, maxsize + 1)
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_planar_cartesian_projector_preserves_positive_grid_shape(index: int) -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape(f"PlanarCartesianProjector.grid_shape_zyx[{index}]"),
+    ):
+        _projector_with_triplet_component("grid_shape_zyx", index, 0)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory", "_valid_value", "_positive"),
+    _PROJECTOR_PHYSICAL_FIELDS,
+    ids=[field_name for field_name, _factory, _value, _positive in _PROJECTOR_PHYSICAL_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(True, id="bool"),
+        pytest.param(np.bool_(True), id="numpy-bool"),
+        pytest.param("1.0", id="string"),
+    ],
+)
+def test_planar_cartesian_projector_rejects_nonreal_physical_values(
+    field_name: str,
+    factory: PhysicalProjectorFactory,
+    _valid_value: float,
+    _positive: bool,
+    invalid: object,
+) -> None:
+    with pytest.raises(TypeError, match=re.escape(field_name)):
+        factory(invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory", "_valid_value", "_positive"),
+    _PROJECTOR_PHYSICAL_FIELDS,
+    ids=[field_name for field_name, _factory, _value, _positive in _PROJECTOR_PHYSICAL_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="positive-inf"),
+        pytest.param(float("-inf"), id="negative-inf"),
+    ],
+)
+def test_planar_cartesian_projector_rejects_nonfinite_physical_values(
+    field_name: str,
+    factory: PhysicalProjectorFactory,
+    _valid_value: float,
+    _positive: bool,
+    invalid: float,
+) -> None:
+    with pytest.raises(ValueError, match=rf"{re.escape(field_name)}.*finite"):
+        factory(invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory", "valid_value", "_positive"),
+    _PROJECTOR_PHYSICAL_FIELDS,
+    ids=[field_name for field_name, _factory, _value, _positive in _PROJECTOR_PHYSICAL_FIELDS],
+)
+def test_planar_cartesian_projector_normalizes_numpy_physical_values(
+    field_name: str,
+    factory: PhysicalProjectorFactory,
+    valid_value: float,
+    _positive: bool,
+) -> None:
+    projector = factory(np.float32(valid_value))
+    root_name, _, index_text = field_name.partition("[")
+    normalized = getattr(projector, root_name)
+    if index_text:
+        normalized = normalized[int(index_text.removesuffix("]"))]
+
+    assert normalized == pytest.approx(valid_value)
+    assert type(normalized) is float
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory", "_valid_value", "_positive"),
+    [entry for entry in _PROJECTOR_PHYSICAL_FIELDS if entry[3]],
+    ids=[
+        field_name
+        for field_name, _factory, _value, positive in _PROJECTOR_PHYSICAL_FIELDS
+        if positive
+    ],
+)
+def test_planar_cartesian_projector_preserves_positive_physical_domains(
+    field_name: str,
+    factory: PhysicalProjectorFactory,
+    _valid_value: float,
+    _positive: bool,
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(field_name)):
+        factory(0.0)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid"),
+    [
+        ("grid_shape_zyx", (1, 1)),
+        ("grid_origin_xyz_m", (0.0, 0.0)),
+        ("grid_voxel_size_xyz_m", (1.0, 1.0)),
+    ],
+)
+def test_planar_cartesian_projector_requires_three_value_grid_tuples(
+    field_name: str,
+    invalid: tuple[object, ...],
+) -> None:
+    with pytest.raises(ValueError, match=rf"PlanarCartesianProjector.{field_name}"):
+        _projector_with(**{field_name: invalid})
+
+
+def test_planar_cartesian_projector_requires_exact_aperture_layout_type() -> None:
+    with pytest.raises(TypeError, match="PlanarCartesianProjector.aperture_layout"):
+        _projector_with(aperture_layout=object())
+
+
+@pytest.mark.parametrize("invalid", [None, 1, b"sensor"])
+def test_planar_cartesian_projector_requires_string_coordinate_frame(invalid: object) -> None:
+    with pytest.raises(TypeError, match="PlanarCartesianProjector.coordinate_frame"):
+        _projector_with(coordinate_frame=invalid)
+
+
+def test_planar_cartesian_projector_normalizes_nonempty_coordinate_frame() -> None:
+    projector = _projector_with(coordinate_frame="  sensor_frame  ")
+
+    assert projector.coordinate_frame == "sensor_frame"
+    with pytest.raises(ValueError, match="PlanarCartesianProjector.coordinate_frame"):
+        _projector_with(coordinate_frame=" 	 ")
 
 
 def test_planar_cartesian_projector_maps_broadside_target_to_metric_voxel() -> None:
