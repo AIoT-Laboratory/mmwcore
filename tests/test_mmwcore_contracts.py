@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from sys import maxsize
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -10,6 +14,7 @@ from mmwcore.core import (
     ADCDecodeRecipe,
     ADCFrameSpec,
     AngleFFTSpec,
+    CascadeADCFrameSpec,
     CFARDetectionSpec,
     DetectionFrame,
     DetectionMethod,
@@ -19,6 +24,7 @@ from mmwcore.core import (
     FFTWindow,
     PeakDetectionSpec,
     PeakGroupingSpec,
+    PlanarApertureLayout,
     PointCloudFrame,
     PointCloudProjectionSpec,
     PointCloudRecipe,
@@ -109,6 +115,93 @@ def test_detection_frame_validates_channels() -> None:
 def test_point_cloud_frame_rejects_non_xyz_prefix() -> None:
     with pytest.raises(ValueError, match="must start"):
         PointCloudFrame(np.zeros((1, 3)), channels=("range", "azimuth", "elevation"))
+
+
+@pytest.mark.parametrize("invalid", [True, 1.5])
+@pytest.mark.parametrize("field", ["num_chirps", "num_rx", "num_samples"])
+def test_adc_frame_spec_rejects_non_integral_dimensions(
+    field: str,
+    invalid: object,
+) -> None:
+    with pytest.raises(TypeError, match=rf"ADCFrameSpec\.{field} must be an integer"):
+        replace(ADCFrameSpec(1, 1, 2), **{field: invalid})
+
+
+@pytest.mark.parametrize("invalid", [True, 1.5])
+@pytest.mark.parametrize(
+    "field",
+    ["num_samples", "num_loops", "num_tx", "num_rx_per_device"],
+)
+def test_cascade_adc_frame_spec_rejects_non_integral_dimensions(
+    field: str,
+    invalid: object,
+) -> None:
+    spec = CascadeADCFrameSpec(2, 1, 1, 4, ("device-0",))
+    with pytest.raises(TypeError, match=rf"CascadeADCFrameSpec\.{field} must be an integer"):
+        replace(spec, **{field: invalid})
+
+
+def test_adc_integer_contracts_normalize_safe_numpy_integers() -> None:
+    frame = ADCFrameSpec(
+        cast(int, np.int64(2)),
+        cast(int, np.uint64(3)),
+        cast(int, np.int32(4)),
+    )
+    cascade = CascadeADCFrameSpec(
+        cast(int, np.uint16(4)),
+        cast(int, np.int64(3)),
+        cast(int, np.uint8(2)),
+        cast(int, np.int32(4)),
+        ("device-0", "device-1"),
+    )
+    aperture = PlanarApertureLayout(
+        ((cast(int, np.int64(0)), cast(int, np.uint64(1))),),
+    )
+    linear = VirtualAntennaLayout.uniform_linear(cast(int, np.int64(2)))
+
+    assert (frame.num_chirps, frame.num_rx, frame.num_samples) == (2, 3, 4)
+    assert all(type(value) is int for value in (frame.num_chirps, frame.num_rx, frame.num_samples))
+    assert (
+        cascade.num_samples,
+        cascade.num_loops,
+        cascade.num_tx,
+        cascade.num_rx_per_device,
+    ) == (4, 3, 2, 4)
+    assert all(
+        type(value) is int
+        for value in (
+            cascade.num_samples,
+            cascade.num_loops,
+            cascade.num_tx,
+            cascade.num_rx_per_device,
+        )
+    )
+    assert aperture.grid_indices == ((0, 1),)
+    assert all(type(value) is int for value in aperture.grid_indices[0])
+    assert linear.num_antennas == 2
+
+
+def test_adc_integer_contracts_reject_platform_overflow_before_allocation() -> None:
+    too_large = maxsize + 1
+
+    with pytest.raises(OverflowError, match="num_chirps.*platform index"):
+        ADCFrameSpec(too_large, 1, 1)
+    with pytest.raises(OverflowError, match="raw frame size.*platform index"):
+        ADCFrameSpec(maxsize, 1, 1)
+    with pytest.raises(OverflowError, match="num_samples.*platform index"):
+        CascadeADCFrameSpec(too_large, 1, 1, 1, ("device-0",))
+    with pytest.raises(OverflowError, match="per-device frame size.*platform index"):
+        CascadeADCFrameSpec(maxsize, 1, 1, 1, ("device-0",))
+    with pytest.raises(OverflowError, match="num_antennas.*platform index"):
+        VirtualAntennaLayout.uniform_linear(too_large)
+    with pytest.raises(ValueError, match="integers within the platform range"):
+        PlanarApertureLayout(((too_large, 0),))
+
+
+@pytest.mark.parametrize("invalid", [True, 1.5])
+def test_uniform_linear_rejects_non_integral_antenna_counts(invalid: object) -> None:
+    with pytest.raises(TypeError, match="num_antennas must be an integer"):
+        VirtualAntennaLayout.uniform_linear(cast(int, invalid))
 
 
 def test_organize_adc_samples_interleaved_iq_layout() -> None:

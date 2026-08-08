@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 from operator import index as integer_index
+from sys import maxsize as _MAX_PLATFORM_INDEX
 
 from .spec_enums import ADCComplexLayout
 
@@ -48,8 +49,7 @@ class VirtualAntennaLayout:
     ) -> VirtualAntennaLayout:
         """Create a linear virtual array along the x-axis."""
 
-        if num_antennas <= 0:
-            raise ValueError(f"num_antennas must be positive; got {num_antennas}.")
+        num_antennas = _positive_dimension(num_antennas, name="num_antennas")
         if spacing_wavelengths <= 0:
             raise ValueError(f"spacing_wavelengths must be positive; got {spacing_wavelengths}.")
         return cls(
@@ -232,15 +232,40 @@ def _positions(
     return positions
 
 
+def _platform_index(value: int, *, name: str) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer.")
+    try:
+        normalized = integer_index(value)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an integer.") from exc
+    if not -_MAX_PLATFORM_INDEX - 1 <= normalized <= _MAX_PLATFORM_INDEX:
+        raise OverflowError(f"{name} must fit the platform index range.")
+    return normalized
+
+
+def _positive_dimension(value: int, *, name: str) -> int:
+    normalized = _platform_index(value, name=name)
+    if normalized <= 0:
+        raise ValueError(f"{name} must be positive; got {normalized}.")
+    return normalized
+
+
+def _require_index_product(values: tuple[int, ...], *, name: str) -> None:
+    product = 1
+    for value in values:
+        if product > _MAX_PLATFORM_INDEX // value:
+            raise OverflowError(f"{name} exceeds the platform index range.")
+        product *= value
+
+
 def _integer_indices(values: tuple[int, ...], *, name: str) -> tuple[int, ...]:
     indices: list[int] = []
     for value in values:
-        if isinstance(value, bool):
-            raise ValueError(f"{name} must contain integers.")
         try:
-            indices.append(integer_index(value))
-        except TypeError as exc:
-            raise ValueError(f"{name} must contain integers.") from exc
+            indices.append(_platform_index(value, name=name))
+        except (TypeError, OverflowError) as exc:
+            raise ValueError(f"{name} must contain integers within the platform range.") from exc
     return tuple(indices)
 
 
@@ -270,8 +295,15 @@ class ADCFrameSpec:
             ("num_rx", self.num_rx),
             ("num_samples", self.num_samples),
         ):
-            if value <= 0:
-                raise ValueError(f"ADCFrameSpec.{name} must be positive; got {value}.")
+            object.__setattr__(
+                self,
+                name,
+                _positive_dimension(value, name=f"ADCFrameSpec.{name}"),
+            )
+        _require_index_product(
+            (self.num_chirps, self.num_rx, self.num_samples, 2),
+            name="ADCFrameSpec raw frame size",
+        )
 
         if not isinstance(self.layout, ADCComplexLayout):
             object.__setattr__(self, "layout", ADCComplexLayout(self.layout))
@@ -303,8 +335,21 @@ class CascadeADCFrameSpec:
             ("num_tx", self.num_tx),
             ("num_rx_per_device", self.num_rx_per_device),
         ):
-            if value <= 0:
-                raise ValueError(f"CascadeADCFrameSpec.{name} must be positive; got {value}.")
+            object.__setattr__(
+                self,
+                name,
+                _positive_dimension(value, name=f"CascadeADCFrameSpec.{name}"),
+            )
+        _require_index_product(
+            (
+                self.num_samples,
+                self.num_loops,
+                self.num_tx,
+                self.num_rx_per_device,
+                4,
+            ),
+            name="CascadeADCFrameSpec per-device frame size",
+        )
 
         devices = tuple(str(name) for name in self.device_names)
         if not devices or any(not name for name in devices):

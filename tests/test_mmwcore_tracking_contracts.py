@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from mmwcore.core import (
+    DBSCANClusteringSpec,
     TrackAllocationSpec,
     Tracker2DSpec,
     TrackFrame,
@@ -12,6 +17,127 @@ from mmwcore.core import (
     TrackLifecycleSpec,
     TrackScenerySpec,
     TrackStatus,
+)
+
+type IntegerTrackingSpec = (
+    DBSCANClusteringSpec
+    | TrackAllocationSpec
+    | TrackLifecycleSpec
+    | TrackScenerySpec
+    | Tracker2DSpec
+)
+type PhysicalSpecFactory = Callable[[float], object]
+
+
+def _tracker_spec_with(**changes: object) -> Tracker2DSpec:
+    return replace(
+        Tracker2DSpec(
+            frame_period_s=0.1,
+            gating=TrackGatingSpec(max_distance_m=1.0),
+        ),
+        **changes,
+    )
+
+
+_INTEGER_SPEC_FIELDS: tuple[tuple[IntegerTrackingSpec, str], ...] = (
+    (DBSCANClusteringSpec(eps_m=0.5, min_samples=2), "min_samples"),
+    (TrackAllocationSpec(), "min_points"),
+    (TrackAllocationSpec(), "max_new_tracks_per_frame"),
+    (TrackLifecycleSpec(), "confirmation_hits"),
+    (TrackLifecycleSpec(), "tentative_max_misses"),
+    (TrackLifecycleSpec(), "confirmed_max_misses"),
+    (TrackScenerySpec(), "outside_max_frames"),
+    (
+        Tracker2DSpec(
+            frame_period_s=0.1,
+            gating=TrackGatingSpec(max_distance_m=1.0),
+        ),
+        "max_tracks",
+    ),
+)
+
+_PHYSICAL_SPEC_FIELDS: tuple[tuple[str, PhysicalSpecFactory], ...] = (
+    (
+        "DBSCANClusteringSpec.eps_m",
+        lambda value: DBSCANClusteringSpec(eps_m=value, min_samples=2),
+    ),
+    (
+        "DBSCANClusteringSpec.velocity_scale_s",
+        lambda value: DBSCANClusteringSpec(
+            eps_m=0.5,
+            min_samples=2,
+            velocity_scale_s=value,
+        ),
+    ),
+    (
+        "TrackGatingSpec.max_distance_m",
+        lambda value: TrackGatingSpec(max_distance_m=value),
+    ),
+    (
+        "TrackGatingSpec.max_radial_velocity_difference_mps",
+        lambda value: TrackGatingSpec(
+            max_distance_m=1.0,
+            max_radial_velocity_difference_mps=value,
+        ),
+    ),
+    (
+        "TrackGatingSpec.max_mahalanobis_distance",
+        lambda value: TrackGatingSpec(
+            max_distance_m=1.0,
+            max_mahalanobis_distance=value,
+        ),
+    ),
+    (
+        "TrackAllocationSpec.min_abs_radial_velocity_mps",
+        lambda value: TrackAllocationSpec(min_abs_radial_velocity_mps=value),
+    ),
+    (
+        "TrackAllocationSpec.min_total_snr",
+        lambda value: TrackAllocationSpec(min_total_snr=value),
+    ),
+    (
+        "TrackingBox2D.x_min_m",
+        lambda value: TrackingBox2D(value, 1.0, -1.0, 1.0),
+    ),
+    (
+        "TrackingBox2D.x_max_m",
+        lambda value: TrackingBox2D(-1.0, value, -1.0, 1.0),
+    ),
+    (
+        "TrackingBox2D.y_min_m",
+        lambda value: TrackingBox2D(-1.0, 1.0, value, 1.0),
+    ),
+    (
+        "TrackingBox2D.y_max_m",
+        lambda value: TrackingBox2D(-1.0, 1.0, -1.0, value),
+    ),
+    (
+        "Tracker2DSpec.frame_period_s",
+        lambda value: Tracker2DSpec(
+            frame_period_s=value,
+            gating=TrackGatingSpec(max_distance_m=1.0),
+        ),
+    ),
+    (
+        "Tracker2DSpec.measurement_noise_m",
+        lambda value: _tracker_spec_with(measurement_noise_m=value),
+    ),
+    (
+        "Tracker2DSpec.initial_velocity_std_mps",
+        lambda value: _tracker_spec_with(initial_velocity_std_mps=value),
+    ),
+    (
+        "Tracker2DSpec.extent_covariance_smoothing",
+        lambda value: _tracker_spec_with(extent_covariance_smoothing=value),
+    ),
+    (
+        "Tracker2DSpec.max_acceleration_mps2",
+        lambda value: _tracker_spec_with(max_acceleration_mps2=(value, 2.0)),
+    ),
+    (
+        "Tracker2DSpec.max_acceleration_mps2",
+        lambda value: _tracker_spec_with(max_acceleration_mps2=(2.0, value)),
+    ),
 )
 
 
@@ -57,9 +183,99 @@ def test_cluster_tracker_spec_keeps_explicit_timing_and_lifecycle() -> None:
     assert spec.lifecycle.confirmation_hits == 4
 
 
-def test_track_allocation_spec_rejects_non_positive_per_frame_limit() -> None:
-    with pytest.raises(ValueError, match="max_new_tracks_per_frame"):
-        TrackAllocationSpec(max_new_tracks_per_frame=0)
+@pytest.mark.parametrize(
+    ("spec", "field_name"),
+    _INTEGER_SPEC_FIELDS,
+    ids=[f"{type(spec).__name__}.{field_name}" for spec, field_name in _INTEGER_SPEC_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [pytest.param(True, id="bool"), pytest.param(1.0, id="float")],
+)
+def test_tracking_specs_reject_non_integer_public_counts(
+    spec: IntegerTrackingSpec,
+    field_name: str,
+    invalid: object,
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match=rf"{type(spec).__name__}\.{field_name} must be an integer",
+    ):
+        replace(spec, **{field_name: invalid})
+
+
+@pytest.mark.parametrize(
+    ("spec", "field_name"),
+    _INTEGER_SPEC_FIELDS,
+    ids=[f"{type(spec).__name__}.{field_name}" for spec, field_name in _INTEGER_SPEC_FIELDS],
+)
+def test_tracking_specs_normalize_numpy_integer_counts(
+    spec: IntegerTrackingSpec,
+    field_name: str,
+) -> None:
+    normalized = replace(spec, **{field_name: np.int64(3)})
+
+    value = getattr(normalized, field_name)
+    assert value == 3
+    assert type(value) is int
+
+
+@pytest.mark.parametrize(
+    ("spec", "field_name"),
+    _INTEGER_SPEC_FIELDS,
+    ids=[f"{type(spec).__name__}.{field_name}" for spec, field_name in _INTEGER_SPEC_FIELDS],
+)
+def test_tracking_specs_preserve_positive_count_domains(
+    spec: IntegerTrackingSpec,
+    field_name: str,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=rf"{type(spec).__name__}.{field_name} must be positive",
+    ):
+        replace(spec, **{field_name: 0})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _PHYSICAL_SPEC_FIELDS,
+    ids=[field_name for field_name, _factory in _PHYSICAL_SPEC_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="positive-inf"),
+        pytest.param(float("-inf"), id="negative-inf"),
+    ],
+)
+def test_tracking_specs_reject_non_finite_physical_fields(
+    field_name: str,
+    factory: PhysicalSpecFactory,
+    invalid: float,
+) -> None:
+    with pytest.raises(ValueError, match=rf"{re.escape(field_name)}.*finite"):
+        factory(invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _PHYSICAL_SPEC_FIELDS,
+    ids=[field_name for field_name, _factory in _PHYSICAL_SPEC_FIELDS],
+)
+def test_tracking_specs_reject_bool_physical_fields(
+    field_name: str,
+    factory: PhysicalSpecFactory,
+) -> None:
+    with pytest.raises(TypeError, match=rf"{re.escape(field_name)}.*not bool"):
+        factory(True)
+
+
+def test_dbscan_spec_preserves_positive_and_non_negative_domains() -> None:
+    with pytest.raises(ValueError, match="eps_m"):
+        DBSCANClusteringSpec(eps_m=0.0, min_samples=2)
+    with pytest.raises(ValueError, match="velocity_scale_s"):
+        DBSCANClusteringSpec(eps_m=0.5, min_samples=2, velocity_scale_s=-0.1)
 
 
 def test_track_allocation_spec_rejects_non_positive_snr_threshold() -> None:
@@ -70,6 +286,22 @@ def test_track_allocation_spec_rejects_non_positive_snr_threshold() -> None:
 def test_track_gating_spec_rejects_non_positive_mahalanobis_limit() -> None:
     with pytest.raises(ValueError, match="max_mahalanobis_distance"):
         TrackGatingSpec(max_distance_m=1.0, max_mahalanobis_distance=0.0)
+
+
+def test_tracking_box_preserves_ordered_bound_domain() -> None:
+    with pytest.raises(ValueError, match="minimum bounds"):
+        TrackingBox2D(1.0, 1.0, -1.0, 1.0)
+
+
+@pytest.mark.parametrize("smoothing", [0.0, 1.1])
+def test_tracker_spec_preserves_smoothing_domain(smoothing: float) -> None:
+    with pytest.raises(ValueError, match="extent_covariance_smoothing"):
+        _tracker_spec_with(extent_covariance_smoothing=smoothing)
+
+
+def test_tracker_spec_preserves_positive_acceleration_domain() -> None:
+    with pytest.raises(ValueError, match="max_acceleration_mps2"):
+        _tracker_spec_with(max_acceleration_mps2=(2.0, 0.0))
 
 
 def test_track_frame_normalizes_state_and_associations() -> None:

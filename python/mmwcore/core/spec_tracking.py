@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
+from operator import index as integer_index
 
 
 class TrackStatus(StrEnum):
@@ -12,6 +14,39 @@ class TrackStatus(StrEnum):
     TENTATIVE = "tentative"
     CONFIRMED = "confirmed"
     COASTING = "coasting"
+
+
+def _positive_integer(value: int, *, name: str) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer.")
+    try:
+        normalized = int(integer_index(value))
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an integer.") from exc
+    if normalized <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return normalized
+
+
+def _require_finite_positive(value: float, *, name: str) -> None:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be a real number, not bool.")
+    if not isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and positive.")
+
+
+def _require_finite_non_negative(value: float, *, name: str) -> None:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be a real number, not bool.")
+    if not isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative.")
+
+
+def _require_finite_unit_smoothing(value: float, *, name: str) -> None:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be a real number, not bool.")
+    if not isfinite(value) or not 0 < value <= 1:
+        raise ValueError(f"{name} must be finite and in (0, 1].")
 
 
 @dataclass(frozen=True)
@@ -24,12 +59,16 @@ class DBSCANClusteringSpec:
     use_z: bool = True
 
     def __post_init__(self) -> None:
-        if self.eps_m <= 0:
-            raise ValueError("DBSCANClusteringSpec.eps_m must be positive.")
-        if self.min_samples <= 0:
-            raise ValueError("DBSCANClusteringSpec.min_samples must be positive.")
-        if self.velocity_scale_s < 0:
-            raise ValueError("DBSCANClusteringSpec.velocity_scale_s must be non-negative.")
+        _require_finite_positive(self.eps_m, name="DBSCANClusteringSpec.eps_m")
+        object.__setattr__(
+            self,
+            "min_samples",
+            _positive_integer(self.min_samples, name="DBSCANClusteringSpec.min_samples"),
+        )
+        _require_finite_non_negative(
+            self.velocity_scale_s,
+            name="DBSCANClusteringSpec.velocity_scale_s",
+        )
 
 
 @dataclass(frozen=True)
@@ -41,15 +80,17 @@ class TrackGatingSpec:
     max_mahalanobis_distance: float | None = None
 
     def __post_init__(self) -> None:
-        if self.max_distance_m <= 0:
-            raise ValueError("TrackGatingSpec.max_distance_m must be positive.")
-        if (
-            self.max_radial_velocity_difference_mps is not None
-            and self.max_radial_velocity_difference_mps <= 0
-        ):
-            raise ValueError("TrackGatingSpec.max_radial_velocity_difference_mps must be positive.")
-        if self.max_mahalanobis_distance is not None and self.max_mahalanobis_distance <= 0:
-            raise ValueError("TrackGatingSpec.max_mahalanobis_distance must be positive.")
+        _require_finite_positive(self.max_distance_m, name="TrackGatingSpec.max_distance_m")
+        if self.max_radial_velocity_difference_mps is not None:
+            _require_finite_positive(
+                self.max_radial_velocity_difference_mps,
+                name="TrackGatingSpec.max_radial_velocity_difference_mps",
+            )
+        if self.max_mahalanobis_distance is not None:
+            _require_finite_positive(
+                self.max_mahalanobis_distance,
+                name="TrackGatingSpec.max_mahalanobis_distance",
+            )
 
 
 @dataclass(frozen=True)
@@ -62,16 +103,29 @@ class TrackAllocationSpec:
     max_new_tracks_per_frame: int | None = None
 
     def __post_init__(self) -> None:
-        if self.min_points <= 0:
-            raise ValueError("TrackAllocationSpec.min_points must be positive.")
-        if self.min_abs_radial_velocity_mps < 0:
-            raise ValueError(
-                "TrackAllocationSpec.min_abs_radial_velocity_mps must be non-negative."
+        object.__setattr__(
+            self,
+            "min_points",
+            _positive_integer(self.min_points, name="TrackAllocationSpec.min_points"),
+        )
+        _require_finite_non_negative(
+            self.min_abs_radial_velocity_mps,
+            name="TrackAllocationSpec.min_abs_radial_velocity_mps",
+        )
+        if self.min_total_snr is not None:
+            _require_finite_positive(
+                self.min_total_snr,
+                name="TrackAllocationSpec.min_total_snr",
             )
-        if self.min_total_snr is not None and self.min_total_snr <= 0:
-            raise ValueError("TrackAllocationSpec.min_total_snr must be positive.")
-        if self.max_new_tracks_per_frame is not None and self.max_new_tracks_per_frame <= 0:
-            raise ValueError("TrackAllocationSpec.max_new_tracks_per_frame must be positive.")
+        if self.max_new_tracks_per_frame is not None:
+            object.__setattr__(
+                self,
+                "max_new_tracks_per_frame",
+                _positive_integer(
+                    self.max_new_tracks_per_frame,
+                    name="TrackAllocationSpec.max_new_tracks_per_frame",
+                ),
+            )
 
 
 @dataclass(frozen=True)
@@ -88,8 +142,11 @@ class TrackLifecycleSpec:
             ("tentative_max_misses", self.tentative_max_misses),
             ("confirmed_max_misses", self.confirmed_max_misses),
         ):
-            if value <= 0:
-                raise ValueError(f"TrackLifecycleSpec.{name} must be positive.")
+            object.__setattr__(
+                self,
+                name,
+                _positive_integer(value, name=f"TrackLifecycleSpec.{name}"),
+            )
 
 
 @dataclass(frozen=True)
@@ -102,6 +159,16 @@ class TrackingBox2D:
     y_max_m: float
 
     def __post_init__(self) -> None:
+        for name, value in (
+            ("x_min_m", self.x_min_m),
+            ("x_max_m", self.x_max_m),
+            ("y_min_m", self.y_min_m),
+            ("y_max_m", self.y_max_m),
+        ):
+            if isinstance(value, bool):
+                raise TypeError(f"TrackingBox2D.{name} must be a real number, not bool.")
+            if not isfinite(value):
+                raise ValueError(f"TrackingBox2D.{name} must be finite.")
         if self.x_min_m >= self.x_max_m or self.y_min_m >= self.y_max_m:
             raise ValueError("TrackingBox2D minimum bounds must be below maximum bounds.")
 
@@ -118,9 +185,12 @@ class TrackScenerySpec:
 
     def __post_init__(self) -> None:
         boxes = tuple(self.boundary_boxes)
-        if self.outside_max_frames <= 0:
-            raise ValueError("TrackScenerySpec.outside_max_frames must be positive.")
+        outside_max_frames = _positive_integer(
+            self.outside_max_frames,
+            name="TrackScenerySpec.outside_max_frames",
+        )
         object.__setattr__(self, "boundary_boxes", boxes)
+        object.__setattr__(self, "outside_max_frames", outside_max_frames)
 
     def contains(self, x_m: float, y_m: float) -> bool:
         return not self.boundary_boxes or any(box.contains(x_m, y_m) for box in self.boundary_boxes)
@@ -142,19 +212,34 @@ class Tracker2DSpec:
     extent_covariance_smoothing: float = 0.2
 
     def __post_init__(self) -> None:
-        if self.frame_period_s <= 0:
-            raise ValueError("Tracker2DSpec.frame_period_s must be positive.")
-        if self.max_tracks <= 0:
-            raise ValueError("Tracker2DSpec.max_tracks must be positive.")
-        if self.measurement_noise_m <= 0:
-            raise ValueError("Tracker2DSpec.measurement_noise_m must be positive.")
-        if self.initial_velocity_std_mps <= 0:
-            raise ValueError("Tracker2DSpec.initial_velocity_std_mps must be positive.")
-        if not 0 < self.extent_covariance_smoothing <= 1:
-            raise ValueError("Tracker2DSpec.extent_covariance_smoothing must be in (0, 1].")
-        acceleration = tuple(float(value) for value in self.max_acceleration_mps2)
-        if len(acceleration) != 2 or any(value <= 0 for value in acceleration):
+        _require_finite_positive(self.frame_period_s, name="Tracker2DSpec.frame_period_s")
+        object.__setattr__(
+            self,
+            "max_tracks",
+            _positive_integer(self.max_tracks, name="Tracker2DSpec.max_tracks"),
+        )
+        _require_finite_positive(
+            self.measurement_noise_m,
+            name="Tracker2DSpec.measurement_noise_m",
+        )
+        _require_finite_positive(
+            self.initial_velocity_std_mps,
+            name="Tracker2DSpec.initial_velocity_std_mps",
+        )
+        _require_finite_unit_smoothing(
+            self.extent_covariance_smoothing,
+            name="Tracker2DSpec.extent_covariance_smoothing",
+        )
+        raw_acceleration = tuple(self.max_acceleration_mps2)
+        if any(isinstance(value, bool) for value in raw_acceleration):
+            raise TypeError(
+                "Tracker2DSpec.max_acceleration_mps2 values must be real numbers, not bool."
+            )
+        acceleration = tuple(float(value) for value in raw_acceleration)
+        if len(acceleration) != 2 or any(
+            not isfinite(value) or value <= 0 for value in acceleration
+        ):
             raise ValueError(
-                "Tracker2DSpec.max_acceleration_mps2 must contain two positive values."
+                "Tracker2DSpec.max_acceleration_mps2 must contain two finite positive values."
             )
         object.__setattr__(self, "max_acceleration_mps2", acceleration)
