@@ -2,28 +2,28 @@
 
 ## Boundary
 
-mmwcore begins at captured bytes and explicit offline contracts. It decodes and transforms radar
-data without owning device configuration, transport lifecycle, experiment orchestration, models,
-or application behavior.
+mmwcore begins at caller-owned captured or live bytes plus explicit physical contracts. It decodes
+and transforms radar and synchronized sensor data without owning device configuration, acquisition
+lifecycle, producer processes, experiments, models, or application behavior.
 
 ```text
-captured packet bytes / ADC files / capture directory / capture stream
-                            |
-                            v
-              physical and integrity contracts
-                            |
-                            v
-                 Rust parsing and kernels
-                            |
-                            v
-              PyO3 boundary and Python APIs
-                            |
-                            v
-       cubes / detections / point clouds / tracks
+packet bytes / ADC files / radar or multi-sensor directories / live streams
+                                  |
+                                  v
+                    physical, timing, and integrity contracts
+                                  |
+                                  v
+                       Rust parsing and kernels
+                                  |
+                                  v
+                    PyO3 boundary and Python APIs
+                                  |
+                                  v
+ raw frames / synchronized items / cubes / detections / point clouds / tracks
 ```
 
-The Rust crate is independently usable. The Python wheel embeds it and adds offline readers,
-composition, tracking utilities, and plotting.
+The Rust crate is independently usable. The Python wheel embeds it and adds directory and
+caller-owned stream readers, composition, tracking utilities, and plotting.
 
 ## Layers
 
@@ -33,8 +33,8 @@ geometry, point-cloud projection, clustering primitives, assignment, and trackin
 `crates/mmwcore-python` validates native boundary types and exposes Rust results as NumPy arrays.
 It must not hide truncation, lossy casts, non-finite values, or ambiguous axes.
 
-`python/mmwcore` owns immutable physical contracts, offline I/O, explicit recipes, stateful
-composition, metrics, and optional visualization.
+`python/mmwcore` owns immutable physical contracts, capture-directory and caller-owned stream I/O,
+explicit recipes, stateful composition, metrics, and optional visualization.
 
 Downstream projects own datasets, experiments, learned models, product behavior, and deployment.
 

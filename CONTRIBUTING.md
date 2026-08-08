@@ -15,8 +15,9 @@ toolchain unless the declared minimum is intentionally raised in the same change
 
 ## Boundary rules
 
-- Start from captured bytes and explicit offline contracts.
-- Keep live acquisition, hardware control, applications, experiments, and models outside mmwcore.
+- Start from caller-owned captured or live bytes and explicit physical contracts.
+- Keep acquisition lifecycle, producer processes, hardware control, applications, experiments, and
+  models outside mmwcore.
 - Do not infer tensor axes, frame phase, byte layout, antenna geometry, or metric calibration.
 - Do not add Python fallbacks for Rust-owned computation.
 - Reject lossy integer casts, non-finite physical values, incomplete frames, and ambiguous shapes.

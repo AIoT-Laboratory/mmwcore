@@ -9,6 +9,10 @@ samples, 128 loops, Tx order `(0, 2, 1)`, and `group2_i_then_q` raw layout. One 
 1,572,864 bytes. The signed ADC words use the documented `lcg16_index_v1` integer formula, and the
 result records the frame SHA-256 so separate runs can verify identical input.
 
+This is one stable synthetic performance fixture, not the mmwcore hardware-support scope. Directory
+and stream readers also accept the closed xWR16xx, xWR18xx, and xWR68xx contracts, while processing
+recipes and antenna geometry remain explicit.
+
 Run the default suite from a release-profile development environment:
 
 ```console

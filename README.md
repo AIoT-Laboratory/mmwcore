@@ -32,6 +32,17 @@ Maintained inputs are:
 - published radar-plus-camera sessions opened with `open_multisensor_capture`;
 - finite `mmwcli.multisensor_stream.v1` data opened with `open_multisensor_stream`.
 
+| mmwcli output | mmwcore entry point | Typical use |
+| --- | --- | --- |
+| radar capture-session directory | `open_capture` | reproducible offline radar processing |
+| radar `--stream` stdout | `open_capture_stream` | pull-driven real-time radar inference |
+| radar-plus-camera session directory | `open_multisensor_capture` | training data, indexed source access, and causal joins |
+| aggregate `--stream` stdout | `open_multisensor_stream` | provisional multi-sensor inference followed by COMMIT/EOF validation |
+
+The matching acquisition commands and camera-producer workflow are documented by
+[mmwcli](https://github.com/AIoT-Laboratory/mmwcli) and its
+[multi-sensor guide](https://github.com/AIoT-Laboratory/mmwcli/blob/main/docs/multisensor-sync.md).
+
 The library does not configure devices, render firmware commands, or manage live acquisition.
 Callers must supply ADC layout, frame geometry, timing, antenna geometry, and trusted packet/frame
 origins when the stored format does not prove them.
@@ -70,28 +81,26 @@ physical contract. The directory must remain unchanged while it is open.
 
 ```python
 from mmwcore import open_capture
-from mmwcore.config import iwr6843_isk_range_doppler_recipe
 
-capture = open_capture("capture-session", range_doppler=iwr6843_isk_range_doppler_recipe)
-range_doppler = capture.range_doppler(frame_index=0)
+capture = open_capture("capture-session")
+raw = capture.frame(0)
+print(capture.raw_capture.family, raw.samples.shape)
 ```
 
-The hash proves internal consistency, not provenance. Passing the preset is the caller's explicit
-declaration that the board uses IWR6843ISK geometry; the route-declared manifest does not identify
-or guess a board. Pass a different preset or an explicit recipe for other verified hardware.
+The hash proves internal consistency, not provenance. A supplied preset is the caller's explicit
+declaration of a processing contract; the route-declared manifest does not identify or guess a
+board. Pass an exact `RangeDopplerRecipe` or callable preset to `open_capture(...,
+range_doppler=...)` when Range-Doppler processing is wanted. Built-in board presets are conveniences,
+not family defaults.
 
 ### Process a finite capture stream
 
 ```python
 import mmwcore
-from mmwcore.config import iwr6843_isk_range_doppler_recipe
 
-stream = mmwcore.open_capture_stream(
-    source,  # caller-owned BinaryIO
-    range_doppler=iwr6843_isk_range_doppler_recipe,
-)
-for item in stream.range_doppler():
-    infer(item.cube)
+stream = mmwcore.open_capture_stream(source)  # caller-owned BinaryIO
+for item in stream.frames():
+    infer(item.frame, stream.contract.radar_capture)
 commit = stream.require_commit()
 ```
 
@@ -104,25 +113,23 @@ worker threads.
 
 ```python
 from mmwcore import open_multisensor_capture
-from mmwcore.config import iwr6843_isk_range_doppler_recipe
 
 session = open_multisensor_capture("training-session")
 radar = session.source("radar-0")
-radar_capture = radar.open_radar_capture(
-    range_doppler=iwr6843_isk_range_doppler_recipe,
-)
+radar_capture = radar.open_radar_capture()
 for camera_item, radar_item in session.causal_pairs(
     "camera-0", "radar-0", lag_min_ns=0, lag_max_ns=50_000_000
 ):
     train(
         camera_item.payload,
-        radar_capture.range_doppler(frame_index=radar_item.item_index),
+        radar_capture.frame(radar_item.item_index),
     )
 ```
 
 The join uses conservative mapped time intervals, not equal frame numbers or nearest arrival time.
-The preset is an explicit board-geometry declaration; choose the preset or recipe that matches the
-actual radar.
+If training needs Range-Doppler cubes instead of raw frames, bind the exact recipe or preset through
+`open_radar_capture(range_doppler=...)` and call `range_doppler`. Choose processing geometry from
+the actual board, never from the family string alone.
 
 ### Consume a live aggregate stream
 
@@ -181,9 +188,12 @@ capture lifecycle; it is never inferred from the first packet or a modulo guess.
 
 ### Continue to point clouds and tracks
 
-Use `iwr6843_isk_3d_point_cloud_recipe` with `process_adc_to_calibrated_point_cloud`, then
-`cluster_point_cloud` and `ClusterTracker2D`. Thresholds, calibration, Tx order, and tracker timing
-remain explicit. Keep one tracker instance for a sequence; recreating it discards temporal state.
+Use an explicit `PointCloudRecipe` with `process_adc_to_calibrated_point_cloud`, then
+`cluster_point_cloud` and `ClusterTracker2D`. Source-backed geometry helpers cover XWR1642,
+standard XWR1843 EVM, IWR6843ISK, IWR6843 AOP, and AWR1843 AOP; the IWR6843 processing recipes are
+one optional preset family, not the mmwcore input boundary. Thresholds, calibration, Tx order, and
+tracker timing remain explicit. Keep one tracker instance for a sequence; recreating it discards
+temporal state.
 
 ## Rust example
 
