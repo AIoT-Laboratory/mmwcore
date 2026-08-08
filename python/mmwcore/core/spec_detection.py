@@ -2,10 +2,66 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+from math import isfinite
+from operator import index as integer_index
+from sys import maxsize as _MAX_PLATFORM_INDEX
 
 from .spec_enums import CFARInputScale, CFARMode
+
+_AGGREGATE_RX_CHOICES = frozenset({"max", "sum", "mean"})
+
+
+def _platform_integer(value: int, *, name: str) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer.")
+    try:
+        normalized = int(integer_index(value))
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an integer.") from exc
+    if not -_MAX_PLATFORM_INDEX - 1 <= normalized <= _MAX_PLATFORM_INDEX:
+        raise OverflowError(f"{name} must fit the platform index range.")
+    return normalized
+
+
+def _positive_integer(value: int, *, name: str) -> int:
+    normalized = _platform_integer(value, name=name)
+    if normalized <= 0:
+        raise ValueError(f"{name} must be positive; got {normalized}.")
+    return normalized
+
+
+def _non_negative_integer(value: int, *, name: str) -> int:
+    normalized = _platform_integer(value, name=name)
+    if normalized < 0:
+        raise ValueError(f"{name} must be non-negative; got {normalized}.")
+    return normalized
+
+
+def _require_finite_positive(value: float, *, name: str) -> None:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be a real number, not bool.")
+    if not isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and positive; got {value}.")
+
+
+def _require_finite_non_negative(value: float, *, name: str) -> None:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be a real number, not bool.")
+    if not isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative; got {value}.")
+
+
+def _require_bool(value: bool, *, name: str) -> None:
+    if not isinstance(value, bool):
+        raise TypeError(f"{name} must be a bool.")
+
+
+def _require_aggregate_rx(value: str, *, name: str) -> None:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string.")
+    if value not in _AGGREGATE_RX_CHOICES:
+        raise ValueError(f"{name} must be one of max, sum, or mean; got {value!r}.")
 
 
 @dataclass(frozen=True)
@@ -18,15 +74,20 @@ class PeakDetectionSpec:
     azimuth_peak_strict: bool = True
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.threshold) or self.threshold < 0:
-            raise ValueError(
-                "PeakDetectionSpec.threshold must be finite and non-negative; "
-                f"got {self.threshold}."
-            )
-        if self.aggregate_rx not in {"max", "sum", "mean"}:
-            raise ValueError(f"Unsupported RX aggregation: {self.aggregate_rx}.")
-        if self.azimuth_peak_radius < 0:
-            raise ValueError("PeakDetectionSpec.azimuth_peak_radius must be non-negative.")
+        _require_finite_non_negative(self.threshold, name="PeakDetectionSpec.threshold")
+        _require_aggregate_rx(self.aggregate_rx, name="PeakDetectionSpec.aggregate_rx")
+        object.__setattr__(
+            self,
+            "azimuth_peak_radius",
+            _non_negative_integer(
+                self.azimuth_peak_radius,
+                name="PeakDetectionSpec.azimuth_peak_radius",
+            ),
+        )
+        _require_bool(
+            self.azimuth_peak_strict,
+            name="PeakDetectionSpec.azimuth_peak_strict",
+        )
 
 
 @dataclass(frozen=True)
@@ -39,21 +100,27 @@ class CFARDetectionSpec:
     aggregate_rx: str = "max"
 
     def __post_init__(self) -> None:
-        if self.training_cells <= 0:
-            raise ValueError(
-                f"CFARDetectionSpec.training_cells must be positive; got {self.training_cells}."
-            )
-        if self.guard_cells < 0:
-            raise ValueError(
-                f"CFARDetectionSpec.guard_cells must be non-negative; got {self.guard_cells}."
-            )
-        if not math.isfinite(self.threshold_scale) or self.threshold_scale < 0:
-            raise ValueError(
-                "CFARDetectionSpec.threshold_scale must be finite and non-negative; "
-                f"got {self.threshold_scale}."
-            )
-        if self.aggregate_rx not in {"max", "sum", "mean"}:
-            raise ValueError(f"Unsupported RX aggregation: {self.aggregate_rx}.")
+        object.__setattr__(
+            self,
+            "training_cells",
+            _positive_integer(
+                self.training_cells,
+                name="CFARDetectionSpec.training_cells",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "guard_cells",
+            _non_negative_integer(
+                self.guard_cells,
+                name="CFARDetectionSpec.guard_cells",
+            ),
+        )
+        _require_finite_non_negative(
+            self.threshold_scale,
+            name="CFARDetectionSpec.threshold_scale",
+        )
+        _require_aggregate_rx(self.aggregate_rx, name="CFARDetectionSpec.aggregate_rx")
 
 
 @dataclass(frozen=True)
@@ -69,14 +136,31 @@ class CFAR1DSpec:
     right_skip: int = 0
 
     def __post_init__(self) -> None:
-        if self.training_cells <= 0:
-            raise ValueError("CFAR1DSpec.training_cells must be positive.")
-        if self.guard_cells < 0:
-            raise ValueError("CFAR1DSpec.guard_cells must be non-negative.")
-        if not math.isfinite(self.threshold_scale) or self.threshold_scale < 0:
-            raise ValueError("CFAR1DSpec.threshold_scale must be finite and non-negative.")
-        if self.left_skip < 0 or self.right_skip < 0:
-            raise ValueError("CFAR1DSpec skip lengths must be non-negative.")
+        object.__setattr__(
+            self,
+            "training_cells",
+            _positive_integer(self.training_cells, name="CFAR1DSpec.training_cells"),
+        )
+        object.__setattr__(
+            self,
+            "guard_cells",
+            _non_negative_integer(self.guard_cells, name="CFAR1DSpec.guard_cells"),
+        )
+        _require_finite_non_negative(
+            self.threshold_scale,
+            name="CFAR1DSpec.threshold_scale",
+        )
+        object.__setattr__(
+            self,
+            "left_skip",
+            _non_negative_integer(self.left_skip, name="CFAR1DSpec.left_skip"),
+        )
+        object.__setattr__(
+            self,
+            "right_skip",
+            _non_negative_integer(self.right_skip, name="CFAR1DSpec.right_skip"),
+        )
+        _require_bool(self.cyclic, name="CFAR1DSpec.cyclic")
         if not isinstance(self.mode, CFARMode):
             object.__setattr__(self, "mode", CFARMode(self.mode))
 
@@ -93,8 +177,7 @@ class RangeDopplerCFARSpec:
     def __post_init__(self) -> None:
         if not isinstance(self.input_scale, CFARInputScale):
             object.__setattr__(self, "input_scale", CFARInputScale(self.input_scale))
-        if self.aggregate_rx not in {"max", "sum", "mean"}:
-            raise ValueError(f"Unsupported RX aggregation: {self.aggregate_rx}.")
+        _require_aggregate_rx(self.aggregate_rx, name="RangeDopplerCFARSpec.aggregate_rx")
 
 
 @dataclass(frozen=True)
@@ -108,12 +191,21 @@ class PeakGroupingSpec:
     aggregate_rx: str = "sum"
 
     def __post_init__(self) -> None:
-        if self.range_radius < 0 or self.doppler_radius < 0:
-            raise ValueError("PeakGroupingSpec radii must be non-negative.")
+        range_radius = _non_negative_integer(
+            self.range_radius,
+            name="PeakGroupingSpec.range_radius",
+        )
+        doppler_radius = _non_negative_integer(
+            self.doppler_radius,
+            name="PeakGroupingSpec.doppler_radius",
+        )
+        object.__setattr__(self, "range_radius", range_radius)
+        object.__setattr__(self, "doppler_radius", doppler_radius)
+        _require_bool(self.cyclic_doppler, name="PeakGroupingSpec.cyclic_doppler")
+        _require_bool(self.strict, name="PeakGroupingSpec.strict")
         if self.range_radius == 0 and self.doppler_radius == 0:
             raise ValueError("PeakGroupingSpec requires at least one non-zero radius.")
-        if self.aggregate_rx not in {"max", "sum", "mean"}:
-            raise ValueError(f"Unsupported RX aggregation: {self.aggregate_rx}.")
+        _require_aggregate_rx(self.aggregate_rx, name="PeakGroupingSpec.aggregate_rx")
 
 
 @dataclass(frozen=True)
@@ -123,8 +215,7 @@ class DetectionQualitySpec:
     min_snr: float
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.min_snr) or self.min_snr <= 0:
-            raise ValueError("DetectionQualitySpec.min_snr must be finite and positive.")
+        _require_finite_positive(self.min_snr, name="DetectionQualitySpec.min_snr")
 
 
 @dataclass(frozen=True)
@@ -138,19 +229,27 @@ class PointCloudProjectionSpec:
     doppler_fftshifted: bool = False
 
     def __post_init__(self) -> None:
-        if self.range_resolution_m <= 0:
-            raise ValueError(
-                "PointCloudProjectionSpec.range_resolution_m must be positive; "
-                f"got {self.range_resolution_m}."
+        _require_finite_positive(
+            self.range_resolution_m,
+            name="PointCloudProjectionSpec.range_resolution_m",
+        )
+        _require_finite_positive(
+            self.doppler_resolution_mps,
+            name="PointCloudProjectionSpec.doppler_resolution_mps",
+        )
+        if self.doppler_bins is not None:
+            object.__setattr__(
+                self,
+                "doppler_bins",
+                _positive_integer(
+                    self.doppler_bins,
+                    name="PointCloudProjectionSpec.doppler_bins",
+                ),
             )
-        if self.doppler_resolution_mps <= 0:
-            raise ValueError(
-                "PointCloudProjectionSpec.doppler_resolution_mps must be positive; "
-                f"got {self.doppler_resolution_mps}."
-            )
-        if self.doppler_bins is not None and self.doppler_bins <= 0:
-            raise ValueError(
-                f"PointCloudProjectionSpec.doppler_bins must be positive; got {self.doppler_bins}."
-            )
+        _require_bool(self.center_doppler, name="PointCloudProjectionSpec.center_doppler")
+        _require_bool(
+            self.doppler_fftshifted,
+            name="PointCloudProjectionSpec.doppler_fftshifted",
+        )
         if self.center_doppler and self.doppler_bins is None:
             raise ValueError("PointCloudProjectionSpec.doppler_bins is required when centering.")
