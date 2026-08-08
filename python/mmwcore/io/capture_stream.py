@@ -8,14 +8,14 @@ import json
 import struct
 import unicodedata
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import IntEnum
 from typing import BinaryIO, NoReturn
 
 import numpy as np
 
 from mmwcore.config import RadarCaptureSpec
-from mmwcore.core import RawADCFrame
+from mmwcore.core import RadarCube, RangeDopplerRecipe, RawADCFrame
 
 from ._mmwcli_contract import (
     _MAX_INT64,
@@ -25,6 +25,11 @@ from ._mmwcli_contract import (
     _parse_mmwcli_radar_config,
     _parse_mmwcli_raw_capture_contract,
     _valid_lower_sha256,
+)
+from ._range_doppler import (
+    RangeDopplerPreset,
+    _resolve_range_doppler_recipe,
+    _validate_range_doppler_recipe,
 )
 
 MMWCLI_CAPTURE_STREAM_SCHEMA_V1 = "mmwcli.capture_stream.v1"
@@ -95,6 +100,14 @@ class ProvisionalADCFrame:
     sequence: int
     frame_index: int
     adc_byte_offset: int
+
+
+@dataclass(frozen=True)
+class ProvisionalRangeDopplerFrame:
+    """A provisional ADC frame and its derived Range-Doppler cube."""
+
+    adc_frame: ProvisionalADCFrame
+    cube: RadarCube
 
 
 @dataclass(frozen=True)
@@ -431,6 +444,86 @@ class CaptureStreamReader:
         if cause is None:
             raise error
         raise error from cause
+
+
+@dataclass(frozen=True)
+class CaptureStream:
+    """Pull-driven processing facade over one validated finite capture stream.
+
+    Construct instances with :func:`open_capture_stream`. The caller retains
+    ownership of the source held by the underlying reader.
+    """
+
+    contract: CaptureStreamContract
+    _reader: CaptureStreamReader = field(repr=False, compare=False)
+    _default_range_doppler: RangeDopplerRecipe | None = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self._reader, CaptureStreamReader):
+            raise TypeError("CaptureStream reader must be a CaptureStreamReader.")
+        if self._reader._contract is not self.contract or self._reader._state != "contract":
+            raise ValueError("CaptureStream reader is not bound to its declared contract.")
+        if self._default_range_doppler is not None:
+            _validate_range_doppler_recipe(
+                self.contract.radar_capture,
+                self._default_range_doppler,
+                context="CaptureStream",
+            )
+
+    def frames(self) -> Iterator[ProvisionalADCFrame]:
+        """Iterate the stream's provisional ADC frames exactly once."""
+
+        return self._reader.provisional_frames()
+
+    def range_doppler(self) -> Iterator[ProvisionalRangeDopplerFrame]:
+        """Process the single provisional frame stream with the bound recipe."""
+
+        recipe = self._default_range_doppler
+        if recipe is None:
+            raise TypeError(
+                "CaptureStream.range_doppler requires an open_capture_stream-bound recipe."
+            )
+        frames = self._reader.provisional_frames()
+        return _iterate_range_doppler(frames, recipe)
+
+    def require_commit(self) -> CaptureStreamCommit:
+        """Require COMMIT and terminal EOF after the frame iterator is exhausted."""
+
+        return self._reader.require_commit()
+
+
+def _iterate_range_doppler(
+    frames: Iterator[ProvisionalADCFrame],
+    recipe: RangeDopplerRecipe,
+) -> Iterator[ProvisionalRangeDopplerFrame]:
+    from mmwcore.dsp.runners import process_adc_to_range_doppler
+
+    for provisional in frames:
+        yield ProvisionalRangeDopplerFrame(
+            adc_frame=provisional,
+            cube=process_adc_to_range_doppler(provisional.frame, recipe),
+        )
+
+
+def open_capture_stream(
+    source: BinaryIO,
+    *,
+    range_doppler: RangeDopplerRecipe | RangeDopplerPreset | None = None,
+) -> CaptureStream:
+    """Read a stream contract now and return a synchronous pull-driven facade."""
+
+    reader = CaptureStreamReader(source)
+    contract = reader.read_contract()
+    recipe = _resolve_range_doppler_recipe(
+        contract.radar_capture,
+        range_doppler,
+        context="open_capture_stream",
+    )
+    return CaptureStream(
+        contract=contract,
+        _reader=reader,
+        _default_range_doppler=recipe,
+    )
 
 
 def _decode_header(header: bytes) -> _RecordHeader:
@@ -784,10 +877,13 @@ __all__ = [
     "MMWCLI_CAPTURE_STREAM_TERMINAL_SCHEMA_V1",
     "CaptureStreamAbort",
     "CaptureStreamAborted",
+    "CaptureStream",
     "CaptureStreamCommit",
     "CaptureStreamContract",
     "CaptureStreamError",
     "CaptureStreamReader",
     "CaptureStreamStateError",
     "ProvisionalADCFrame",
+    "ProvisionalRangeDopplerFrame",
+    "open_capture_stream",
 ]

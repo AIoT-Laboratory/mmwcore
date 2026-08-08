@@ -4,20 +4,28 @@ import hashlib
 import io
 import json
 import struct
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from typing import Any
 
 import numpy as np
 import pytest
 
+from mmwcore import open_capture_stream as public_open_capture_stream
+from mmwcore.config import RadarProfile
+from mmwcore.core import ADCComplexLayout, ADCDecodeRecipe, RangeDopplerRecipe
+from mmwcore.dsp import process_adc_to_range_doppler
 from mmwcore.io import (
     MMWCLI_CAPTURE_STREAM_SCHEMA_V1,
+    CaptureStream,
     CaptureStreamAbort,
     CaptureStreamAborted,
     CaptureStreamError,
     CaptureStreamReader,
     CaptureStreamStateError,
     MmwcliRawCaptureContract,
+    ProvisionalRangeDopplerFrame,
+    RangeDopplerPreset,
+    open_capture_stream,
 )
 
 _HEADER = struct.Struct("<8sHHHHQQQQ32s")
@@ -148,6 +156,139 @@ def test_accepts_partial_binary_reads_without_owning_the_source() -> None:
 
     assert len(frames) == 1
     assert commit.frames == 1
+    assert not source.closed
+
+
+def test_open_capture_stream_reads_contract_and_calls_preset_once() -> None:
+    source = io.BytesIO(_GO_GOLDEN_V1)
+    calls: list[tuple[RadarProfile, ADCComplexLayout, tuple[int, ...]]] = []
+    recipes: list[RangeDopplerRecipe] = []
+
+    def preset(
+        profile: RadarProfile,
+        *,
+        adc_layout: ADCComplexLayout,
+        tx_order: tuple[int, ...],
+    ) -> RangeDopplerRecipe:
+        calls.append((profile, adc_layout, tx_order))
+        recipe = RangeDopplerRecipe(
+            decode=ADCDecodeRecipe(profile.to_adc_frame_spec(layout=adc_layout))
+        )
+        recipes.append(recipe)
+        return recipe
+
+    typed_preset: RangeDopplerPreset = preset
+    stream = public_open_capture_stream(source, range_doppler=typed_preset)
+
+    leading_records = _golden_records()[:2]
+    leading_size = sum(_HEADER.size + len(payload) for _, _, _, payload in leading_records)
+    assert public_open_capture_stream is open_capture_stream
+    assert isinstance(stream, CaptureStream)
+    assert source.tell() == leading_size
+    assert source.tell() < len(_GO_GOLDEN_V1)
+    assert calls == [
+        (
+            stream.contract.radar_capture.profile,
+            stream.contract.radar_capture.adc.layout,
+            stream.contract.radar_capture.tx_order,
+        )
+    ]
+
+    range_doppler = stream.range_doppler()
+    with pytest.raises(CaptureStreamStateError):
+        stream.frames()
+    items = list(range_doppler)
+
+    assert len(items) == 1
+    assert isinstance(items[0], ProvisionalRangeDopplerFrame)
+    assert items[0].adc_frame.frame_index == 0
+    expected = process_adc_to_range_doppler(items[0].adc_frame.frame, recipes[0])
+    assert items[0].cube.axes == expected.axes
+    np.testing.assert_allclose(items[0].cube.data, expected.data)
+    assert stream.require_commit().frames == 1
+    assert not source.closed
+
+
+def test_capture_stream_facade_has_one_frame_state_and_requires_terminal_eof() -> None:
+    contract = CaptureStreamReader(io.BytesIO(_GO_GOLDEN_V1)).read_contract()
+    recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(contract.radar_capture.adc))
+    stream = open_capture_stream(io.BytesIO(_GO_GOLDEN_V1), range_doppler=recipe)
+
+    frames = stream.frames()
+    with pytest.raises(CaptureStreamStateError):
+        stream.range_doppler()
+    assert len(list(frames)) == 1
+    assert stream.require_commit().frames == 1
+
+    trailing = open_capture_stream(io.BytesIO(_GO_GOLDEN_V1 + b"x"))
+    assert len(list(trailing.frames())) == 1
+    with pytest.raises(CaptureStreamError, match="trailing data"):
+        trailing.require_commit()
+
+
+def test_capture_stream_facade_requires_recipe_without_claiming_frames() -> None:
+    stream = open_capture_stream(io.BytesIO(_GO_GOLDEN_V1))
+
+    with pytest.raises(TypeError, match="bound recipe"):
+        stream.range_doppler()
+
+    assert len(list(stream.frames())) == 1
+    assert stream.require_commit().frames == 1
+
+
+def test_capture_stream_facade_never_commits_abort_or_missing_terminal() -> None:
+    session = _golden_records()[0][3]
+    abort = _json_line(
+        {
+            "schema": "mmwcli.capture_stream_terminal.v1",
+            "stream_id": _STREAM_ID,
+            "outcome": "abort",
+            "frames": 0,
+            "adc_bytes": 0,
+            "adc_sha256": hashlib.sha256(b"").hexdigest(),
+            "reason_code": "capture_failed",
+        }
+    )
+    aborted_source = io.BytesIO(
+        b"".join(
+            (
+                _record(1, 0, 0, session),
+                _record(2, 1, 0, _CONFIG),
+                _record(5, 2, 0, abort),
+            )
+        )
+    )
+    aborted = open_capture_stream(aborted_source)
+
+    with pytest.raises(CaptureStreamAborted):
+        list(aborted.frames())
+    with pytest.raises(CaptureStreamStateError):
+        aborted.require_commit()
+    assert not aborted_source.closed
+
+    records = _golden_records()[:3]
+    missing_terminal_source = io.BytesIO(b"".join(_record(*record) for record in records))
+    missing_terminal = open_capture_stream(missing_terminal_source)
+
+    provisional = list(missing_terminal.frames())
+    assert len(provisional) == 1
+    with pytest.raises(CaptureStreamError, match="ended during record header"):
+        missing_terminal.require_commit()
+    assert not missing_terminal_source.closed
+
+
+def test_open_capture_stream_rejects_recipe_mismatch_before_frame_read() -> None:
+    source = io.BytesIO(_GO_GOLDEN_V1)
+    contract = CaptureStreamReader(io.BytesIO(_GO_GOLDEN_V1)).read_contract()
+    wrong_adc = replace(contract.radar_capture.adc, num_samples=8)
+    wrong_recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(wrong_adc))
+
+    with pytest.raises(ValueError, match="recipe ADC spec"):
+        open_capture_stream(source, range_doppler=wrong_recipe)
+
+    leading_records = _golden_records()[:2]
+    leading_size = sum(_HEADER.size + len(payload) for _, _, _, payload in leading_records)
+    assert source.tell() == leading_size
     assert not source.closed
 
 

@@ -71,21 +71,25 @@ The hash proves internal consistency, not provenance. Passing the preset is the 
 declaration that the board uses IWR6843ISK geometry; the route-declared manifest does not identify
 or guess a board. Pass a different preset or an explicit recipe for other verified hardware.
 
-### Decode a finite capture stream
+### Process a finite capture stream
 
 ```python
-from mmwcore.io import CaptureStreamReader
+import mmwcore
+from mmwcore.config import iwr6843_isk_range_doppler_recipe
 
-reader = CaptureStreamReader(source)  # caller-owned BinaryIO
-contract = reader.read_contract()
-for provisional in reader.provisional_frames():
-    process(provisional.frame, contract.radar_capture)
-commit = reader.require_commit()
+stream = mmwcore.open_capture_stream(
+    source,  # caller-owned BinaryIO
+    range_doppler=iwr6843_isk_range_doppler_recipe,
+)
+for item in stream.range_doppler():
+    infer(item.cube)
+commit = stream.require_commit()
 ```
 
 Frames remain provisional until `require_commit` validates COMMIT and terminal EOF. mmwcore neither
 closes the source nor opens a process, socket, or device. The source must make `read` honor any
-required deadline or cancellation. The matching mmwcli transport and CLI producer are not wired yet.
+required deadline or cancellation. Processing is synchronous and pull-driven, without prefetch or
+worker threads.
 
 ### Read a headerless ADC file
 

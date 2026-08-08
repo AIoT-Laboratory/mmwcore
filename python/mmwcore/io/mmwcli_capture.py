@@ -11,10 +11,9 @@ import sys
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Protocol
 
-from mmwcore.config import RadarCaptureSpec, RadarProfile
-from mmwcore.core import ADCComplexLayout, RadarCube, RangeDopplerRecipe, RawADCFrame
+from mmwcore.config import RadarCaptureSpec
+from mmwcore.core import RadarCube, RangeDopplerRecipe, RawADCFrame
 
 from ._mmwcli_contract import (
     _ADC_FILE_NAME,
@@ -28,21 +27,14 @@ from ._mmwcli_contract import (
     _parse_mmwcli_raw_capture_contract,
     _valid_lower_sha256,
 )
+from ._range_doppler import (
+    RangeDopplerPreset,
+    _resolve_range_doppler_recipe,
+    _validate_range_doppler_recipe,
+)
 from .adc_file import ADCFileFrameReader
 
 _MAX_MANIFEST_BYTES = 64 << 10
-
-
-class RangeDopplerPreset(Protocol):
-    """Build a recipe from the physical fields proven by a capture contract."""
-
-    def __call__(
-        self,
-        profile: RadarProfile,
-        *,
-        adc_layout: ADCComplexLayout,
-        tx_order: tuple[int, ...],
-    ) -> RangeDopplerRecipe: ...
 
 
 @dataclass(frozen=True)
@@ -67,7 +59,11 @@ class ADCFileCapture:
     def __post_init__(self) -> None:
         _validate_capture_reader(self)
         if self._default_range_doppler is not None:
-            _validate_range_doppler_recipe(self, self._default_range_doppler)
+            _validate_range_doppler_recipe(
+                self.radar_capture,
+                self._default_range_doppler,
+                context="ADCFileCapture.range_doppler",
+            )
 
     @property
     def num_frames(self) -> int:
@@ -107,7 +103,11 @@ class ADCFileCapture:
                 "ADCFileCapture.range_doppler requires an explicit RangeDopplerRecipe "
                 "or an open_capture-bound default."
             )
-        _validate_range_doppler_recipe(self, selected)
+        _validate_range_doppler_recipe(
+            self.radar_capture,
+            selected,
+            context="ADCFileCapture.range_doppler",
+        )
         from mmwcore.dsp.runners import process_adc_to_range_doppler
 
         return process_adc_to_range_doppler(self.frame(frame_index), selected)
@@ -137,50 +137,17 @@ def _frame_interval(
     return range(start, final)
 
 
-def _validate_range_doppler_recipe(
-    capture: ADCFileCapture,
-    recipe: RangeDopplerRecipe,
-) -> None:
-    if not isinstance(recipe, RangeDopplerRecipe):
-        raise TypeError("ADCFileCapture.range_doppler requires a RangeDopplerRecipe.")
-    contract = capture.radar_capture
-    if recipe.decode.adc != contract.adc:
-        raise ValueError("Range-Doppler recipe ADC spec does not match the capture contract.")
-
-    tdm = recipe.tdm_virtual_array
-    if tdm is None:
-        if len(contract.tx_order) > 1:
-            raise ValueError("Multi-Tx capture processing requires an explicit TDM virtual array.")
-        if recipe.doppler_fft.input_axis != "chirp":
-            raise ValueError("Single-Tx capture processing requires the chirp Doppler axis.")
-        return
-    if tdm.tx_order != contract.tx_order:
-        raise ValueError("Range-Doppler recipe Tx order does not match the capture contract.")
-    if tdm.geometry.num_rx != contract.profile.num_rx:
-        raise ValueError(
-            "Range-Doppler recipe receiver geometry does not match the capture contract."
-        )
-
-
 def _bind_range_doppler(
     capture: ADCFileCapture,
     binding: RangeDopplerRecipe | RangeDopplerPreset | None,
 ) -> ADCFileCapture:
-    if binding is None:
+    recipe = _resolve_range_doppler_recipe(
+        capture.radar_capture,
+        binding,
+        context="open_capture",
+    )
+    if recipe is None:
         return capture
-    if isinstance(binding, RangeDopplerRecipe):
-        recipe = binding
-    elif callable(binding):
-        contract = capture.radar_capture
-        recipe = binding(
-            contract.profile,
-            adc_layout=contract.adc.layout,
-            tx_order=contract.tx_order,
-        )
-    else:
-        raise TypeError(
-            "open_capture range_doppler must be a RangeDopplerRecipe, preset callable, or None."
-        )
     return replace(capture, _default_range_doppler=recipe)
 
 
