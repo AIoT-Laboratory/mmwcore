@@ -27,7 +27,8 @@ Maintained inputs are:
 
 - archived DCA1000 datagrams;
 - headerless `int16` ADC files with an explicit frame contract;
-- completed versioned capture directories opened with `open_capture`.
+- completed versioned capture directories opened with `open_capture`;
+- finite `mmwcli.capture_stream.v1` data supplied through a caller-owned `BinaryIO`.
 
 The library does not configure devices, render firmware commands, or manage live acquisition.
 Callers must supply ADC layout, frame geometry, timing, antenna geometry, and trusted packet/frame
@@ -69,6 +70,22 @@ print(range_doppler.axes, range_doppler.data.shape)
 
 The hash proves internal consistency, not provenance. The recipe selects IWR6843ISK geometry, so
 use a different explicit recipe when the capture came from another board.
+
+### Decode a finite capture stream
+
+```python
+from mmwcore.io import CaptureStreamReader
+
+reader = CaptureStreamReader(source)  # caller-owned BinaryIO
+contract = reader.read_contract()
+for provisional in reader.provisional_frames():
+    process(provisional.frame, contract.radar_capture)
+commit = reader.require_commit()
+```
+
+Frames remain provisional until `require_commit` validates COMMIT and terminal EOF. mmwcore neither
+closes the source nor opens a process, socket, or device. The source must make `read` honor any
+required deadline or cancellation. The matching mmwcli transport and CLI producer are not wired yet.
 
 ### Read a headerless ADC file
 
@@ -129,7 +146,7 @@ assert_eq!(cube.shape(), [1, 1, 1, 2]);
 
 - `mmwcore.core`: axes, units, ADC, cube, detection, point-cloud, and tracking contracts.
 - `mmwcore.config`: finite radar profiles, capture contracts, antenna geometries, and recipes.
-- `mmwcore.io`: offline packet, ADC-file, and versioned capture-directory readers.
+- `mmwcore.io`: packet, ADC-file, capture-directory, and finite capture-stream readers.
 - `mmwcore.dsp`: FFT, clutter removal, CFAR, calibration, AoA, projection, and clustering.
 - `mmwcore.tracking`: assignment, stateful trackers, runners, metrics, and validation artifacts.
 - `mmwcore.plot`: optional research visualizations outside the Rust compute core.

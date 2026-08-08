@@ -7,7 +7,7 @@ data without owning device configuration, transport lifecycle, experiment orches
 or application behavior.
 
 ```text
-captured packet bytes / ADC files / versioned capture directory
+captured packet bytes / ADC files / capture directory / capture stream
                             |
                             v
               physical and integrity contracts
@@ -69,14 +69,16 @@ Every maintained transform carries or requires:
 Silent axis inference, uncalibrated metric claims, and dataset-specific normalization do not belong
 in the core.
 
-## Future acquisition boundary
+## Capture-stream boundary
 
-Trusted real-time acquisition may later be provided by the dedicated `mmwcli` acquisition tool
-through a versioned stream contract. Such a contract would need producer identity, schema version,
-counter origins, frame boundaries, lifecycle state, and integrity rules.
+`CaptureStreamReader` decodes finite `mmwcli.capture_stream.v1` records from a caller-owned
+`BinaryIO`. It validates producer metadata, zero-based counters, complete frame boundaries, strict
+JSON, payload bounds, record and ADC digests, the embedded radar configuration, terminal state, and
+EOF. Frames remain provisional unless COMMIT and EOF both validate.
 
-This is an architectural direction, not an implemented mmwcore stream integration. Until that
-contract exists, live transport and hardware control remain outside mmwcore.
+The decoder is implemented; the matching mmwcli transport and CLI producer are not wired yet.
+mmwcore does not open a process, socket, device, or hardware session and never closes the source.
+The caller owns the source and must make its reads honor any required deadline or cancellation.
 
 ## Validation
 
