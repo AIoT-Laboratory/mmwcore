@@ -1,5 +1,5 @@
 {
-  "include": ["python/mmwcore", "tests", "benchmarks"],
+  "include": ["python/mmwcore", "tests", "benchmarks", "examples"],
   "exclude": ["**/__pycache__", "**/.venv"],
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,

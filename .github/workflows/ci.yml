@@ -34,8 +34,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --extra dev --locked
-      - run: uv run ruff check python tests benchmarks
-      - run: uv run ruff format --check python tests benchmarks
+      - run: uv run ruff check python tests benchmarks examples
+      - run: uv run ruff format --check python tests benchmarks examples
       - run: uv run pyright
 
   python:

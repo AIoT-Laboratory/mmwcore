@@ -56,7 +56,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: uv sync --extra dev --locked
-      - run: uv run ruff check python tests
+      - run: uv run ruff check python tests benchmarks examples
+      - run: uv run ruff format --check python tests benchmarks examples
       - run: uv run pyright
       - run: uv run pytest --cov=mmwcore
 

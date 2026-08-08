@@ -74,6 +74,19 @@ tuple, but decoder acceptance does not claim that an mmwcli acquisition route ha
 
 ## Python examples
 
+The repository includes complete command-line examples that consume files or binary stdin and
+never start hardware:
+
+| Workflow | Example |
+| --- | --- |
+| capture directory or explicit raw frames | [capture_or_raw.py](examples/capture_or_raw.py) |
+| explicit xWR18xx/XWR1843 EVM geometry and recipe | [xwr18_range_doppler.py](examples/xwr18_range_doppler.py) |
+| finite radar live stream | [radar_live_stream.py](examples/radar_live_stream.py) |
+| multi-sensor offline training pairs | [multisensor_offline_training.py](examples/multisensor_offline_training.py) |
+| multi-sensor provisional live inference | [multisensor_live_inference.py](examples/multisensor_live_inference.py) |
+
+See the [example index](examples/README.md) for copyable commands and finalization semantics.
+
 ### Open a versioned capture directory
 
 `open_capture` validates the manifest schema, required regular files, hashes, byte count, and finite

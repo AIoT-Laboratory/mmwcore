@@ -32,8 +32,8 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 uv sync --extra dev --locked
-uv run --no-sync ruff format --check python tests benchmarks
-uv run --no-sync ruff check python tests benchmarks
+uv run --no-sync ruff format --check python tests benchmarks examples
+uv run --no-sync ruff check python tests benchmarks examples
 uv run --no-sync pyright
 uv run --no-sync pytest --cov=mmwcore -q
 uv run --no-sync python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
