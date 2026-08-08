@@ -9,11 +9,12 @@ import os
 import stat
 import sys
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import Protocol
 
-from mmwcore.config import RadarCaptureSpec
-from mmwcore.core import RadarCube, RangeDopplerRecipe, RawADCFrame
+from mmwcore.config import RadarCaptureSpec, RadarProfile
+from mmwcore.core import ADCComplexLayout, RadarCube, RangeDopplerRecipe, RawADCFrame
 
 from ._mmwcli_contract import (
     _ADC_FILE_NAME,
@@ -30,6 +31,18 @@ from ._mmwcli_contract import (
 from .adc_file import ADCFileFrameReader
 
 _MAX_MANIFEST_BYTES = 64 << 10
+
+
+class RangeDopplerPreset(Protocol):
+    """Build a recipe from the physical fields proven by a capture contract."""
+
+    def __call__(
+        self,
+        profile: RadarProfile,
+        *,
+        adc_layout: ADCComplexLayout,
+        tx_order: tuple[int, ...],
+    ) -> RangeDopplerRecipe: ...
 
 
 @dataclass(frozen=True)
@@ -49,9 +62,12 @@ class ADCFileCapture:
     raw_capture: MmwcliRawCaptureContract
     radar_capture: RadarCaptureSpec
     reader: ADCFileFrameReader
+    _default_range_doppler: RangeDopplerRecipe | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         _validate_capture_reader(self)
+        if self._default_range_doppler is not None:
+            _validate_range_doppler_recipe(self, self._default_range_doppler)
 
     @property
     def num_frames(self) -> int:
@@ -79,16 +95,22 @@ class ADCFileCapture:
 
     def range_doppler(
         self,
-        recipe: RangeDopplerRecipe,
+        recipe: RangeDopplerRecipe | None = None,
         *,
         frame_index: int = 0,
     ) -> RadarCube:
-        """Process one frame with an explicit recipe matching the capture contract."""
+        """Process one frame with an explicit or ``open_capture``-bound recipe."""
 
-        _validate_range_doppler_recipe(self, recipe)
+        selected = self._default_range_doppler if recipe is None else recipe
+        if selected is None:
+            raise TypeError(
+                "ADCFileCapture.range_doppler requires an explicit RangeDopplerRecipe "
+                "or an open_capture-bound default."
+            )
+        _validate_range_doppler_recipe(self, selected)
         from mmwcore.dsp.runners import process_adc_to_range_doppler
 
-        return process_adc_to_range_doppler(self.frame(frame_index), recipe)
+        return process_adc_to_range_doppler(self.frame(frame_index), selected)
 
 
 @dataclass(frozen=True)
@@ -140,6 +162,28 @@ def _validate_range_doppler_recipe(
         )
 
 
+def _bind_range_doppler(
+    capture: ADCFileCapture,
+    binding: RangeDopplerRecipe | RangeDopplerPreset | None,
+) -> ADCFileCapture:
+    if binding is None:
+        return capture
+    if isinstance(binding, RangeDopplerRecipe):
+        recipe = binding
+    elif callable(binding):
+        contract = capture.radar_capture
+        recipe = binding(
+            contract.profile,
+            adc_layout=contract.adc.layout,
+            tx_order=contract.tx_order,
+        )
+    else:
+        raise TypeError(
+            "open_capture range_doppler must be a RangeDopplerRecipe, preset callable, or None."
+        )
+    return replace(capture, _default_range_doppler=recipe)
+
+
 def _validate_capture_reader(capture: ADCFileCapture) -> None:
     _validate_raw_capture_binding(capture)
     contract = capture.radar_capture
@@ -177,8 +221,12 @@ def _validate_raw_capture_binding(capture: ADCFileCapture) -> None:
         raise ValueError("ADCFileCapture raw layout does not match its capture contract.")
 
 
-def open_capture(path: str | Path) -> ADCFileCapture:
-    """Validate and open one published mmwcli capture-session v1 directory."""
+def open_capture(
+    path: str | Path,
+    *,
+    range_doppler: RangeDopplerRecipe | RangeDopplerPreset | None = None,
+) -> ADCFileCapture:
+    """Validate a capture-session v1 directory and optionally bind a DSP recipe."""
 
     if sys.byteorder != "little":
         raise RuntimeError("mmwcli capture sessions require a little-endian host.")
@@ -228,7 +276,7 @@ def open_capture(path: str | Path) -> ADCFileCapture:
         raise ValueError("mmwcli capture adc.bin SHA-256 does not match capture.json.")
 
     reader = ADCFileFrameReader.from_capture(adc_path, radar_capture)
-    return ADCFileCapture(
+    capture = ADCFileCapture(
         root=root,
         manifest_path=manifest_path,
         adc_path=adc_path,
@@ -237,6 +285,7 @@ def open_capture(path: str | Path) -> ADCFileCapture:
         radar_capture=radar_capture,
         reader=reader,
     )
+    return _bind_range_doppler(capture, range_doppler)
 
 
 def _capture_root(path: str | Path) -> Path:
@@ -379,5 +428,6 @@ def _required_sha256(record: dict[str, object], field: str, label: str) -> str:
 __all__ = [
     "ADCFileCapture",
     "MMWCLI_CAPTURE_SESSION_SCHEMA_V1",
+    "RangeDopplerPreset",
     "open_capture",
 ]

@@ -60,22 +60,16 @@ currently accept only `vendor=ti`, `family=xwr68xx`, empty `model`/`revision`,
 physical contract. The directory must remain unchanged while it is open.
 
 ```python
+from mmwcore import open_capture
 from mmwcore.config import iwr6843_isk_range_doppler_recipe
-from mmwcore.io import open_capture
 
-capture = open_capture("capture-session")
-contract = capture.radar_capture
-recipe = iwr6843_isk_range_doppler_recipe(
-    contract.profile,
-    adc_layout=contract.adc.layout,
-    tx_order=contract.tx_order,
-)
-range_doppler = capture.range_doppler(recipe, frame_index=0)
-print(range_doppler.axes, range_doppler.data.shape)
+capture = open_capture("capture-session", range_doppler=iwr6843_isk_range_doppler_recipe)
+range_doppler = capture.range_doppler(frame_index=0)
 ```
 
-The hash proves internal consistency, not provenance. The recipe selects IWR6843ISK geometry, so
-use a different explicit recipe when the capture came from another board.
+The hash proves internal consistency, not provenance. Passing the preset is the caller's explicit
+declaration that the board uses IWR6843ISK geometry; the route-declared manifest does not identify
+or guess a board. Pass a different preset or an explicit recipe for other verified hardware.
 
 ### Decode a finite capture stream
 

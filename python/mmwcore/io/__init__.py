@@ -19,6 +19,7 @@ from .capture_stream import (
 from .mmwcli_capture import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
     ADCFileCapture,
+    RangeDopplerPreset,
     open_capture,
 )
 from .packets import (
@@ -54,6 +55,7 @@ __all__ = [
     "CaptureStreamReader",
     "CaptureStreamStateError",
     "ProvisionalADCFrame",
+    "RangeDopplerPreset",
     "assemble_dca1000_frame",
     "assemble_dca1000_frame_bytes",
     "load_adc_cube",

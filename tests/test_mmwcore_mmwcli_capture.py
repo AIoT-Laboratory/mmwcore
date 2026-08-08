@@ -10,7 +10,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from mmwcore.config import iwr6843_isk_range_doppler_recipe
+from mmwcore import open_capture as public_open_capture
+from mmwcore.config import RadarProfile, iwr6843_isk_range_doppler_recipe
 from mmwcore.core import (
     ADCComplexLayout,
     ADCDecodeRecipe,
@@ -24,6 +25,7 @@ from mmwcore.io import (
     ADCFileCapture,
     ADCFileFrameReader,
     MmwcliRawCaptureContract,
+    RangeDopplerPreset,
     open_capture,
 )
 
@@ -160,12 +162,70 @@ def test_capture_facade_range_doppler_matches_explicit_runner(tmp_path: Path) ->
     np.testing.assert_allclose(actual.data, expected.data)
 
 
+def test_open_capture_binds_explicit_recipe_as_default(tmp_path: Path) -> None:
+    root = _write_capture(tmp_path)
+    contract = open_capture(root).radar_capture
+    recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(contract.adc))
+
+    capture = public_open_capture(root, range_doppler=recipe)
+    actual = capture.range_doppler(frame_index=1)
+    expected = process_adc_to_range_doppler(capture.frame(1), recipe)
+
+    assert public_open_capture is open_capture
+    np.testing.assert_allclose(actual.data, expected.data)
+
+
+def test_open_capture_calls_preset_once_with_validated_contract(tmp_path: Path) -> None:
+    root = _write_capture(
+        tmp_path,
+        config=_TDM_CONFIG_BYTES,
+        adc=_TDM_ADC_BYTES,
+    )
+    calls: list[tuple[RadarProfile, ADCComplexLayout, tuple[int, ...]]] = []
+    recipes: list[RangeDopplerRecipe] = []
+
+    def preset(
+        profile: RadarProfile,
+        *,
+        adc_layout: ADCComplexLayout,
+        tx_order: tuple[int, ...],
+    ) -> RangeDopplerRecipe:
+        calls.append((profile, adc_layout, tx_order))
+        recipe = iwr6843_isk_range_doppler_recipe(
+            profile,
+            adc_layout=adc_layout,
+            tx_order=tx_order,
+        )
+        recipes.append(recipe)
+        return recipe
+
+    typed_preset: RangeDopplerPreset = preset
+    capture = open_capture(root, range_doppler=typed_preset)
+
+    assert calls == [
+        (
+            capture.radar_capture.profile,
+            capture.radar_capture.adc.layout,
+            capture.radar_capture.tx_order,
+        )
+    ]
+    actual = capture.range_doppler(frame_index=1)
+    expected = process_adc_to_range_doppler(capture.frame(1), recipes[0])
+    np.testing.assert_allclose(actual.data, expected.data)
+
+
 def test_capture_facade_rejects_invalid_range_doppler_policy(tmp_path: Path) -> None:
     capture = open_capture(_write_capture(tmp_path))
     recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(capture.radar_capture.adc))
 
+    with pytest.raises(TypeError, match="explicit RangeDopplerRecipe"):
+        capture.range_doppler()
+
     with pytest.raises(TypeError, match="RangeDopplerRecipe"):
         capture.range_doppler(object())  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match="preset callable"):
+        open_capture(capture.root, range_doppler=object())  # type: ignore[arg-type]
 
     loop_recipe = replace(
         recipe,
@@ -193,6 +253,8 @@ def test_capture_facade_rejects_mismatched_reader_and_recipe_specs(tmp_path: Pat
     wrong_recipe = replace(recipe, decode=ADCDecodeRecipe(alternate_adc))
     with pytest.raises(ValueError, match="recipe ADC spec"):
         capture.range_doppler(wrong_recipe)
+    with pytest.raises(ValueError, match="recipe ADC spec"):
+        open_capture(capture.root, range_doppler=wrong_recipe)
 
     alternate_path = tmp_path / "alternate-adc.bin"
     alternate_path.write_bytes(_ADC_BYTES)
