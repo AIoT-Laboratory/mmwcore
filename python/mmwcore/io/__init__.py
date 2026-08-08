@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ._mmwcli_contract import MmwcliRawCaptureContract
 from .adc_file import ADCFileFrameReader, load_adc_cube, load_adc_file
 from .capture_stream import (
     MMWCLI_CAPTURE_STREAM_SCHEMA_V1,
@@ -44,6 +45,7 @@ __all__ = [
     "MMWCLI_CAPTURE_SESSION_SCHEMA_V1",
     "MMWCLI_CAPTURE_STREAM_SCHEMA_V1",
     "MMWCLI_CAPTURE_STREAM_TERMINAL_SCHEMA_V1",
+    "MmwcliRawCaptureContract",
     "CaptureStreamAbort",
     "CaptureStreamAborted",
     "CaptureStreamCommit",

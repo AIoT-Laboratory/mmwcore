@@ -16,17 +16,15 @@ from mmwcore.config import RadarCaptureSpec
 from mmwcore.core import RadarCube, RangeDopplerRecipe, RawADCFrame
 
 from ._mmwcli_contract import (
-    _ADC_BYTE_ORDER,
-    _ADC_DATA_TYPE,
     _ADC_FILE_NAME,
-    _ADC_LAYOUT,
     _MANIFEST_FILE_NAME,
     _MAX_INT64,
     _MAX_RADAR_CONFIG_BYTES,
     _RADAR_CONFIG_FILE_NAME,
-    _RADAR_CONFIG_FORMAT,
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
+    MmwcliRawCaptureContract,
     _parse_mmwcli_radar_config,
+    _parse_mmwcli_raw_capture_contract,
     _valid_lower_sha256,
 )
 from .adc_file import ADCFileFrameReader
@@ -48,6 +46,7 @@ class ADCFileCapture:
     manifest_path: Path
     adc_path: Path
     radar_config_path: Path
+    raw_capture: MmwcliRawCaptureContract
     radar_capture: RadarCaptureSpec
     reader: ADCFileFrameReader
 
@@ -94,6 +93,7 @@ class ADCFileCapture:
 
 @dataclass(frozen=True)
 class _ManifestV1:
+    raw_capture: MmwcliRawCaptureContract
     adc_size_bytes: int
     adc_sha256: str
     radar_config_sha256: str
@@ -141,6 +141,7 @@ def _validate_range_doppler_recipe(
 
 
 def _validate_capture_reader(capture: ADCFileCapture) -> None:
+    _validate_raw_capture_binding(capture)
     contract = capture.radar_capture
     reader = capture.reader
     expected_paths = (
@@ -167,6 +168,13 @@ def _validate_capture_reader(capture: ADCFileCapture) -> None:
         raise ValueError("ADCFileCapture reader profile does not match its capture contract.")
     if reader.metadata.get("tx_order") != list(contract.tx_order):
         raise ValueError("ADCFileCapture reader Tx order does not match its capture contract.")
+
+
+def _validate_raw_capture_binding(capture: ADCFileCapture) -> None:
+    if type(capture.raw_capture) is not MmwcliRawCaptureContract:
+        raise TypeError("ADCFileCapture raw_capture must be a MmwcliRawCaptureContract.")
+    if capture.radar_capture.adc.layout.value != capture.raw_capture.layout:
+        raise ValueError("ADCFileCapture raw layout does not match its capture contract.")
 
 
 def open_capture(path: str | Path) -> ADCFileCapture:
@@ -205,6 +213,7 @@ def open_capture(path: str | Path) -> ADCFileCapture:
     )
     radar_capture = _parse_mmwcli_radar_config(
         config_bytes,
+        raw_capture=manifest.raw_capture,
         expected_sha256=manifest.radar_config_sha256,
         context="mmwcli capture",
     )
@@ -224,6 +233,7 @@ def open_capture(path: str | Path) -> ADCFileCapture:
         manifest_path=manifest_path,
         adc_path=adc_path,
         radar_config_path=radar_config_path,
+        raw_capture=manifest.raw_capture,
         radar_capture=radar_capture,
         reader=reader,
     )
@@ -292,23 +302,21 @@ def _parse_manifest(payload: bytes) -> _ManifestV1:
         raise ValueError("mmwcli capture manifest uses an unsupported schema.")
     # Required meanings are fixed; unknown fields remain available for
     # additive v1 provenance that does not change decoding semantics.
+    hardware = _required_object(record, "hardware")
     adc = _required_object(record, "adc")
     radar_config = _required_object(record, "radar_config")
     _require_literal(adc, "path", _ADC_FILE_NAME, "adc.path")
-    _require_literal(adc, "dtype", _ADC_DATA_TYPE, "adc.dtype")
-    _require_literal(adc, "byte_order", _ADC_BYTE_ORDER, "adc.byte_order")
-    _require_literal(adc, "layout", _ADC_LAYOUT, "adc.layout")
     _require_literal(
         radar_config,
         "path",
         _RADAR_CONFIG_FILE_NAME,
         "radar_config.path",
     )
-    _require_literal(
-        radar_config,
-        "format",
-        _RADAR_CONFIG_FORMAT,
-        "radar_config.format",
+    raw_capture = _parse_mmwcli_raw_capture_contract(
+        hardware=hardware,
+        adc=adc,
+        radar_config=radar_config,
+        context="mmwcli capture manifest",
     )
     size_bytes = adc.get("size_bytes")
     if (
@@ -319,6 +327,7 @@ def _parse_manifest(payload: bytes) -> _ManifestV1:
     ):
         raise ValueError("mmwcli capture adc.size_bytes must be a positive aligned int64.")
     return _ManifestV1(
+        raw_capture=raw_capture,
         adc_size_bytes=size_bytes,
         adc_sha256=_required_sha256(adc, "sha256", "adc.sha256"),
         radar_config_sha256=_required_sha256(

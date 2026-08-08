@@ -18,14 +18,12 @@ from mmwcore.config import RadarCaptureSpec
 from mmwcore.core import RawADCFrame
 
 from ._mmwcli_contract import (
-    _ADC_BYTE_ORDER,
-    _ADC_DATA_TYPE,
-    _ADC_LAYOUT,
     _MAX_INT64,
     _MAX_RADAR_CONFIG_BYTES,
-    _RADAR_CONFIG_FORMAT,
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
+    MmwcliRawCaptureContract,
     _parse_mmwcli_radar_config,
+    _parse_mmwcli_raw_capture_contract,
     _valid_lower_sha256,
 )
 
@@ -83,6 +81,7 @@ class CaptureStreamContract:
     frame_count: int
     frame_bytes: int
     expected_bytes: int
+    raw_capture: MmwcliRawCaptureContract
     radar_config: bytes
     radar_config_sha256: str
     radar_capture: RadarCaptureSpec
@@ -164,6 +163,7 @@ class _Session:
     expected_bytes: int
     config_size_bytes: int
     config_sha256: str
+    raw_capture: MmwcliRawCaptureContract
 
 
 class CaptureStreamReader:
@@ -205,6 +205,7 @@ class CaptureStreamReader:
             )
             radar_capture = _parse_mmwcli_radar_config(
                 config_record.payload,
+                raw_capture=session.raw_capture,
                 expected_sha256=session.config_sha256,
                 context="mmwcli capture stream",
             )
@@ -222,6 +223,7 @@ class CaptureStreamReader:
             frame_count=session.frame_count,
             frame_bytes=session.frame_bytes,
             expected_bytes=session.expected_bytes,
+            raw_capture=session.raw_capture,
             radar_config=config_record.payload,
             radar_config_sha256=session.config_sha256,
             radar_capture=radar_capture,
@@ -479,6 +481,7 @@ def _parse_session(payload: bytes) -> _Session:
             "stream_id",
             "producer",
             "mode",
+            "hardware",
             "capture",
             "adc",
             "radar_config",
@@ -502,6 +505,13 @@ def _parse_session(payload: bytes) -> _Session:
     if not isinstance(mode, str) or mode not in _CAPTURE_MODES:
         raise ValueError("SESSION.mode must be 'studio-cli' or 'debug-capture'.")
 
+    hardware = _closed_object(
+        record,
+        "hardware",
+        {"vendor", "family", "model", "revision", "identity_source"},
+        context="SESSION.hardware",
+    )
+
     capture = _closed_object(
         record,
         "capture",
@@ -520,12 +530,9 @@ def _parse_session(payload: bytes) -> _Session:
     adc = _closed_object(
         record,
         "adc",
-        {"dtype", "byte_order", "layout"},
+        {"dtype", "byte_order", "lane_count", "layout"},
         context="SESSION.adc",
     )
-    _literal(adc, "dtype", _ADC_DATA_TYPE, context="SESSION.adc")
-    _literal(adc, "byte_order", _ADC_BYTE_ORDER, context="SESSION.adc")
-    _literal(adc, "layout", _ADC_LAYOUT, context="SESSION.adc")
 
     radar_config = _closed_object(
         record,
@@ -533,11 +540,11 @@ def _parse_session(payload: bytes) -> _Session:
         {"format", "size_bytes", "sha256"},
         context="SESSION.radar_config",
     )
-    _literal(
-        radar_config,
-        "format",
-        _RADAR_CONFIG_FORMAT,
-        context="SESSION.radar_config",
+    raw_capture = _parse_mmwcli_raw_capture_contract(
+        hardware=hardware,
+        adc=adc,
+        radar_config=radar_config,
+        context="SESSION",
     )
     config_size_bytes = _integer(
         radar_config,
@@ -574,6 +581,7 @@ def _parse_session(payload: bytes) -> _Session:
         expected_bytes=expected_bytes,
         config_size_bytes=config_size_bytes,
         config_sha256=config_sha256,
+        raw_capture=raw_capture,
     )
 
 

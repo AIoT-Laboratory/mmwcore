@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from mmwcore.io import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
     ADCFileCapture,
     ADCFileFrameReader,
+    MmwcliRawCaptureContract,
     open_capture,
 )
 
@@ -58,7 +59,9 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert MMWCLI_CAPTURE_SESSION_SCHEMA_V1 == "mmwcli.capture_session.v1"
     record = _manifest_record()
     record["producer"] = {"name": "fixture"}
+    _object(record, "hardware")["optional_note"] = "additive v1 metadata"
     _object(record, "adc")["optional_note"] = "additive v1 metadata"
+    _object(record, "radar_config")["optional_note"] = "additive v1 metadata"
     root = _write_capture(tmp_path, record=record)
     (root / "notes.txt").write_text("ignored extra file", encoding="utf-8")
 
@@ -69,6 +72,21 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert opened.manifest_path == opened.root / "capture.json"
     assert opened.adc_path == opened.root / "adc.bin"
     assert opened.radar_config_path == opened.root / "radar.cfg"
+    assert isinstance(opened.raw_capture, MmwcliRawCaptureContract)
+    assert opened.raw_capture == MmwcliRawCaptureContract(
+        vendor="ti",
+        family="xwr68xx",
+        model="",
+        revision="",
+        identity_source="route_declaration",
+        config_format="ti_mmwave_legacy_cli.v1",
+        dtype="int16",
+        byte_order="little",
+        lane_count=2,
+        layout="group2_i_then_q",
+    )
+    with pytest.raises(FrozenInstanceError):
+        opened.raw_capture.family = "xwr18xx"  # type: ignore[misc]
     assert opened.radar_capture.expected_size_bytes == len(_ADC_BYTES)
     assert opened.radar_capture.tx_order == (0,)
     assert opened.radar_capture.adc.layout is ADCComplexLayout.GROUP2_I_THEN_Q
@@ -246,8 +264,15 @@ def test_capture_facade_requires_matching_explicit_tdm_geometry(tmp_path: Path) 
     ("section", "field"),
     [
         (None, "adc"),
+        (None, "hardware"),
         (None, "radar_config"),
+        ("hardware", "vendor"),
+        ("hardware", "family"),
+        ("hardware", "model"),
+        ("hardware", "revision"),
+        ("hardware", "identity_source"),
         ("adc", "path"),
+        ("adc", "lane_count"),
         ("adc", "size_bytes"),
         ("adc", "sha256"),
         ("radar_config", "path"),
@@ -272,10 +297,19 @@ def test_open_capture_requires_manifest_fields(
     ("section", "field", "value"),
     [
         (None, "schema", "mmwcli.capture_session.v2"),
+        ("hardware", "vendor", "TI"),
+        ("hardware", "vendor", 1),
+        ("hardware", "family", "xwr18xx"),
+        ("hardware", "model", "iwr6843"),
+        ("hardware", "revision", "es2"),
+        ("hardware", "identity_source", "observed_device"),
         ("adc", "path", "../adc.bin"),
         ("adc", "path", "ADC.BIN"),
         ("adc", "dtype", "uint16"),
         ("adc", "byte_order", "big"),
+        ("adc", "lane_count", True),
+        ("adc", "lane_count", 2.0),
+        ("adc", "lane_count", 4),
         ("adc", "layout", "iq_interleaved"),
         ("adc", "size_bytes", True),
         ("adc", "size_bytes", 32.0),
@@ -285,6 +319,7 @@ def test_open_capture_requires_manifest_fields(
         ("adc", "sha256", "A" * 64),
         ("adc", "sha256", "g" * 64),
         ("radar_config", "path", "/radar.cfg"),
+        ("radar_config", "format", "ti_xwr68xx_legacy_cli"),
         ("radar_config", "format", "unknown"),
         ("radar_config", "sha256", "0" * 63),
     ],
@@ -439,17 +474,25 @@ def _manifest_record(
 ) -> dict[str, Any]:
     return {
         "schema": MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
+        "hardware": {
+            "vendor": "ti",
+            "family": "xwr68xx",
+            "model": "",
+            "revision": "",
+            "identity_source": "route_declaration",
+        },
         "adc": {
             "path": "adc.bin",
             "dtype": "int16",
             "byte_order": "little",
+            "lane_count": 2,
             "layout": "group2_i_then_q",
             "size_bytes": len(adc),
             "sha256": _sha256(adc),
         },
         "radar_config": {
             "path": "radar.cfg",
-            "format": "ti_xwr68xx_legacy_cli",
+            "format": "ti_mmwave_legacy_cli.v1",
             "sha256": _sha256(config),
         },
     }
