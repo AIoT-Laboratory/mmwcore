@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import replace
+from sys import maxsize
 
 import numpy as np
 import pytest
@@ -237,6 +238,30 @@ def test_tracking_specs_preserve_positive_count_domains(
 
 
 @pytest.mark.parametrize(
+    ("spec", "field_name"),
+    _INTEGER_SPEC_FIELDS,
+    ids=[f"{type(spec).__name__}.{field_name}" for spec, field_name in _INTEGER_SPEC_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(maxsize + 1, id="above-platform"),
+        pytest.param(-maxsize - 2, id="below-platform"),
+    ],
+)
+def test_tracking_specs_reject_counts_outside_platform_range(
+    spec: IntegerTrackingSpec,
+    field_name: str,
+    invalid: int,
+) -> None:
+    with pytest.raises(
+        OverflowError,
+        match=rf"{type(spec).__name__}\.{field_name} must fit the platform index range",
+    ):
+        replace(spec, **{field_name: invalid})
+
+
+@pytest.mark.parametrize(
     ("field_name", "factory"),
     _PHYSICAL_SPEC_FIELDS,
     ids=[field_name for field_name, _factory in _PHYSICAL_SPEC_FIELDS],
@@ -278,6 +303,22 @@ def test_dbscan_spec_preserves_positive_and_non_negative_domains() -> None:
         DBSCANClusteringSpec(eps_m=0.5, min_samples=2, velocity_scale_s=-0.1)
 
 
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(1, id="integer"),
+        pytest.param(np.bool_(True), id="numpy-bool"),
+        pytest.param("true", id="string"),
+    ],
+)
+def test_dbscan_spec_requires_builtin_bool_use_z(invalid: object) -> None:
+    with pytest.raises(TypeError, match=r"DBSCANClusteringSpec\.use_z must be a bool"):
+        replace(
+            DBSCANClusteringSpec(eps_m=0.5, min_samples=2),
+            **{"use_z": invalid},
+        )
+
+
 def test_track_allocation_spec_rejects_non_positive_snr_threshold() -> None:
     with pytest.raises(ValueError, match="min_total_snr"):
         TrackAllocationSpec(min_total_snr=0.0)
@@ -302,6 +343,36 @@ def test_tracker_spec_preserves_smoothing_domain(smoothing: float) -> None:
 def test_tracker_spec_preserves_positive_acceleration_domain() -> None:
     with pytest.raises(ValueError, match="max_acceleration_mps2"):
         _tracker_spec_with(max_acceleration_mps2=(2.0, 0.0))
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(True, id="bool"),
+        pytest.param(np.bool_(True), id="numpy-bool"),
+        pytest.param("2.0", id="string"),
+        pytest.param(2.0 + 0.0j, id="complex"),
+    ],
+)
+def test_tracker_spec_rejects_non_real_acceleration_entries(
+    index: int,
+    invalid: object,
+) -> None:
+    acceleration: list[object] = [1.0, 2.0]
+    acceleration[index] = invalid
+
+    with pytest.raises(TypeError, match="max_acceleration_mps2.*real numbers"):
+        _tracker_spec_with(max_acceleration_mps2=tuple(acceleration))
+
+
+def test_tracker_spec_normalizes_real_acceleration_entries() -> None:
+    spec = _tracker_spec_with(
+        max_acceleration_mps2=(np.float32(1.25), np.int64(2)),
+    )
+
+    assert spec.max_acceleration_mps2 == (1.25, 2.0)
+    assert all(type(value) is float for value in spec.max_acceleration_mps2)
 
 
 def test_track_frame_normalizes_state_and_associations() -> None:

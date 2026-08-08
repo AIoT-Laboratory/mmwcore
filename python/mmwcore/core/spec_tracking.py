@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
+from numbers import Real
 from operator import index as integer_index
+from sys import maxsize as _MAX_PLATFORM_INDEX
+from typing import SupportsFloat, cast
 
 
 class TrackStatus(StrEnum):
@@ -23,6 +26,8 @@ def _positive_integer(value: int, *, name: str) -> int:
         normalized = int(integer_index(value))
     except TypeError as exc:
         raise TypeError(f"{name} must be an integer.") from exc
+    if not -_MAX_PLATFORM_INDEX - 1 <= normalized <= _MAX_PLATFORM_INDEX:
+        raise OverflowError(f"{name} must fit the platform index range.")
     if normalized <= 0:
         raise ValueError(f"{name} must be positive.")
     return normalized
@@ -49,6 +54,18 @@ def _require_finite_unit_smoothing(value: float, *, name: str) -> None:
         raise ValueError(f"{name} must be finite and in (0, 1].")
 
 
+def _positive_acceleration(value: object) -> float:
+    name = "Tracker2DSpec.max_acceleration_mps2"
+    if isinstance(value, bool):
+        raise TypeError(f"{name} values must be real numbers, not bool.")
+    if not isinstance(value, Real):
+        raise TypeError(f"{name} values must be real numbers.")
+    normalized = float(cast(SupportsFloat, value))
+    if not isfinite(normalized) or normalized <= 0:
+        raise ValueError(f"{name} must contain two finite positive values.")
+    return normalized
+
+
 @dataclass(frozen=True)
 class DBSCANClusteringSpec:
     """DBSCAN policy for Cartesian radar points and optional radial velocity."""
@@ -69,6 +86,8 @@ class DBSCANClusteringSpec:
             self.velocity_scale_s,
             name="DBSCANClusteringSpec.velocity_scale_s",
         )
+        if type(self.use_z) is not bool:
+            raise TypeError("DBSCANClusteringSpec.use_z must be a bool.")
 
 
 @dataclass(frozen=True)
@@ -231,15 +250,9 @@ class Tracker2DSpec:
             name="Tracker2DSpec.extent_covariance_smoothing",
         )
         raw_acceleration = tuple(self.max_acceleration_mps2)
-        if any(isinstance(value, bool) for value in raw_acceleration):
-            raise TypeError(
-                "Tracker2DSpec.max_acceleration_mps2 values must be real numbers, not bool."
-            )
-        acceleration = tuple(float(value) for value in raw_acceleration)
-        if len(acceleration) != 2 or any(
-            not isfinite(value) or value <= 0 for value in acceleration
-        ):
+        if len(raw_acceleration) != 2:
             raise ValueError(
                 "Tracker2DSpec.max_acceleration_mps2 must contain two finite positive values."
             )
+        acceleration = tuple(_positive_acceleration(value) for value in raw_acceleration)
         object.__setattr__(self, "max_acceleration_mps2", acceleration)
