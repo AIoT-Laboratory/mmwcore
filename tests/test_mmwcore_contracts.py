@@ -1285,3 +1285,96 @@ def test_process_adc_file_to_range_doppler_loads_file(tmp_path) -> None:
 
     assert cube.frame_id == "capture-rd"
     assert cube.axes == ("frame", "doppler_bin", "rx", "range_bin")
+
+
+@pytest.mark.parametrize(
+    ("recipe_name", "field_name"),
+    [
+        ("decode", "drop_incomplete"),
+        ("transform", "remove_static_clutter"),
+    ],
+)
+@pytest.mark.parametrize("value", [1, "yes", np.bool_(True)])
+def test_recipe_boolean_policies_require_builtin_bool(
+    recipe_name: str,
+    field_name: str,
+    value: object,
+) -> None:
+    decode = ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+    recipes: dict[str, ADCDecodeRecipe | RangeDopplerRecipe] = {
+        "decode": decode,
+        "transform": RangeDopplerRecipe(decode=decode),
+    }
+
+    with pytest.raises(TypeError, match=field_name):
+        replace(recipes[recipe_name], **{field_name: value})
+
+
+@pytest.mark.parametrize(
+    ("recipe_name", "field_name"),
+    [
+        ("decode", "drop_incomplete"),
+        ("transform", "remove_static_clutter"),
+    ],
+)
+@pytest.mark.parametrize("value", [False, True])
+def test_recipe_boolean_policies_accept_builtin_bool(
+    recipe_name: str,
+    field_name: str,
+    value: bool,
+) -> None:
+    decode = ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+    recipes: dict[str, ADCDecodeRecipe | RangeDopplerRecipe] = {
+        "decode": decode,
+        "transform": RangeDopplerRecipe(decode=decode),
+    }
+
+    updated = replace(recipes[recipe_name], **{field_name: value})
+    assert getattr(updated, field_name) is value
+
+
+@pytest.mark.parametrize(
+    ("recipe_name", "field_name"),
+    [
+        ("decode", "adc"),
+        ("transform", "decode"),
+        ("transform", "range_fft"),
+        ("transform", "doppler_fft"),
+        ("transform", "tdm_virtual_array"),
+        ("transform", "channel_calibration"),
+        ("detection", "transform"),
+        ("detection", "peak_detection"),
+        ("detection", "cfar_detection"),
+        ("detection", "peak_grouping"),
+        ("detection", "quality_filter"),
+        ("detection", "angle_fft"),
+        ("detection", "virtual_subarray"),
+        ("detection", "elevation_subarray"),
+        ("point_cloud", "detection"),
+        ("point_cloud", "projection"),
+    ],
+)
+def test_recipe_nested_contracts_require_declared_types(
+    recipe_name: str,
+    field_name: str,
+) -> None:
+    layout = VirtualAntennaLayout.uniform_linear(4)
+    decode = ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=4, num_samples=2))
+    transform = RangeDopplerRecipe(decode=decode)
+    detection = DetectionRecipe(
+        transform=transform,
+        peak_detection=PeakDetectionSpec(threshold=1.0),
+        angle_fft=AngleFFTSpec(virtual_layout=layout),
+    )
+    recipes: dict[
+        str,
+        ADCDecodeRecipe | RangeDopplerRecipe | DetectionRecipe | PointCloudRecipe,
+    ] = {
+        "decode": decode,
+        "transform": transform,
+        "detection": detection,
+        "point_cloud": PointCloudRecipe(detection=detection),
+    }
+
+    with pytest.raises(TypeError, match=field_name):
+        replace(recipes[recipe_name], **{field_name: object()})

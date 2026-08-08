@@ -25,6 +25,13 @@ class ADCDecodeRecipe:
     adc: ADCFrameSpec
     drop_incomplete: bool = False
 
+    def __post_init__(self) -> None:
+        _require_instance(self.adc, ADCFrameSpec, name="ADCDecodeRecipe.adc")
+        _require_builtin_bool(
+            self.drop_incomplete,
+            name="ADCDecodeRecipe.drop_incomplete",
+        )
+
 
 @dataclass(frozen=True)
 class RangeDopplerRecipe:
@@ -38,6 +45,29 @@ class RangeDopplerRecipe:
     remove_static_clutter: bool = False
 
     def __post_init__(self) -> None:
+        _require_instance(self.decode, ADCDecodeRecipe, name="RangeDopplerRecipe.decode")
+        _require_instance(self.range_fft, RangeFFTSpec, name="RangeDopplerRecipe.range_fft")
+        _require_instance(
+            self.doppler_fft,
+            DopplerFFTSpec,
+            name="RangeDopplerRecipe.doppler_fft",
+        )
+        if self.tdm_virtual_array is not None:
+            _require_instance(
+                self.tdm_virtual_array,
+                TDMVirtualArraySpec,
+                name="RangeDopplerRecipe.tdm_virtual_array",
+            )
+        if self.channel_calibration is not None:
+            _require_instance(
+                self.channel_calibration,
+                VirtualChannelCalibration,
+                name="RangeDopplerRecipe.channel_calibration",
+            )
+        _require_builtin_bool(
+            self.remove_static_clutter,
+            name="RangeDopplerRecipe.remove_static_clutter",
+        )
         if self.tdm_virtual_array is not None and self.doppler_fft.input_axis != "loop":
             raise ValueError('TDM RangeDopplerRecipe requires DopplerFFTSpec(input_axis="loop").')
         if self.channel_calibration is not None and self.tdm_virtual_array is None:
@@ -65,6 +95,53 @@ class DetectionRecipe:
     elevation_subarray: VirtualSubarraySpec | None = None
 
     def __post_init__(self) -> None:
+        _require_instance(
+            self.transform,
+            RangeDopplerRecipe,
+            name="DetectionRecipe.transform",
+        )
+        if self.peak_detection is not None:
+            _require_instance(
+                self.peak_detection,
+                PeakDetectionSpec,
+                name="DetectionRecipe.peak_detection",
+            )
+        if self.cfar_detection is not None:
+            _require_instance(
+                self.cfar_detection,
+                (CFARDetectionSpec, RangeDopplerCFARSpec),
+                name="DetectionRecipe.cfar_detection",
+            )
+        if self.peak_grouping is not None:
+            _require_instance(
+                self.peak_grouping,
+                PeakGroupingSpec,
+                name="DetectionRecipe.peak_grouping",
+            )
+        if self.quality_filter is not None:
+            _require_instance(
+                self.quality_filter,
+                DetectionQualitySpec,
+                name="DetectionRecipe.quality_filter",
+            )
+        if self.angle_fft is not None:
+            _require_instance(
+                self.angle_fft,
+                AngleFFTSpec,
+                name="DetectionRecipe.angle_fft",
+            )
+        if self.virtual_subarray is not None:
+            _require_instance(
+                self.virtual_subarray,
+                VirtualSubarraySpec,
+                name="DetectionRecipe.virtual_subarray",
+            )
+        if self.elevation_subarray is not None:
+            _require_instance(
+                self.elevation_subarray,
+                VirtualSubarraySpec,
+                name="DetectionRecipe.elevation_subarray",
+            )
         method = _normalize_detection_method(self.detection_method)
         object.__setattr__(self, "detection_method", method)
         _validate_detector(self, method=method)
@@ -80,9 +157,34 @@ class PointCloudRecipe:
     projection: PointCloudProjectionSpec = PointCloudProjectionSpec()
 
     def __post_init__(self) -> None:
+        _require_instance(
+            self.detection,
+            DetectionRecipe,
+            name="PointCloudRecipe.detection",
+        )
+        _require_instance(
+            self.projection,
+            PointCloudProjectionSpec,
+            name="PointCloudRecipe.projection",
+        )
         angle_fft = self.detection.angle_fft
         if angle_fft is None or angle_fft.virtual_layout is None:
             raise ValueError("PointCloudRecipe requires a calibrated virtual antenna layout.")
+
+
+def _require_builtin_bool(value: object, *, name: str) -> None:
+    if type(value) is not bool:
+        raise TypeError(f"{name} must be a bool.")
+
+
+def _require_instance(
+    value: object,
+    expected_type: type[object] | tuple[type[object], ...],
+    *,
+    name: str,
+) -> None:
+    if not isinstance(value, expected_type):
+        raise TypeError(f"{name} must use the declared contract type.")
 
 
 def _normalize_detection_method(value: DetectionMethod) -> DetectionMethod:
