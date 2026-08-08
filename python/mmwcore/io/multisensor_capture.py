@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, NoReturn, cast
 
+from mmwcore.core import RangeDopplerRecipe
+
+from .mmwcli_capture import ADCFileCapture, RangeDopplerPreset
+from .mmwcli_capture import open_capture as _open_mmwcli_capture
+
 MMWCLI_MULTISENSOR_SESSION_SCHEMA_V1 = "mmwcli.multisensor_session.v1"
 MMWCLI_SENSOR_INDEX_SCHEMA_V1 = "mmwcli.sensor_index.v1"
 
@@ -209,6 +214,30 @@ class MultisensorSource:
     _segments: tuple[_AffineSegment, ...] = field(repr=False, compare=False)
     _event_ids: frozenset[int] = field(repr=False, compare=False)
 
+    def open_radar_capture(
+        self,
+        *,
+        range_doppler: RangeDopplerRecipe | RangeDopplerPreset | None = None,
+    ) -> ADCFileCapture:
+        """Open this source's nested capture session with an explicit DSP policy."""
+
+        if self.kind != "radar":
+            raise ValueError("Only a radar multisensor source has a nested ADC capture.")
+        if self.outcome != "complete":
+            raise ValueError("Only a complete radar multisensor source can be opened.")
+        payload_path, index_path = self._required_paths()
+        capture = _open_mmwcli_capture(
+            payload_path.parent,
+            range_doppler=range_doppler,
+        )
+        _validate_nested_radar_capture(
+            source=self,
+            payload_path=payload_path,
+            index_path=index_path,
+            capture=capture,
+        )
+        return capture
+
     def items(self) -> Iterator[MultisensorItem]:
         """Yield every payload item in validated index order."""
 
@@ -286,6 +315,57 @@ class MultisensorSource:
             sync_event_id=entry.sync_event_id,
             mapped_time=_map_item_interval(clock, self._segments, entry),
         )
+
+
+def _validate_nested_radar_capture(
+    *,
+    source: MultisensorSource,
+    payload_path: Path,
+    index_path: Path,
+    capture: ADCFileCapture,
+) -> None:
+    if capture.root != payload_path.parent or capture.adc_path != payload_path:
+        raise ValueError(
+            "Nested radar capture adc.bin does not match the multisensor payload artifact."
+        )
+    if capture.num_frames != source.item_count:
+        raise ValueError(
+            "Nested radar capture frame count does not match the multisensor source index."
+        )
+    frame_bytes = capture.radar_capture.adc.raw_values_per_frame * 2
+    if (
+        capture.radar_capture.expected_size_bytes != source.payload_bytes
+        or frame_bytes * source.item_count != source.payload_bytes
+    ):
+        raise ValueError("Nested radar capture frame size does not match the multisensor payload.")
+
+    _require_file_size(payload_path, source.payload_bytes, "radar source payload")
+    _require_file_size(
+        index_path,
+        _checked_index_size(source.item_count),
+        "radar source index",
+    )
+    with index_path.open("rb") as index_file:
+        _read_index_header(
+            index_file,
+            expected_items=source.item_count,
+            expected_payload_bytes=source.payload_bytes,
+        )
+        for expected_index in range(source.item_count):
+            entry = _decode_index_entry(
+                _read_exact(index_file, _INDEX_ENTRY_BYTES, "radar source index entry"),
+                expected_index=expected_index,
+                max_item_bytes=source._max_item_bytes,
+            )
+            if (
+                entry.payload_offset != expected_index * frame_bytes
+                or entry.payload_size != frame_bytes
+            ):
+                raise ValueError(
+                    "Multisensor radar index offset/size does not match nested ADC frames."
+                )
+        if index_file.read(1):
+            raise ValueError("Multisensor radar index contains trailing data.")
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import struct
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -10,9 +11,11 @@ from typing import Any
 import pytest
 
 from mmwcore import open_multisensor_capture as public_open_multisensor_capture
+from mmwcore.core import ADCDecodeRecipe, RangeDopplerRecipe
 from mmwcore.io import (
     MMWCLI_MULTISENSOR_SESSION_SCHEMA_V1,
     MMWCLI_SENSOR_INDEX_SCHEMA_V1,
+    ADCFileCapture,
     MappedTimeInterval,
     MultisensorCapture,
     causal_match,
@@ -23,6 +26,18 @@ _SESSION_ID = "12345678-1234-4abc-8def-1234567890ab"
 _HEADER = struct.Struct("<8sHHHHQQ")
 _ENTRY = struct.Struct("<QQQQQQQII")
 _EVENT_ID = 7
+_NESTED_RADAR_CONFIG = b"""\
+flushCfg
+dfeDataOutputMode 1
+channelCfg 1 1 0
+adcCfg 2 1
+adcbufCfg -1 0 1 1 1
+profileCfg 0 60 7 3 24 0 0 166 1 4 12500 0 0 158
+chirpCfg 0 0 0 0 0 0 0 1
+frameCfg 0 0 1 2 10 1 0
+lvdsStreamCfg -1 0 1 0
+"""
+_NESTED_RADAR_ADC = struct.pack("<16h", *range(16))
 
 
 def test_open_multisensor_capture_reads_training_items_and_time(tmp_path: Path) -> None:
@@ -135,6 +150,98 @@ def test_read_item_validates_indices_and_does_not_own_external_resources(
         )
 
 
+def test_radar_source_opens_nested_capture_with_explicit_recipe(tmp_path: Path) -> None:
+    root, _record = _write_nested_radar_fixture(tmp_path)
+    source = open_multisensor_capture(root).source("radar-0")
+
+    nested = source.open_radar_capture()
+
+    assert isinstance(nested, ADCFileCapture)
+    assert source.payload_path is not None
+    assert nested.root == source.payload_path.parent
+    assert nested.adc_path == source.payload_path
+    assert nested.num_frames == source.item_count == 2
+    assert nested.frame(1).samples.tolist() == list(range(8, 16))
+    with pytest.raises(TypeError, match="explicit RangeDopplerRecipe"):
+        nested.range_doppler()
+
+    recipe = RangeDopplerRecipe(decode=ADCDecodeRecipe(nested.radar_capture.adc))
+    bound = source.open_radar_capture(range_doppler=recipe)
+    assert bound.range_doppler(frame_index=0).frame_id == 0
+
+
+def test_nested_radar_capture_is_parsed_only_when_requested(tmp_path: Path) -> None:
+    root, record = _write_nested_radar_fixture(tmp_path, name="lazy-nested")
+    manifest_path = root / "sensors" / "radar-0" / "capture.json"
+    manifest_path.write_bytes(b"{}")
+    manifest_artifact = _artifact(_source(record, "radar-0"), "manifest")
+    manifest_artifact["size_bytes"] = 2
+    manifest_artifact["sha256"] = hashlib.sha256(b"{}").hexdigest()
+    _write_session(root, record)
+
+    source = open_multisensor_capture(root).source("radar-0")
+
+    with pytest.raises(ValueError, match="unsupported schema"):
+        source.open_radar_capture()
+
+
+@pytest.mark.parametrize(
+    ("mismatch", "error"),
+    [
+        ("frame count", "frame count"),
+        ("frame geometry", "offset/size"),
+    ],
+)
+def test_nested_radar_capture_rejects_source_index_mismatch(
+    tmp_path: Path,
+    mismatch: str,
+    error: str,
+) -> None:
+    root, record = _write_nested_radar_fixture(tmp_path, name=mismatch.replace(" ", "-"))
+    if mismatch == "frame count":
+        entries = [(0, len(_NESTED_RADAR_ADC), 100)]
+    else:
+        entries = [(0, 8, 100), (8, len(_NESTED_RADAR_ADC) - 8, 110)]
+    _replace_radar_index(root, record, entries)
+
+    source = open_multisensor_capture(root).source("radar-0")
+
+    with pytest.raises(ValueError, match=error):
+        source.open_radar_capture()
+
+
+@pytest.mark.parametrize("outcome", ["failed", "omitted"])
+def test_nested_radar_capture_rejects_noncomplete_and_camera_sources(
+    tmp_path: Path,
+    outcome: str,
+) -> None:
+    root, record = _write_fixture(tmp_path, name=outcome)
+    radar = _source(record, "radar-0")
+    radar.update(
+        required=False,
+        outcome=outcome,
+        item_count=0,
+        payload_bytes=0,
+        artifacts=[],
+    )
+    radar.pop("sync_event_cardinality")
+    shutil.rmtree(root / "sensors" / "radar-0")
+    totals = record["totals"]
+    totals.update(
+        required_source_count=1,
+        complete_source_count=1,
+        item_count=1,
+        payload_bytes=8,
+    )
+    _write_session(root, record)
+    capture = open_multisensor_capture(root)
+
+    with pytest.raises(ValueError, match="complete radar"):
+        capture.source("radar-0").open_radar_capture()
+    with pytest.raises(ValueError, match="radar multisensor"):
+        capture.source("camera-0").open_radar_capture()
+
+
 def _write_fixture(tmp_path: Path, *, name: str = "capture") -> tuple[Path, dict[str, Any]]:
     root = tmp_path / name
     sensors = root / "sensors"
@@ -208,6 +315,128 @@ def _write_fixture(tmp_path: Path, *, name: str = "capture") -> tuple[Path, dict
     }
     _write_session(root, record)
     return root, record
+
+
+def _write_nested_radar_fixture(
+    tmp_path: Path,
+    *,
+    name: str = "nested-radar",
+) -> tuple[Path, dict[str, Any]]:
+    root, record = _write_fixture(tmp_path, name=name)
+    radar_root = root / "sensors" / "radar-0"
+    radar_index = _sensor_index(
+        len(_NESTED_RADAR_ADC),
+        [(0, 16, 100), (16, 16, 110)],
+    )
+    capture_manifest = {
+        "schema": "mmwcli.capture_session.v1",
+        "hardware": {
+            "vendor": "ti",
+            "family": "xwr68xx",
+            "model": "",
+            "revision": "",
+            "identity_source": "route_declaration",
+        },
+        "adc": {
+            "path": "adc.bin",
+            "dtype": "int16",
+            "byte_order": "little",
+            "lane_count": 2,
+            "layout": "group2_i_then_q",
+            "size_bytes": len(_NESTED_RADAR_ADC),
+            "sha256": hashlib.sha256(_NESTED_RADAR_ADC).hexdigest(),
+        },
+        "radar_config": {
+            "path": "radar.cfg",
+            "format": "ti_mmwave_legacy_cli.v1",
+            "sha256": hashlib.sha256(_NESTED_RADAR_CONFIG).hexdigest(),
+        },
+    }
+    capture_manifest_bytes = json.dumps(
+        capture_manifest,
+        separators=(",", ":"),
+    ).encode()
+    files = {
+        "adc.bin": _NESTED_RADAR_ADC,
+        "index.bin": radar_index,
+        "radar.cfg": _NESTED_RADAR_CONFIG,
+        "capture.json": capture_manifest_bytes,
+    }
+    for filename, payload in files.items():
+        (radar_root / filename).write_bytes(payload)
+
+    radar = _source(record, "radar-0")
+    radar["limits"] = {
+        "max_items": 2,
+        "max_item_bytes": 16,
+        "max_payload_bytes": len(_NESTED_RADAR_ADC),
+    }
+    radar["item_count"] = 2
+    radar["payload_bytes"] = len(_NESTED_RADAR_ADC)
+    radar["sync_event_cardinality"] = {
+        "required": True,
+        "min_items": 1,
+        "max_items": 2,
+    }
+    radar["artifacts"] = [
+        {
+            "role": role,
+            "path": filename,
+            "size_bytes": len(files[filename]),
+            "sha256": hashlib.sha256(files[filename]).hexdigest(),
+        }
+        for role, filename in (
+            ("payload", "adc.bin"),
+            ("index", "index.bin"),
+            ("configuration", "radar.cfg"),
+            ("manifest", "capture.json"),
+        )
+    ]
+    record["totals"].update(
+        item_count=3,
+        payload_bytes=len(_NESTED_RADAR_ADC) + 8,
+    )
+    _write_session(root, record)
+    return root, record
+
+
+def _replace_radar_index(
+    root: Path,
+    record: dict[str, Any],
+    entries: list[tuple[int, int, int]],
+) -> None:
+    index = _sensor_index(len(_NESTED_RADAR_ADC), entries)
+    (root / "sensors" / "radar-0" / "index.bin").write_bytes(index)
+    radar = _source(record, "radar-0")
+    radar["item_count"] = len(entries)
+    radar["limits"]["max_items"] = max(1, len(entries))
+    radar["limits"]["max_item_bytes"] = max(size for _, size, _ in entries)
+    radar["sync_event_cardinality"]["max_items"] = max(1, len(entries))
+    index_artifact = _artifact(radar, "index")
+    index_artifact["size_bytes"] = len(index)
+    index_artifact["sha256"] = hashlib.sha256(index).hexdigest()
+    record["totals"]["item_count"] = len(entries) + 1
+    _write_session(root, record)
+
+
+def _sensor_index(payload_bytes: int, entries: list[tuple[int, int, int]]) -> bytes:
+    header = _HEADER.pack(b"MMWSIDX1", 1, 32, 64, 0, len(entries), payload_bytes)
+    encoded = [header]
+    for item_index, (offset, size, tick) in enumerate(entries):
+        encoded.append(
+            _ENTRY.pack(
+                item_index,
+                offset,
+                size,
+                tick,
+                0,
+                10,
+                _EVENT_ID,
+                0,
+                0,
+            )
+        )
+    return b"".join(encoded)
 
 
 def _source_record(
