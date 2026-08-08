@@ -32,7 +32,7 @@ fn decode_adc_i16<'py>(
 fn parse_dca1000_packet(
     py: Python<'_>,
     data: Vec<u8>,
-) -> PyResult<(i64, u64, Bound<'_, PyArray1<i16>>)> {
+) -> PyResult<(u32, u64, Bound<'_, PyArray1<i16>>)> {
     let packet = py
         .detach(move || parse_native_dca1000_packet(&data))
         .map_err(dca1000_error)?;
@@ -46,15 +46,16 @@ fn parse_dca1000_packet(
 #[pyfunction]
 fn reorder_dca1000_packets<'py>(
     py: Python<'py>,
-    packet_numbers: PyReadonlyArray1<'py, i64>,
+    packet_numbers: PyReadonlyArray1<'py, u32>,
     payloads: Vec<PyReadonlyArray1<'py, i16>>,
+    frame_start_packet_number: u32,
     packets_per_frame: usize,
     payload_values_per_packet: Option<usize>,
     fill_value: i16,
 ) -> PyResult<Dca1000AssemblyResult<'py>> {
     let packet_numbers = packet_numbers
         .as_slice()
-        .map_err(|_| PyValueError::new_err("DCA1000 packet_numbers must be contiguous int64."))?;
+        .map_err(|_| PyValueError::new_err("DCA1000 packet_numbers must be contiguous uint32."))?;
     if packet_numbers.len() != payloads.len() {
         return Err(PyValueError::new_err(
             "DCA1000 packet_numbers and payloads must have the same length.",
@@ -75,6 +76,7 @@ fn reorder_dca1000_packets<'py>(
         .detach(move || {
             reorder_native_dca1000_packets(
                 &packets,
+                frame_start_packet_number,
                 packets_per_frame,
                 payload_values_per_packet,
                 fill_value,
@@ -85,20 +87,106 @@ fn reorder_dca1000_packets<'py>(
 }
 
 #[pyfunction]
-fn assemble_dca1000_frame_bytes(
-    py: Python<'_>,
-    packets: Vec<Vec<u8>>,
+fn assemble_dca1000_frame_bytes<'py>(
+    py: Python<'py>,
+    packets: &Bound<'py, PyAny>,
     raw_values_per_frame: usize,
     payload_values_per_packet: usize,
-    fill_value: i16,
-) -> PyResult<Dca1000AssemblyResult<'_>> {
+    frame_start_byte_count: u64,
+) -> PyResult<Dca1000AssemblyResult<'py>> {
+    const BYTE_COUNT_MODULUS: u64 = 1_u64 << 48;
+    const PACKET_HEADER_BYTES: usize = 10;
+    if raw_values_per_frame == 0 {
+        return Err(PyValueError::new_err(
+            "raw_values_per_frame must be positive.",
+        ));
+    }
+    if payload_values_per_packet == 0 {
+        return Err(PyValueError::new_err(
+            "payload_values_per_packet must be positive.",
+        ));
+    }
+    if raw_values_per_frame % payload_values_per_packet != 0 {
+        return Err(PyValueError::new_err(
+            "raw_values_per_frame must be divisible by payload_values_per_packet.",
+        ));
+    }
+    if frame_start_byte_count >= BYTE_COUNT_MODULUS {
+        return Err(PyValueError::new_err(
+            "frame_start_byte_count must fit the unsigned 48-bit wire counter.",
+        ));
+    }
+    let packets_per_frame = raw_values_per_frame / payload_values_per_packet;
+    let packet_count = u64::try_from(packets_per_frame)
+        .map_err(|_| PyValueError::new_err("packets_per_frame exceeds u64."))?;
+    if packet_count > u64::from(u32::MAX) + 1 {
+        return Err(PyValueError::new_err(
+            "packets_per_frame exceeds the unsigned 32-bit sequence space.",
+        ));
+    }
+    let frame_bytes = raw_values_per_frame
+        .checked_mul(size_of::<i16>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or_else(|| PyValueError::new_err("DCA1000 frame byte span overflows."))?;
+    if frame_bytes > BYTE_COUNT_MODULUS {
+        return Err(PyValueError::new_err(
+            "DCA1000 frame byte span exceeds the unsigned 48-bit wire counter.",
+        ));
+    }
+    let actual_packet_count = packets.len()?;
+    if actual_packet_count != packets_per_frame {
+        return Err(PyValueError::new_err(format!(
+            "Stateless DCA1000 frame assembly requires exactly {packets_per_frame} packet(s); got {actual_packet_count}."
+        )));
+    }
+    let expected_packet_bytes = payload_values_per_packet
+        .checked_mul(size_of::<i16>())
+        .and_then(|bytes| PACKET_HEADER_BYTES.checked_add(bytes))
+        .ok_or_else(|| PyValueError::new_err("DCA1000 packet byte size overflows."))?;
+    for index in 0..actual_packet_count {
+        let item = packets.get_item(index)?;
+        let packet = item
+            .cast::<pyo3::types::PyBytes>()
+            .map_err(|_| PyValueError::new_err(format!("DCA1000 packet {index} must be bytes.")))?;
+        if packet.as_bytes().len() != expected_packet_bytes {
+            return Err(PyValueError::new_err(format!(
+                "DCA1000 packet {index} contains {} bytes; expected exactly {expected_packet_bytes}.",
+                packet.as_bytes().len()
+            )));
+        }
+    }
+
+    let mut owned_packets = Vec::new();
+    owned_packets
+        .try_reserve_exact(actual_packet_count)
+        .map_err(|_| pyo3::exceptions::PyMemoryError::new_err("Cannot reserve DCA1000 packets."))?;
+    for index in 0..actual_packet_count {
+        let item = packets.get_item(index)?;
+        let packet = item
+            .cast::<pyo3::types::PyBytes>()
+            .map_err(|_| PyValueError::new_err(format!("DCA1000 packet {index} must be bytes.")))?;
+        let bytes = packet.as_bytes();
+        if bytes.len() != expected_packet_bytes {
+            return Err(PyValueError::new_err(format!(
+                "DCA1000 packet {index} changed size during validation."
+            )));
+        }
+        let mut owned_packet = Vec::new();
+        owned_packet.try_reserve_exact(bytes.len()).map_err(|_| {
+            pyo3::exceptions::PyMemoryError::new_err(format!(
+                "Cannot reserve DCA1000 packet {index}."
+            ))
+        })?;
+        owned_packet.extend_from_slice(bytes);
+        owned_packets.push(owned_packet);
+    }
     let assembly = py
         .detach(move || {
             assemble_native_dca1000_frame_bytes(
-                &packets,
+                &owned_packets,
                 raw_values_per_frame,
                 payload_values_per_packet,
-                fill_value,
+                frame_start_byte_count,
             )
         })
         .map_err(dca1000_error)?;

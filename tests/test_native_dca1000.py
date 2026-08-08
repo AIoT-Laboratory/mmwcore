@@ -20,13 +20,14 @@ def test_native_dca1000_parser_preserves_header_and_payload() -> None:
 
 def test_native_dca1000_reorder_preserves_packet_loss_contract() -> None:
     result = _native.reorder_dca1000_packets(
-        np.array([5, 7, 7, 9], dtype=np.int64),
+        np.array([5, 7, 7, 9], dtype=np.uint32),
         (
             np.array([50], dtype=np.int16),
             np.array([70], dtype=np.int16),
             np.array([71], dtype=np.int16),
             np.array([90], dtype=np.int16),
         ),
+        5,
         3,
         1,
         -1,
@@ -68,8 +69,9 @@ def test_native_dca1000_rejects_invalid_boundary_inputs() -> None:
         _native.parse_dca1000_packet(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01")
     with pytest.raises(ValueError, match="same length"):
         _native.reorder_dca1000_packets(
-            np.array([1], dtype=np.int64),
+            np.array([1], dtype=np.uint32),
             (),
+            1,
             1,
             1,
             0,
@@ -78,7 +80,7 @@ def test_native_dca1000_rejects_invalid_boundary_inputs() -> None:
 
 def _packet_bytes(packet_number: int, byte_count: int, payload: np.ndarray) -> bytes:
     return (
-        struct.pack("<l", packet_number)
+        struct.pack("<I", packet_number)
         + byte_count.to_bytes(6, byteorder="little", signed=False)
         + np.asarray(payload, dtype=np.int16).tobytes()
     )

@@ -10,8 +10,11 @@ from typing import Self, cast
 from mmwcore.core import ADCFrameSpec, RawADCFrame
 from mmwcore.io.dca1000_types import DatagramSocket, DCA1000NetworkConfig
 from mmwcore.io.packets import (
+    DCA1000_BYTE_COUNT_MASK,
     DCA1000_PACKET_PAYLOAD_INT16_VALUES,
     PacketLossStats,
+    _payload_value_count,
+    _wire_byte_count,
     read_dca1000_frame_from_packets,
 )
 
@@ -78,45 +81,72 @@ def _udp_socket() -> DatagramSocket:
 
 
 class DCA1000FrameReader:
-    """Read RawADCFrame objects from a DCA1000 packet source."""
+    """Read frames from an externally proven initial radar-frame byte origin.
+
+    The reader never infers phase from packet modulo or the first packet.
+    Each instance supports one open/close lifecycle.
+    """
 
     def __init__(
         self,
         adc_spec: ADCFrameSpec,
         packet_source: DCA1000PacketSource | None = None,
         *,
+        initial_frame_byte_count: int,
         frame_source: str | None = None,
         payload_values_per_packet: int = DCA1000_PACKET_PAYLOAD_INT16_VALUES,
-        fill_value: int = 0,
     ) -> None:
-        if payload_values_per_packet <= 0:
-            raise ValueError("payload_values_per_packet must be positive.")
+        payload_values_per_packet = _payload_value_count(payload_values_per_packet)
         self.adc_spec = adc_spec
         self.packet_source = packet_source or DCA1000PacketSource()
+        self.initial_frame_byte_count = _wire_byte_count(
+            initial_frame_byte_count,
+            name="initial_frame_byte_count",
+        )
+        self._frame_start_byte_count = self.initial_frame_byte_count
+        self._state = "new"
         self.frame_source = frame_source
         self.payload_values_per_packet = payload_values_per_packet
-        self.fill_value = fill_value
 
     def open(self) -> Self:
+        if self._state == "open":
+            raise RuntimeError("DCA1000FrameReader is already open.")
+        if self._state == "closed":
+            raise RuntimeError(
+                "DCA1000FrameReader cannot be reopened after close; create a new reader "
+                "with a newly proven initial_frame_byte_count."
+            )
+        self._frame_start_byte_count = self.initial_frame_byte_count
         self.packet_source.open()
+        self._state = "open"
         return self
 
     def close(self) -> None:
+        if self._state == "closed":
+            return
         self.packet_source.close()
+        self._state = "closed"
 
     def read_frame(
         self,
         *,
         frame_id: str | int | None = None,
     ) -> tuple[RawADCFrame, PacketLossStats]:
-        return read_dca1000_frame_from_packets(
+        if self._state != "open":
+            raise RuntimeError("DCA1000FrameReader must be opened before reading.")
+        frame, stats = read_dca1000_frame_from_packets(
             self.packet_source,
             self.adc_spec,
+            frame_start_byte_count=self._frame_start_byte_count,
             frame_id=frame_id,
             source=self.frame_source or _default_frame_source(self.packet_source.config),
             payload_values_per_packet=self.payload_values_per_packet,
-            fill_value=self.fill_value,
         )
+        frame_bytes = self.adc_spec.raw_values_per_frame * 2
+        self._frame_start_byte_count = (
+            self._frame_start_byte_count + frame_bytes
+        ) & DCA1000_BYTE_COUNT_MASK
+        return frame, stats
 
     def __enter__(self) -> Self:
         return self.open()

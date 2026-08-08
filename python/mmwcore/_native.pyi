@@ -216,8 +216,9 @@ def decode_adc_i16(
 ) -> NDArray[np.complex64]: ...
 def parse_dca1000_packet(data: bytes) -> DCA1000PacketResult: ...
 def reorder_dca1000_packets(
-    packet_numbers: NDArray[np.int64],
+    packet_numbers: NDArray[np.uint32],
     payloads: Sequence[NDArray[np.int16]],
+    frame_start_packet_number: int,
     packets_per_frame: int,
     payload_values_per_packet: int | None,
     fill_value: int,
@@ -226,7 +227,7 @@ def assemble_dca1000_frame_bytes(
     packets: Sequence[bytes],
     raw_values_per_frame: int,
     payload_values_per_packet: int,
-    fill_value: int,
+    frame_start_byte_count: int,
 ) -> DCA1000AssemblyResult: ...
 def remove_static_clutter_complex(
     data: NDArray[np.complex64],

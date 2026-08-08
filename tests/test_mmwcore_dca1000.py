@@ -3,6 +3,7 @@ from __future__ import annotations
 import struct
 import subprocess
 from dataclasses import dataclass
+from inspect import Parameter, signature
 
 import numpy as np
 import pytest
@@ -80,6 +81,7 @@ def test_dca1000_frame_reader_reads_raw_adc_frame_from_packet_source() -> None:
     reader = DCA1000FrameReader(
         ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
         packet_source,
+        initial_frame_byte_count=0,
         payload_values_per_packet=2,
     )
 
@@ -94,6 +96,13 @@ def test_dca1000_frame_reader_reads_raw_adc_frame_from_packet_source() -> None:
     assert fake_socket.closed is True
 
 
+def test_dca1000_frame_reader_has_no_ignored_fill_value_parameter() -> None:
+    parameters = signature(DCA1000FrameReader).parameters
+
+    assert "fill_value" not in parameters
+    assert parameters["initial_frame_byte_count"].default is Parameter.empty
+
+
 def test_dca1000_frame_reader_supports_custom_frame_source() -> None:
     fake_socket = FakeSocket(
         [
@@ -105,6 +114,7 @@ def test_dca1000_frame_reader_supports_custom_frame_source() -> None:
     reader = DCA1000FrameReader(
         ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
         packet_source,
+        initial_frame_byte_count=0,
         frame_source="fixture",
         payload_values_per_packet=2,
     )
@@ -114,6 +124,50 @@ def test_dca1000_frame_reader_supports_custom_frame_source() -> None:
     reader.close()
 
     assert raw.source == "fixture"
+
+
+def test_dca1000_frame_reader_advances_u48_origin_and_cannot_reopen() -> None:
+    byte_mask = (1 << 48) - 1
+    initial_byte_count = byte_mask - 3
+    fake_socket = FakeSocket(
+        [
+            _packet_bytes((1 << 32) - 1, initial_byte_count, np.array([1, 2])),
+            _packet_bytes(0, 0, np.array([3, 4])),
+            _packet_bytes(1, 4, np.array([5, 6])),
+            _packet_bytes(2, 8, np.array([7, 8])),
+        ]
+    )
+    packet_source = DCA1000PacketSource(socket_factory=lambda: fake_socket)
+    reader = DCA1000FrameReader(
+        ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
+        packet_source,
+        initial_frame_byte_count=initial_byte_count,
+        payload_values_per_packet=2,
+    )
+
+    with reader:
+        first, _stats = reader.read_frame()
+        second, _stats = reader.read_frame()
+    with pytest.raises(RuntimeError, match="cannot be reopened"):
+        reader.open()
+
+    np.testing.assert_array_equal(first.samples, [1, 2, 3, 4])
+    np.testing.assert_array_equal(second.samples, [5, 6, 7, 8])
+
+
+def test_dca1000_frame_reader_rejects_double_open() -> None:
+    packet_source = DCA1000PacketSource(socket_factory=lambda: FakeSocket([]))
+    reader = DCA1000FrameReader(
+        ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
+        packet_source,
+        initial_frame_byte_count=0,
+        payload_values_per_packet=2,
+    )
+
+    reader.open()
+    with pytest.raises(RuntimeError, match="already open"):
+        reader.open()
+    reader.close()
 
 
 def test_dca1000_cli_controller_runs_command_with_config_path() -> None:
@@ -206,6 +260,6 @@ class FakeSocket:
 
 
 def _packet_bytes(packet_number: int, byte_count: int, payload: np.ndarray) -> bytes:
-    packet_header = struct.pack("<l", packet_number)
+    packet_header = struct.pack("<I", packet_number)
     byte_count_header = byte_count.to_bytes(6, byteorder="little", signed=False)
     return packet_header + byte_count_header + np.asarray(payload, dtype=np.int16).tobytes()
