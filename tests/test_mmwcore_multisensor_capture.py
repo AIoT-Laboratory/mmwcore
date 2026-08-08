@@ -4,9 +4,10 @@ import hashlib
 import json
 import shutil
 import struct
+from collections.abc import Iterator
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -18,6 +19,8 @@ from mmwcore.io import (
     ADCFileCapture,
     MappedTimeInterval,
     MultisensorCapture,
+    MultisensorItem,
+    MultisensorSource,
     causal_match,
     open_multisensor_capture,
 )
@@ -93,6 +96,114 @@ def test_opens_the_exact_go_two_source_golden(tmp_path: Path) -> None:
     assert camera[0].training_key == (capture.session_id, "camera-0", 0)
     assert radar[0].mapped_time == MappedTimeInterval(1_000_095_000, 1_000_115_000)
     assert camera[0].mapped_time == MappedTimeInterval(1_008_980_000, 1_011_020_000)
+
+    pairs = list(
+        capture.causal_pairs(
+            "radar-0",
+            "camera-0",
+            lag_min_ns=-100_000_000,
+            lag_max_ns=100_000_000,
+        )
+    )
+    assert [(earlier.item_index, later.item_index) for earlier, later in pairs] == [
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (1, 1),
+    ]
+    assert not list(
+        capture.causal_pairs(
+            "radar-0",
+            "camera-0",
+            lag_min_ns=1_000_000_000,
+            lag_max_ns=2_000_000_000,
+        )
+    )
+
+
+def test_causal_pairs_yields_every_active_candidate_and_allows_zero_matches() -> None:
+    capture = _causal_capture(
+        earlier=(
+            _causal_item("earlier", 0, 0, 10),
+            _causal_item("earlier", 1, 20, 30),
+            _causal_item("earlier", 2, 40, 50),
+        ),
+        later=(_causal_item("later", 0, 25, 25),),
+    )
+
+    pairs = list(
+        capture.causal_pairs(
+            "earlier",
+            "later",
+            lag_min_ns=-20,
+            lag_max_ns=20,
+        )
+    )
+
+    assert [(earlier.item_index, later.item_index) for earlier, later in pairs] == [
+        (0, 0),
+        (1, 0),
+        (2, 0),
+    ]
+    assert not list(
+        capture.causal_pairs(
+            "earlier",
+            "later",
+            lag_min_ns=100,
+            lag_max_ns=120,
+        )
+    )
+
+
+@pytest.mark.parametrize("backwards_role", ["earlier", "later"])
+def test_causal_pairs_rejects_backwards_mapped_interval_order(
+    backwards_role: str,
+) -> None:
+    ordered = (
+        _causal_item("ordered", 0, 10, 20),
+        _causal_item("ordered", 1, 20, 30),
+    )
+    backwards = (
+        _causal_item("backwards", 0, 10, 20),
+        _causal_item("backwards", 1, 5, 25),
+    )
+    capture = _causal_capture(
+        earlier=backwards if backwards_role == "earlier" else ordered,
+        later=backwards if backwards_role == "later" else ordered,
+    )
+
+    with pytest.raises(ValueError, match=rf"{backwards_role.capitalize()}.*backwards"):
+        list(
+            capture.causal_pairs(
+                "backwards" if backwards_role == "earlier" else "ordered",
+                "backwards" if backwards_role == "later" else "ordered",
+                lag_min_ns=-100,
+                lag_max_ns=100,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("earlier_outcome", "later_outcome"),
+    [("failed", "complete"), ("complete", "omitted")],
+)
+def test_causal_pairs_requires_distinct_existing_complete_sources(
+    earlier_outcome: str,
+    later_outcome: str,
+) -> None:
+    capture = _causal_capture(
+        earlier=(_causal_item("earlier", 0, 0, 1),),
+        later=(_causal_item("later", 0, 2, 3),),
+        earlier_outcome=earlier_outcome,
+        later_outcome=later_outcome,
+    )
+
+    with pytest.raises(ValueError, match="complete .* source"):
+        capture.causal_pairs("earlier", "later", lag_min_ns=0, lag_max_ns=10)
+    with pytest.raises(ValueError, match="distinct"):
+        capture.causal_pairs("earlier", "earlier", lag_min_ns=0, lag_max_ns=10)
+    with pytest.raises(KeyError, match="missing"):
+        capture.causal_pairs("missing", "later", lag_min_ns=0, lag_max_ns=10)
 
 
 def test_rejects_non_exact_schema_hashes_and_undeclared_leaves(tmp_path: Path) -> None:
@@ -240,6 +351,69 @@ def test_nested_radar_capture_rejects_noncomplete_and_camera_sources(
         capture.source("radar-0").open_radar_capture()
     with pytest.raises(ValueError, match="radar multisensor"):
         capture.source("camera-0").open_radar_capture()
+
+
+class _CausalSource:
+    def __init__(
+        self,
+        source_id: str,
+        outcome: str,
+        items: tuple[MultisensorItem, ...],
+    ) -> None:
+        self.source_id = source_id
+        self.outcome = outcome
+        self._items = items
+
+    def items(self) -> Iterator[MultisensorItem]:
+        yield from self._items
+
+
+def _causal_capture(
+    *,
+    earlier: tuple[MultisensorItem, ...],
+    later: tuple[MultisensorItem, ...],
+    earlier_outcome: str = "complete",
+    later_outcome: str = "complete",
+) -> MultisensorCapture:
+    earlier_source = cast(
+        MultisensorSource,
+        _CausalSource(earlier[0].source_id, earlier_outcome, earlier),
+    )
+    later_source = cast(
+        MultisensorSource,
+        _CausalSource(later[0].source_id, later_outcome, later),
+    )
+    return MultisensorCapture(
+        root=Path("."),
+        session_path=Path("session.json"),
+        session_id=_SESSION_ID,
+        synchronization_grade="software_barrier",
+        host_clock_id="host-0",
+        sources=(earlier_source, later_source),
+        sync_events=(),
+        item_count=len(earlier) + len(later),
+        payload_bytes=len(earlier) + len(later),
+    )
+
+
+def _causal_item(
+    source_id: str,
+    item_index: int,
+    start_ns: int,
+    end_ns: int,
+) -> MultisensorItem:
+    return MultisensorItem(
+        session_id=_SESSION_ID,
+        source_id=source_id,
+        item_index=item_index,
+        payload=b"x",
+        payload_offset=item_index,
+        source_ticks=start_ns,
+        wrap_count=0,
+        duration_ticks=0,
+        sync_event_id=None,
+        mapped_time=MappedTimeInterval(start_ns, end_ns),
+    )
 
 
 def _write_fixture(tmp_path: Path, *, name: str = "capture") -> tuple[Path, dict[str, Any]]:

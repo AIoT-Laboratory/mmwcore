@@ -8,7 +8,7 @@ import json
 import re
 import stat
 import struct
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -394,6 +394,38 @@ class MultisensorCapture:
         for source in self.sources:
             yield from source.items()
 
+    def causal_pairs(
+        self,
+        earlier_source_id: str,
+        later_source_id: str,
+        *,
+        lag_min_ns: int,
+        lag_max_ns: int,
+    ) -> Iterator[tuple[MultisensorItem, MultisensorItem]]:
+        """Yield conservative cross-source pairs intersecting one causal lag window.
+
+        Sources must be distinct and complete. Items are consumed lazily in mapped-time
+        order; a source whose mapped intervals move backwards is rejected.
+        """
+
+        _validate_causal_lag_window(lag_min_ns, lag_max_ns)
+        earlier_source = self.source(earlier_source_id)
+        later_source = self.source(later_source_id)
+        if earlier_source.source_id == later_source.source_id:
+            raise ValueError("Causal pairs require two distinct multisensor sources.")
+        for role, source in (("earlier", earlier_source), ("later", later_source)):
+            if source.outcome != "complete":
+                raise ValueError(
+                    f"Causal pairs require a complete {role} source; "
+                    f"{source.source_id!r} has outcome {source.outcome!r}."
+                )
+        return _iterate_causal_pairs(
+            earlier_source.items(),
+            later_source.items(),
+            lag_min_ns=lag_min_ns,
+            lag_max_ns=lag_max_ns,
+        )
+
 
 def causal_match(
     earlier: MultisensorItem | MappedTimeInterval,
@@ -404,10 +436,7 @@ def causal_match(
 ) -> bool:
     """Return whether the possible physical lag intersects a causal window."""
 
-    if type(lag_min_ns) is not int or type(lag_max_ns) is not int:
-        raise TypeError("Causal lag bounds must be integers.")
-    if lag_min_ns > lag_max_ns:
-        raise ValueError("lag_min_ns must not exceed lag_max_ns.")
+    _validate_causal_lag_window(lag_min_ns, lag_max_ns)
     first = earlier.mapped_time if isinstance(earlier, MultisensorItem) else earlier
     second = later.mapped_time if isinstance(later, MultisensorItem) else later
     if not isinstance(first, MappedTimeInterval) or not isinstance(second, MappedTimeInterval):
@@ -415,6 +444,67 @@ def causal_match(
     possible_min = second.start_ns - first.end_ns
     possible_max = second.end_ns - first.start_ns
     return possible_min <= lag_max_ns and possible_max >= lag_min_ns
+
+
+def _validate_causal_lag_window(lag_min_ns: int, lag_max_ns: int) -> None:
+    if type(lag_min_ns) is not int or type(lag_max_ns) is not int:
+        raise TypeError("Causal lag bounds must be integers.")
+    if lag_min_ns > lag_max_ns:
+        raise ValueError("lag_min_ns must not exceed lag_max_ns.")
+
+
+def _iterate_causal_pairs(
+    earlier_items: Iterator[MultisensorItem],
+    later_items: Iterator[MultisensorItem],
+    *,
+    lag_min_ns: int,
+    lag_max_ns: int,
+) -> Iterator[tuple[MultisensorItem, MultisensorItem]]:
+    earlier = _monotonic_mapped_items(earlier_items, role="earlier")
+    later = _monotonic_mapped_items(later_items, role="later")
+    lookahead = next(earlier, None)
+    candidates: deque[MultisensorItem] = deque()
+
+    for later_item in later:
+        minimum_earlier_end = later_item.mapped_time.start_ns - lag_max_ns
+        maximum_earlier_start = later_item.mapped_time.end_ns - lag_min_ns
+
+        # Retain only the temporal frontier that can intersect this or a future
+        # lag window. One lookahead item prevents reading the remaining payload.
+        while candidates and candidates[0].mapped_time.end_ns < minimum_earlier_end:
+            candidates.popleft()
+        while lookahead is not None and lookahead.mapped_time.start_ns <= maximum_earlier_start:
+            if lookahead.mapped_time.end_ns >= minimum_earlier_end:
+                candidates.append(lookahead)
+            lookahead = next(earlier, None)
+
+        for earlier_item in candidates:
+            if causal_match(
+                earlier_item,
+                later_item,
+                lag_min_ns=lag_min_ns,
+                lag_max_ns=lag_max_ns,
+            ):
+                yield earlier_item, later_item
+
+
+def _monotonic_mapped_items(
+    items: Iterator[MultisensorItem],
+    *,
+    role: str,
+) -> Iterator[MultisensorItem]:
+    previous: MappedTimeInterval | None = None
+    for item in items:
+        current = item.mapped_time
+        if previous is not None and (
+            current.start_ns < previous.start_ns or current.end_ns < previous.end_ns
+        ):
+            raise ValueError(
+                f"{role.capitalize()} source mapped interval order moves backwards "
+                f"at item {item.item_index}."
+            )
+        previous = current
+        yield item
 
 
 def open_multisensor_capture(path: str | Path) -> MultisensorCapture:  # noqa: C901
