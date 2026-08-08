@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from numbers import Real
+from operator import index
+from typing import SupportsFloat, SupportsIndex, cast
 
 from mmwcore.core import ADCComplexLayout, ADCFrameSpec, PointCloudProjectionSpec
 
@@ -34,8 +37,7 @@ class RadarProfile:
             ("idle_time_s", self.idle_time_s),
             ("speed_of_light_mps", self.speed_of_light_mps),
         ):
-            if not isfinite(value) or value <= 0:
-                raise ValueError(f"RadarProfile.{name} must be finite and positive; got {value}.")
+            object.__setattr__(self, name, _positive_physical_scalar(value, name=name))
 
         for name, value in (
             ("num_adc_samples", self.num_adc_samples),
@@ -43,8 +45,7 @@ class RadarProfile:
             ("num_tx", self.num_tx),
             ("num_rx", self.num_rx),
         ):
-            if value <= 0:
-                raise ValueError(f"RadarProfile.{name} must be positive; got {value}.")
+            object.__setattr__(self, name, _positive_dimension(value, name=name))
 
         if self.adc_start_time_s >= self.ramp_end_time_s:
             raise ValueError("RadarProfile.adc_start_time_s must be before ramp_end_time_s.")
@@ -131,3 +132,24 @@ class RadarProfile:
             doppler_bins=bins if center_doppler else doppler_bins,
             doppler_fftshifted=doppler_fftshifted,
         )
+
+
+def _positive_dimension(value: object, *, name: str) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"RadarProfile.{name} must be an integer; got {value!r}.")
+    try:
+        normalized = int(index(cast(SupportsIndex, value)))
+    except TypeError as exc:
+        raise TypeError(f"RadarProfile.{name} must be an integer; got {value!r}.") from exc
+    if normalized <= 0:
+        raise ValueError(f"RadarProfile.{name} must be positive; got {normalized}.")
+    return normalized
+
+
+def _positive_physical_scalar(value: object, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"RadarProfile.{name} must be a real number; got {value!r}.")
+    normalized = float(cast(SupportsFloat, value))
+    if not isfinite(normalized) or normalized <= 0:
+        raise ValueError(f"RadarProfile.{name} must be finite and positive; got {normalized}.")
+    return normalized

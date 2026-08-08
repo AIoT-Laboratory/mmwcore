@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import cast
 
+import numpy as np
 import pytest
 
 import mmwcore.config
@@ -95,6 +97,56 @@ def test_radar_profile_rejects_invalid_values() -> None:
 
     with pytest.raises(ValueError, match="before ramp"):
         RadarProfile(adc_start_time_s=65e-6, ramp_end_time_s=65e-6)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "start_frequency_hz",
+        "frequency_slope_hz_per_s",
+        "adc_sample_rate_hz",
+        "adc_start_time_s",
+        "ramp_end_time_s",
+        "idle_time_s",
+        "speed_of_light_mps",
+    ],
+)
+def test_radar_profile_rejects_boolean_physical_values(field_name: str) -> None:
+    with pytest.raises(TypeError, match=rf"RadarProfile\.{field_name} must be a real number"):
+        replace(RadarProfile(), **{field_name: True})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["num_adc_samples", "num_chirps_per_tx", "num_tx", "num_rx"],
+)
+@pytest.mark.parametrize("value", [True, 1.5])
+def test_radar_profile_rejects_nonintegral_dimensions(
+    field_name: str,
+    value: object,
+) -> None:
+    with pytest.raises(TypeError, match=rf"RadarProfile\.{field_name} must be an integer"):
+        replace(RadarProfile(), **{field_name: value})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("num_adc_samples", 17),
+        ("num_chirps_per_tx", 19),
+        ("num_tx", 2),
+        ("num_rx", 4),
+    ],
+)
+def test_radar_profile_normalizes_python_and_numpy_integral_dimensions(
+    field_name: str,
+    value: int,
+) -> None:
+    for supplied in (value, np.int64(value)):
+        profile = replace(RadarProfile(), **{field_name: supplied})
+        normalized = getattr(profile, field_name)
+        assert normalized == value
+        assert type(normalized) is int
 
 
 @pytest.mark.parametrize(
