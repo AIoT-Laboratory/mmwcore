@@ -268,6 +268,19 @@ def test_session_json_is_closed_typed_and_bound_to_cfg() -> None:
             CaptureStreamReader(io.BytesIO(stream)).read_contract()
 
 
+def test_capture_stream_accepts_debug_cli_and_rejects_retired_mode() -> None:
+    current = _golden_session()
+    current["mode"] = "debug-cli"
+    stream = _replace_golden_record(0, payload=_json_line(current))
+    assert CaptureStreamReader(io.BytesIO(stream)).read_contract().mode == "debug-cli"
+
+    retired = _golden_session()
+    retired["mode"] = "debug-capture"
+    stream = _replace_golden_record(0, payload=_json_line(retired))
+    with pytest.raises(CaptureStreamError):
+        CaptureStreamReader(io.BytesIO(stream)).read_contract()
+
+
 class _HeaderOnlySource:
     def __init__(self, header: bytes) -> None:
         self.header = header

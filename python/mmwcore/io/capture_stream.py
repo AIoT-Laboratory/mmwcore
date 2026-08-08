@@ -41,7 +41,7 @@ _MAX_FRAME_PAYLOAD_BYTES = 64 << 20
 _MAX_TERMINAL_PAYLOAD_BYTES = 4 << 10
 _MAX_PRODUCER_VERSION_BYTES = 128
 _STREAM_ID_ZERO = "0" * 32
-_CAPTURE_MODES = frozenset({"studio-cli", "debug-capture"})
+_CAPTURE_MODES = frozenset({"studio-cli", "debug-cli"})
 _ABORT_REASONS = frozenset(
     {
         "cancelled",
@@ -503,7 +503,7 @@ def _parse_session(payload: bytes) -> _Session:
 
     mode = record.get("mode")
     if not isinstance(mode, str) or mode not in _CAPTURE_MODES:
-        raise ValueError("SESSION.mode must be 'studio-cli' or 'debug-capture'.")
+        raise ValueError("SESSION.mode must be 'studio-cli' or 'debug-cli'.")
 
     hardware = _closed_object(
         record,
