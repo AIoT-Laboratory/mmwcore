@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -26,6 +30,74 @@ from mmwcore.dsp import (
     map_tdm_virtual_array,
     planar_angle_fft,
     select_virtual_subarray,
+)
+
+type GeometryFactory = Callable[[object], object]
+
+
+def _virtual_layout_with_coordinate(value: object) -> VirtualAntennaLayout:
+    return VirtualAntennaLayout(((cast(float, value), 0.0, 0.0),))
+
+
+def _geometry_with_tx_coordinate(value: object) -> AntennaArrayGeometry:
+    return AntennaArrayGeometry(
+        tx_positions_wavelengths=((cast(float, value), 0.0, 0.0),),
+        rx_positions_wavelengths=((0.0, 0.0, 0.0),),
+    )
+
+
+def _geometry_with_rx_coordinate(value: object) -> AntennaArrayGeometry:
+    return AntennaArrayGeometry(
+        tx_positions_wavelengths=((0.0, 0.0, 0.0),),
+        rx_positions_wavelengths=((cast(float, value), 0.0, 0.0),),
+    )
+
+
+_GEOMETRY_PHYSICAL_FIELDS: tuple[tuple[str, GeometryFactory], ...] = (
+    (
+        "VirtualAntennaLayout.positions_wavelengths[0][0]",
+        _virtual_layout_with_coordinate,
+    ),
+    (
+        "AntennaArrayGeometry.tx_positions_wavelengths[0][0]",
+        _geometry_with_tx_coordinate,
+    ),
+    (
+        "AntennaArrayGeometry.rx_positions_wavelengths[0][0]",
+        _geometry_with_rx_coordinate,
+    ),
+    (
+        "VirtualAntennaLayout.uniform_linear.spacing_wavelengths",
+        lambda value: VirtualAntennaLayout.uniform_linear(
+            2,
+            spacing_wavelengths=cast(float, value),
+        ),
+    ),
+)
+
+_GEOMETRY_NAME_FIELDS: tuple[tuple[str, GeometryFactory], ...] = (
+    (
+        "VirtualAntennaLayout.name",
+        lambda value: VirtualAntennaLayout(
+            ((0.0, 0.0, 0.0),),
+            name=cast(str, value),
+        ),
+    ),
+    (
+        "PlanarApertureLayout.name",
+        lambda value: PlanarApertureLayout(
+            ((0, 0),),
+            name=cast(str, value),
+        ),
+    ),
+    (
+        "AntennaArrayGeometry.name",
+        lambda value: AntennaArrayGeometry(
+            tx_positions_wavelengths=((0.0, 0.0, 0.0),),
+            rx_positions_wavelengths=((0.0, 0.0, 0.0),),
+            name=cast(str, value),
+        ),
+    ),
 )
 
 
@@ -72,6 +144,180 @@ def test_virtual_antenna_layout_validates_positions() -> None:
 
     with pytest.raises(ValueError, match="Unsupported angle axis"):
         VirtualAntennaLayout(((0.0, 0.0, 0.0),), angle_axis="roll")
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _GEOMETRY_PHYSICAL_FIELDS,
+    ids=[field_name for field_name, _factory in _GEOMETRY_PHYSICAL_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(True, id="bool"),
+        pytest.param(np.bool_(True), id="numpy-bool"),
+        pytest.param("0.5", id="numeric-string"),
+        pytest.param(0.5 + 0.0j, id="complex"),
+    ],
+)
+def test_antenna_geometry_rejects_nonreal_physical_values(
+    field_name: str,
+    factory: GeometryFactory,
+    invalid: object,
+) -> None:
+    with pytest.raises(TypeError, match=re.escape(field_name)):
+        factory(invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _GEOMETRY_PHYSICAL_FIELDS,
+    ids=[field_name for field_name, _factory in _GEOMETRY_PHYSICAL_FIELDS],
+)
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="positive-inf"),
+        pytest.param(float("-inf"), id="negative-inf"),
+    ],
+)
+def test_antenna_geometry_rejects_nonfinite_physical_values(
+    field_name: str,
+    factory: GeometryFactory,
+    invalid: float,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape(field_name),
+    ):
+        factory(invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _GEOMETRY_PHYSICAL_FIELDS,
+    ids=[field_name for field_name, _factory in _GEOMETRY_PHYSICAL_FIELDS],
+)
+def test_antenna_geometry_normalizes_numpy_physical_values(
+    field_name: str,
+    factory: GeometryFactory,
+) -> None:
+    result = factory(np.float32(0.75))
+    if isinstance(result, VirtualAntennaLayout):
+        normalized = (
+            result.positions_wavelengths[1][0]
+            if "spacing" in field_name
+            else (result.positions_wavelengths[0][0])
+        )
+    else:
+        assert isinstance(result, AntennaArrayGeometry)
+        normalized = (
+            result.tx_positions_wavelengths[0][0]
+            if ".tx_" in field_name
+            else result.rx_positions_wavelengths[0][0]
+        )
+
+    assert normalized == pytest.approx(0.75)
+    assert type(normalized) is float
+
+
+@pytest.mark.parametrize("invalid", [0.0, -0.5])
+def test_uniform_linear_layout_preserves_positive_spacing_domain(invalid: float) -> None:
+    with pytest.raises(ValueError, match="spacing_wavelengths"):
+        VirtualAntennaLayout.uniform_linear(2, spacing_wavelengths=invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _GEOMETRY_NAME_FIELDS,
+    ids=[field_name for field_name, _factory in _GEOMETRY_NAME_FIELDS],
+)
+@pytest.mark.parametrize("invalid", [None, 1, b"fixture"])
+def test_antenna_geometry_requires_string_names(
+    field_name: str,
+    factory: GeometryFactory,
+    invalid: object,
+) -> None:
+    with pytest.raises(TypeError, match=field_name):
+        factory(invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "factory"),
+    _GEOMETRY_NAME_FIELDS,
+    ids=[field_name for field_name, _factory in _GEOMETRY_NAME_FIELDS],
+)
+def test_antenna_geometry_requires_nonempty_names(
+    field_name: str,
+    factory: GeometryFactory,
+) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        factory(" 	 ")
+
+
+def test_antenna_geometry_normalizes_semantic_names() -> None:
+    virtual = VirtualAntennaLayout(((0.0, 0.0, 0.0),), name="  virtual  ")
+    planar = PlanarApertureLayout(((0, 0),), name="  planar  ")
+    geometry = AntennaArrayGeometry(
+        tx_positions_wavelengths=((0.0, 0.0, 0.0),),
+        rx_positions_wavelengths=((0.0, 0.0, 0.0),),
+        name="  geometry  ",
+    )
+
+    assert virtual.name == "virtual"
+    assert planar.name == "planar"
+    assert geometry.name == "geometry"
+
+
+@pytest.mark.parametrize("invalid", [None, 1, b"azimuth"])
+def test_virtual_antenna_layout_requires_string_angle_axis(invalid: object) -> None:
+    with pytest.raises(TypeError, match="angle_axis"):
+        VirtualAntennaLayout(
+            ((0.0, 0.0, 0.0),),
+            angle_axis=cast(str, invalid),
+        )
+
+
+@pytest.mark.parametrize("invalid", ["", "roll", " azimuth "])
+def test_virtual_antenna_layout_closes_angle_axis_values(invalid: str) -> None:
+    with pytest.raises(ValueError, match="Unsupported angle axis"):
+        VirtualAntennaLayout(((0.0, 0.0, 0.0),), angle_axis=invalid)
+
+
+def test_antenna_geometry_preserves_strict_integer_index_normalization() -> None:
+    linear = VirtualAntennaLayout.uniform_linear(cast(int, np.int64(2)))
+    planar = PlanarApertureLayout(((cast(int, np.int64(1)), cast(int, np.int64(2))),))
+    geometry = AntennaArrayGeometry(
+        tx_positions_wavelengths=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+        rx_positions_wavelengths=((0.0, 0.0, 0.0),),
+    )
+    tdm = TDMVirtualArraySpec(geometry, (cast(int, np.int64(1)),))
+    subarray = VirtualSubarraySpec(
+        (cast(int, np.int64(3)),),
+        VirtualAntennaLayout(((0.0, 0.0, 0.0),)),
+    )
+
+    assert linear.num_antennas == 2
+    assert planar.grid_indices == ((1, 2),)
+    assert type(planar.grid_indices[0][0]) is int
+    assert tdm.tx_order == (1,)
+    assert type(tdm.tx_order[0]) is int
+    assert subarray.antenna_indices == (3,)
+    assert type(subarray.antenna_indices[0]) is int
+
+
+def test_virtual_array_specs_require_declared_geometry_types() -> None:
+    with pytest.raises(TypeError, match="TDMVirtualArraySpec.geometry"):
+        TDMVirtualArraySpec(
+            cast(AntennaArrayGeometry, object()),
+            tx_order=(0,),
+        )
+    with pytest.raises(TypeError, match="VirtualSubarraySpec.layout"):
+        VirtualSubarraySpec(
+            (0,),
+            cast(VirtualAntennaLayout, object()),
+        )
 
 
 def test_planar_aperture_layout_reports_sparse_duplicate_positions() -> None:

@@ -4,10 +4,46 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from numbers import Real
 from operator import index as integer_index
 from sys import maxsize as _MAX_PLATFORM_INDEX
 
 from .spec_enums import ADCComplexLayout
+
+_ANGLE_AXES = frozenset({"azimuth", "elevation"})
+
+
+def _finite_real(value: object, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number, not bool, string, or complex.")
+    normalized = float(value)
+    if not isfinite(normalized):
+        raise ValueError(f"{name} must be finite; got {normalized}.")
+    return normalized
+
+
+def _positive_real(value: object, *, name: str) -> float:
+    normalized = _finite_real(value, name=name)
+    if normalized <= 0.0:
+        raise ValueError(f"{name} must be positive; got {normalized}.")
+    return normalized
+
+
+def _non_empty_name(value: str, *, name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string.")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{name} must not be empty.")
+    return normalized
+
+
+def _angle_axis(value: str, *, name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string.")
+    if value not in _ANGLE_AXES:
+        raise ValueError(f"Unsupported angle axis: {value}.")
+    return value
 
 
 @dataclass(frozen=True)
@@ -19,24 +55,19 @@ class VirtualAntennaLayout:
     angle_axis: str = "azimuth"
 
     def __post_init__(self) -> None:
-        positions = tuple(
-            tuple(float(value) for value in row) for row in self.positions_wavelengths
+        positions = _positions(
+            self.positions_wavelengths,
+            name="VirtualAntennaLayout.positions_wavelengths",
         )
-        if not positions:
-            raise ValueError("VirtualAntennaLayout.positions_wavelengths must not be empty.")
-        for position in positions:
-            if len(position) != 3:
-                raise ValueError(
-                    "VirtualAntennaLayout positions must be 3D wavelength coordinates."
-                )
-            if not all(isfinite(value) for value in position):
-                raise ValueError("VirtualAntennaLayout positions must be finite.")
-        if not self.name:
-            raise ValueError("VirtualAntennaLayout.name must not be empty.")
-        if self.angle_axis not in {"azimuth", "elevation"}:
-            raise ValueError(f"Unsupported angle axis: {self.angle_axis}.")
+        name = _non_empty_name(self.name, name="VirtualAntennaLayout.name")
+        angle_axis = _angle_axis(
+            self.angle_axis,
+            name="VirtualAntennaLayout.angle_axis",
+        )
 
         object.__setattr__(self, "positions_wavelengths", positions)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "angle_axis", angle_axis)
 
     @classmethod
     def uniform_linear(
@@ -50,8 +81,10 @@ class VirtualAntennaLayout:
         """Create a linear virtual array along the x-axis."""
 
         num_antennas = _positive_dimension(num_antennas, name="num_antennas")
-        if spacing_wavelengths <= 0:
-            raise ValueError(f"spacing_wavelengths must be positive; got {spacing_wavelengths}.")
+        spacing_wavelengths = _positive_real(
+            spacing_wavelengths,
+            name="VirtualAntennaLayout.uniform_linear.spacing_wavelengths",
+        )
         return cls(
             positions_wavelengths=tuple(
                 (index * spacing_wavelengths, 0.0, 0.0) for index in range(num_antennas)
@@ -91,9 +124,9 @@ class PlanarApertureLayout:
         )
         if any(value < 0 for index in indices for value in index):
             raise ValueError("Planar aperture indices must be non-negative.")
-        if not self.name:
-            raise ValueError("PlanarApertureLayout.name must not be empty.")
+        name = _non_empty_name(self.name, name="PlanarApertureLayout.name")
         object.__setattr__(self, "grid_indices", indices)
+        object.__setattr__(self, "name", name)
 
     @property
     def num_antennas(self) -> int:
@@ -130,12 +163,18 @@ class AntennaArrayGeometry:
     name: str = "antenna_array"
 
     def __post_init__(self) -> None:
-        tx = _positions(self.tx_positions_wavelengths, name="tx_positions_wavelengths")
-        rx = _positions(self.rx_positions_wavelengths, name="rx_positions_wavelengths")
-        if not self.name:
-            raise ValueError("AntennaArrayGeometry.name must not be empty.")
+        tx = _positions(
+            self.tx_positions_wavelengths,
+            name="AntennaArrayGeometry.tx_positions_wavelengths",
+        )
+        rx = _positions(
+            self.rx_positions_wavelengths,
+            name="AntennaArrayGeometry.rx_positions_wavelengths",
+        )
+        name = _non_empty_name(self.name, name="AntennaArrayGeometry.name")
         object.__setattr__(self, "tx_positions_wavelengths", tx)
         object.__setattr__(self, "rx_positions_wavelengths", rx)
+        object.__setattr__(self, "name", name)
 
     @property
     def num_tx(self) -> int:
@@ -179,6 +218,8 @@ class TDMVirtualArraySpec:
     tx_order: tuple[int, ...]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.geometry, AntennaArrayGeometry):
+            raise TypeError("TDMVirtualArraySpec.geometry must be an AntennaArrayGeometry.")
         order = _validate_tx_order(self.tx_order, self.geometry.num_tx)
         object.__setattr__(self, "tx_order", order)
 
@@ -202,6 +243,8 @@ class VirtualSubarraySpec:
     layout: VirtualAntennaLayout
 
     def __post_init__(self) -> None:
+        if not isinstance(self.layout, VirtualAntennaLayout):
+            raise TypeError("VirtualSubarraySpec.layout must be a VirtualAntennaLayout.")
         indices = _integer_indices(
             self.antenna_indices,
             name="VirtualSubarraySpec.antenna_indices",
@@ -222,14 +265,36 @@ def _positions(
     *,
     name: str,
 ) -> tuple[tuple[float, float, float], ...]:
-    positions = tuple((float(row[0]), float(row[1]), float(row[2])) for row in values)
-    if not positions:
-        raise ValueError(f"AntennaArrayGeometry.{name} must not be empty.")
-    if any(len(position) != 3 for position in positions):
-        raise ValueError(f"AntennaArrayGeometry.{name} must contain 3D coordinates.")
-    if any(not all(isfinite(value) for value in position) for position in positions):
-        raise ValueError(f"AntennaArrayGeometry.{name} must contain finite coordinates.")
-    return positions
+    if isinstance(values, (str, bytes)):
+        raise TypeError(f"{name} must be an iterable of 3D coordinates.")
+    try:
+        rows = tuple(values)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be an iterable of 3D coordinates.") from exc
+    if not rows:
+        raise ValueError(f"{name} must not be empty.")
+
+    positions: list[tuple[float, float, float]] = []
+    for row_index, row in enumerate(rows):
+        if isinstance(row, (str, bytes)):
+            raise TypeError(f"{name}[{row_index}] must be a 3D coordinate.")
+        try:
+            raw_position = tuple(row)
+        except TypeError as exc:
+            raise TypeError(f"{name}[{row_index}] must be a 3D coordinate.") from exc
+        if len(raw_position) != 3:
+            raise ValueError(
+                f"{name}[{row_index}] must be a 3D coordinate with exactly three values."
+            )
+        position = tuple(
+            _finite_real(
+                value,
+                name=f"{name}[{row_index}][{coordinate_index}]",
+            )
+            for coordinate_index, value in enumerate(raw_position)
+        )
+        positions.append((position[0], position[1], position[2]))
+    return tuple(positions)
 
 
 def _platform_index(value: int, *, name: str) -> int:
