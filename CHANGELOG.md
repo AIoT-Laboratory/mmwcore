@@ -4,18 +4,31 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
-- Parse the supported xWR68xx legacy raw-capture subset into validated `RadarCaptureSpec` values
-  while preserving the existing permissive ADC-shape parser.
-- Open integrity-checked `mmwcli.capture_session.v1` directories as validated ADC readers and
-  physical capture contracts.
-- Iterate capture frames lazily and run explicit, contract-matched range-Doppler recipes, including
-  IWR6843 active-Tx subsets.
-- Add a reproducible synthetic IWR6843 pipeline benchmark runner with versioned JSON results.
-- Support Python 3.10–3.13 with compatible typing and standard-library fallbacks.
-- Add TI SDK source-backed, offline-tested antenna geometries for XWR1642, the standard XWR1843
-  EVM, IWR6843 AOP, and AWR1843 AOP.
-- Decode the TI Studio complex16, four-lane, frame-continuous channel-interleaved word layout used
-  by xWR12xx and xWR14xx raw captures through explicit `group4_i_then_q` contracts.
+### Added
+
+- Open integrity-checked versioned capture directories as lazy ADC readers and physical contracts.
+- Decode explicit TI complex16 two-lane and four-lane capture layouts.
+- Add source-backed antenna geometries for XWR1642, standard XWR1843 EVM, IWR6843ISK,
+  IWR6843 AOP, and AWR1843 AOP.
+- Add a reproducible synthetic IWR6843 pipeline benchmark with versioned JSON output.
+
+### Changed
+
+- Support CPython 3.12–3.14 and use Python 3.12 language and typing features directly.
+- Treat DCA1000 packet numbers as wrapping u32 and byte counters as wrapping u48.
+- Require explicit trusted packet/frame origins; exact assembly rejects missing, duplicate,
+  cross-frame, inexact-payload, and trailing packets instead of filling or truncating.
+- Validate physical scalars, shapes, indices, thresholds, and public native integer domains before
+  computation.
+
+### Removed
+
+- Remove the package command line and its preprocessing/export paths.
+- Remove hardware configuration rendering.
+- Remove live serial control, DCA control, UDP packet-source, and frame-reader APIs.
+- Remove synchronized acquisition, radar-only capture sessions, legacy JSONL artifact
+  writers/manifests, and the `mmwcore.session` package.
+- Remove compatibility bridges and fallbacks for Python versions older than 3.12.
 
 ## [0.2.2] - 2026-08-06
 

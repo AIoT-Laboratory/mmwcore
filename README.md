@@ -1,22 +1,15 @@
 # mmwcore
 
-Decode DCA1000 raw ADC data into range-Doppler products, detections, calibrated point clouds, and
-tracks from Rust or Python.
+mmwcore is an offline radar decoding and signal-processing library for captured mmWave data.
+Its boundary starts at bytes plus explicit physical contracts, then produces range-Doppler cubes,
+detections, calibrated point clouds, clusters, tracks, and vital-sign products.
 
-mmwcore provides explicit capture and physical contracts, frame-by-frame file and packet ingestion,
-Rust compute kernels, Python composition APIs, and plotting. It covers the physical data path from
-raw samples to sensing products; learned models and experiment orchestration belong in downstream
-projects.
-
-[![PyPI](https://img.shields.io/pypi/v/mmwcore.svg?logo=pypi&logoColor=white)](https://pypi.org/project/mmwcore/)
-[![crates.io](https://img.shields.io/crates/v/mmwcore.svg?logo=rust)](https://crates.io/crates/mmwcore)
-[![docs.rs](https://img.shields.io/docsrs/mmwcore.svg?logo=docs.rs)](https://docs.rs/mmwcore)
-[![CI](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/AIoT-Laboratory/mmwcore.svg)](https://github.com/AIoT-Laboratory/mmwcore/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/mmwcore.svg?logo=pypi&logoColor=white)](https://pypi.org/project/mmwcore/) [![crates.io](https://img.shields.io/crates/v/mmwcore.svg?logo=rust)](https://crates.io/crates/mmwcore)
+[![docs.rs](https://img.shields.io/docsrs/mmwcore.svg?logo=docs.rs)](https://docs.rs/mmwcore) [![CI](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AIoT-Laboratory/mmwcore/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/AIoT-Laboratory/mmwcore.svg)](LICENSE)
 
 ## Install
 
-Python 3.10–3.13 with native Rust kernels:
+CPython 3.12–3.14:
 
 ```console
 pip install mmwcore
@@ -28,43 +21,36 @@ Rust 1.85 or newer:
 cargo add mmwcore
 ```
 
+## Input boundary
+
+Maintained inputs are:
+
+- archived DCA1000 datagrams;
+- headerless `int16` ADC files with an explicit frame contract;
+- completed versioned capture directories opened with `open_capture`.
+
+The library does not configure devices, render firmware commands, or manage live acquisition.
+Callers must supply ADC layout, frame geometry, timing, antenna geometry, and trusted packet/frame
+origins when the stored format does not prove them.
+
 ## TI capture contracts
 
-- `group2_i_then_q` decodes the complex16, two-lane TI mmWave Studio layout used by xWR16xx,
-  xWR18xx, and xWR68xx captures.
-- `group4_i_then_q` decodes the complex16, four-lane, channel-interleaved TI mmWave Studio layout
-  used by xWR12xx and xWR14xx captures.
-- Source-backed antenna geometries are available for XWR1642, the standard XWR1843 EVM,
-  IWR6843ISK, IWR6843 AOP, and AWR1843 AOP.
+- `group2_i_then_q`: complex16 two-lane layout documented by the TI mmWave Studio reader for
+  xWR16xx, xWR18xx, and xWR68xx captures.
+- `group4_i_then_q`: complex16 four-lane, channel-interleaved layout documented by the TI mmWave
+  Studio reader for xWR12xx and xWR14xx captures.
+- Source-backed antenna geometries: XWR1642, standard XWR1843 EVM, IWR6843ISK, IWR6843 AOP, and
+  AWR1843 AOP.
 
-The legacy TI firmware-configuration parser and `mmwcli.capture_session.v1` consumer remain
-xWR68xx-specific.
-These formats and geometries are based on local TI SDK/Studio sources and offline tests; they do not
-claim hardware control or hardware validation. Select the ADC layout and board geometry explicitly.
+Select the layout and geometry from the actual capture setup. A radar profile alone does not prove
+the byte layout or board placement.
 
-## Hardware-derived validation evidence
+## Python examples
 
-These figures were generated from a retained laboratory capture, not from synthetic fixtures. Its
-explicit decode contract is 5000 frames, 2 chirps, 4 receivers, 128 complex samples,
-`group2_i_then_q` layout, and a 10 ms frame period. The capture does not carry slope or sample-rate
-metadata, so the vertical coordinate remains a range bin rather than a fabricated distance in
-meters. The source capture is not distributed, so these figures are validation evidence rather
-than a runnable example.
+### Open a versioned capture directory
 
-![Range-Time magnitude before and after temporal-background suppression](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-range-time.png)
-
-The lower panel removes the complex temporal mean independently for each chirp, receiver, and
-range bin before magnitude aggregation. It exposes changing returns while preserving the raw map
-above it; it is a deterministic diagnostic, not a learned result.
-
-![Raw ADC I/Q and four-receiver range spectra](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-frame-diagnostics.png)
-
-## Python API
-
-### Open and process an mmwcli capture directory
-
-`mmwcli ... capture --session-dir` publishes `adc.bin`, `radar.cfg`, and `capture.json` together.
-Open the completed directory and reuse its physical contract:
+`open_capture` validates the manifest schema, required regular files, hashes, byte count, and finite
+physical contract. The directory must remain unchanged while it is open.
 
 ```python
 from mmwcore.config import iwr6843_isk_range_doppler_recipe
@@ -77,170 +63,106 @@ recipe = iwr6843_isk_range_doppler_recipe(
     adc_layout=contract.adc.layout,
     tx_order=contract.tx_order,
 )
-cube = capture.range_doppler(recipe, frame_index=0)
-print(cube.axes, cube.data.shape)
+range_doppler = capture.range_doppler(recipe, frame_index=0)
+print(range_doppler.axes, range_doppler.data.shape)
 ```
 
-`open_capture` verifies the v1 schema, hashes, byte count, and finite CFG-derived contract. Use the
-completed directory and keep it unchanged while reading; SHA-256 verifies self-consistency, not
-provenance. The recipe explicitly selects IWR6843ISK antenna geometry; use a recipe matching the
-actual board. `capture.frames()` lazily yields validated raw frames without loading the full file.
+The hash proves internal consistency, not provenance. The recipe selects IWR6843ISK geometry, so
+use a different explicit recipe when the capture came from another board.
 
-### Open a capture from an xWR68xx CLI config
-
-The strict parser accepts the supported legacy raw-capture subset: complex 16-bit ADC, legacy
-`frameCfg`, one-hot TDM chirps, `adcbufCfg -1 0 1 1 1`, and headerless hardware ADC LVDS.
+### Read a headerless ADC file
 
 ```python
-from mmwcore.config import parse_ti_cli_capture_spec_file
-from mmwcore.core import ADCComplexLayout
+from mmwcore.core import ADCComplexLayout, ADCFrameSpec
 from mmwcore.io import ADCFileFrameReader
 
-capture = parse_ti_cli_capture_spec_file(
-    "radar.cfg",
+spec = ADCFrameSpec(
+    num_chirps=2,
+    num_rx=4,
+    num_samples=128,
     layout=ADCComplexLayout.GROUP2_I_THEN_Q,
 )
-reader = ADCFileFrameReader.from_capture("capture.bin", capture)
+reader = ADCFileFrameReader("adc.bin", spec, frame_periodicity_s=0.01)
+raw = reader.read_frame(0)
+print(raw.samples.shape)
 ```
 
-Choose `layout` from the actual DCA1000 write format; the TI CLI config does not prove it. This
-extracts an offline waveform, frame, and decode contract. It does not validate device readiness or
-execute the configuration.
+`ADCFileFrameReader` rejects incomplete files by default and reads frames without loading the full
+capture.
 
-### Decode one frame
+### Assemble archived datagrams
 
 ```python
-import numpy as np
+from mmwcore.core import ADCFrameSpec
+from mmwcore.io import assemble_dca1000_frame_bytes
 
-from mmwcore.core import ADCFrameSpec, RawADCFrame
-from mmwcore.dsp import organize_adc_samples
-
-raw = RawADCFrame(np.zeros(4 * 128 * 2, dtype=np.int16))
-cube = organize_adc_samples(
-    raw,
-    ADCFrameSpec(num_chirps=2, num_rx=4, num_samples=128),
+spec = ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2)
+raw, stats = assemble_dca1000_frame_bytes(
+    [datagram_0, datagram_1],
+    spec,
+    frame_start_byte_count=trusted_frame_origin,
+    payload_values_per_packet=2,
 )
-print(cube.axes, cube.data.shape)
 ```
 
-### Build point clouds and tracks
+Stateless assembly requires exactly one complete frame: fixed payload lengths, contiguous u48 byte
+slots, and contiguous wrapping u32 packet numbers. `frame_start_byte_count` must come from the
+capture lifecycle; it is never inferred from the first packet or a modulo guess.
 
-The high-level recipe composes ADC decoding, range/Doppler transforms, TDM virtual-array mapping,
-angle estimation, detection, and calibrated Cartesian projection. Detection thresholds are tied to
-the capture's ADC scale; the example value is not a universal default.
+### Continue to point clouds and tracks
 
-```python
-from mmwcore.config import iwr6843_isk_3d_point_cloud_recipe
-from mmwcore.core import DBSCANClusteringSpec, Tracker2DSpec, TrackGatingSpec
-from mmwcore.dsp import cluster_point_cloud, process_adc_to_calibrated_point_cloud
-from mmwcore.io import ADCFileFrameReader
-from mmwcore.tracking import ClusterTracker2D
+Use `iwr6843_isk_3d_point_cloud_recipe` with `process_adc_to_calibrated_point_cloud`, then
+`cluster_point_cloud` and `ClusterTracker2D`. Thresholds, calibration, Tx order, and tracker timing
+remain explicit. Keep one tracker instance for a sequence; recreating it discards temporal state.
 
-recipe = iwr6843_isk_3d_point_cloud_recipe(
-    threshold=250_000.0,  # Tune for the capture's ADC scale.
-    remove_static_clutter=True,
-)
-reader = ADCFileFrameReader(
-    "capture.bin",
-    recipe.detection.transform.decode.adc,
-    frame_periodicity_s=0.1,
-)
-cluster_spec = DBSCANClusteringSpec(
-    eps_m=0.35,
-    min_samples=3,
-    velocity_scale_s=0.2,
-)
-tracker = ClusterTracker2D(
-    Tracker2DSpec(
-        frame_period_s=0.1,
-        gating=TrackGatingSpec(max_distance_m=0.8),
-    )
-)
-
-for index in range(reader.num_frames):
-    points = process_adc_to_calibrated_point_cloud(reader.read_frame(index), recipe)
-    clusters = cluster_point_cloud(points, cluster_spec)
-    tracks = tracker.step(clusters)
-    print(tracks.track_ids.tolist(), tracks.positions.tolist())
-```
-
-Keep one tracker instance for a sequence. Recreating it for every frame discards temporal state.
-
-### Python package map
-
-| Package | Responsibility |
-| --- | --- |
-| `mmwcore.core` | Typed ADC, cube, detection, point-cloud, clustering, tracking, and vital-sign contracts |
-| `mmwcore.config` | Radar profiles, capture contracts, presets, and configuration rendering |
-| `mmwcore.io` | ADC files, packets, capture-session readers, and compatibility hardware adapters |
-| `mmwcore.dsp` | FFT, clutter suppression, calibration, CFAR, AoA, point-cloud, and clustering pipelines |
-| `mmwcore.tracking` | Stateful 2D trackers, assignment, runners, and tracking metrics |
-| `mmwcore.session` | Radar/camera capture and causal timestamp-alignment contracts |
-| `mmwcore.plot` | Research visualizations kept outside the Rust compute core |
-
-## Rust API
-
-Decode one ADC frame into the canonical `[frame, chirp, rx, sample]` cube:
+## Rust example
 
 ```rust
 use mmwcore::{AdcComplexLayout, AdcFrameSpec, decode_adc_i16};
 
-let spec = AdcFrameSpec::new(1, 1, 2, AdcComplexLayout::Group2IThenQ)
-    .expect("valid ADC frame specification");
-let cube = decode_adc_i16(&[1, 2, 3, 4], spec, false).expect("valid ADC payload");
+let spec = AdcFrameSpec::new(1, 1, 2, AdcComplexLayout::Group2IThenQ).expect("valid spec");
+let cube = decode_adc_i16(&[1, 2, 3, 4], spec, false).expect("valid captured payload");
 assert_eq!(cube.shape(), [1, 1, 1, 2]);
 ```
 
-Run one-dimensional cell-averaging CFAR:
+## Package map
 
-```rust
-use mmwcore::{Cfar1DConfig, CfarMode, detect_cfar_1d};
+- `mmwcore.core`: axes, units, ADC, cube, detection, point-cloud, and tracking contracts.
+- `mmwcore.config`: finite radar profiles, capture contracts, antenna geometries, and recipes.
+- `mmwcore.io`: offline packet, ADC-file, and versioned capture-directory readers.
+- `mmwcore.dsp`: FFT, clutter removal, CFAR, calibration, AoA, projection, and clustering.
+- `mmwcore.tracking`: assignment, stateful trackers, runners, metrics, and validation artifacts.
+- `mmwcore.plot`: optional research visualizations outside the Rust compute core.
 
-let power = [1.0, 1.0, 0.0, 20.0, 0.0, 5.0, 5.0];
-let config = Cfar1DConfig::new(2, 0, 1.1, CfarMode::Ca, false, 0, 0)
-    .expect("valid CFAR configuration");
-let result = detect_cfar_1d(&power, config).expect("valid CFAR input");
-assert_eq!(result.indices, [3]);
-```
+## Validation boundaries
 
-## Scope
+The retained laboratory capture used for the figures below has 5000 frames, 2 chirps, 4 receivers,
+128 complex samples, `group2_i_then_q`, and a 10 ms period. It lacks slope and sample-rate metadata,
+so range remains in bins. The source capture is not distributed; the figures are evidence, not a
+runnable fixture.
 
-- DCA1000 packet and file ingestion
-- explicit ADC, FFT, calibration, antenna, detection, point-cloud, and tracking contracts
-- range, Doppler, angle, CFAR, clutter suppression, calibration, TDM compensation, and
-  deterministic Cartesian sparsification
-- DBSCAN and stateful 2D tracking
-- radar/camera capture-session synchronization contracts
-- Rust kernels exposed through PyO3; plotting remains in Python
+![Range-Time magnitude before and after temporal-background suppression](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-range-time.png)
 
-The project is alpha. Physical conventions are explicit and tested, but supported capture formats
-and public validation vectors are still being expanded.
+![Raw ADC I/Q and four-receiver range spectra](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-frame-diagnostics.png)
 
-## Positioning
+Synthetic tests verify shapes, axes, finite values, wrap behavior, and deterministic transforms.
+They do not prove a board configuration, capture provenance, universal thresholds, or performance
+superiority. Device documentation and redistributable reference vectors remain authoritative.
 
-[OpenRadar](https://github.com/PreSenseRadar/OpenRadar) remains a useful Python reference for TI
-mmWave ADC parsing and DSP. mmwcore is an independent implementation, not a source fork. It focuses
-on explicit physical contracts, Rust-backed kernels, frame-by-frame ingestion, calibrated TDM and
-point-cloud processing, stateful tracking, and native distribution through crates.io and PyPI.
+## Benchmarks and development
 
-Identical-input numerical comparisons, redistributable hardware fixtures, and published benchmark
-results remain open validation work. Until those results are published, mmwcore does not claim
-performance or feature superiority. Device documentation and reference vectors remain authoritative
-for physical conventions.
-
-## Development
+The reproducible synthetic pipeline, workload contract, and comparison rules are documented in
+[docs/benchmarking.md](docs/benchmarking.md).
 
 ```console
-uv sync --extra dev
+uv sync --extra dev --locked
 uv run pytest --cov=mmwcore
 cargo test --workspace --locked
+uv run python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ```
 
-See [benchmarking](docs/benchmarking.md) for the reproducible synthetic pipeline runner.
-
-See [CONTRIBUTING.md](https://github.com/AIoT-Laboratory/mmwcore/blob/main/CONTRIBUTING.md)
-and [the architecture](https://github.com/AIoT-Laboratory/mmwcore/blob/main/docs/architecture.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 
 ## License
 
-Apache-2.0.
+Apache-2.0. See [LICENSE](LICENSE).
