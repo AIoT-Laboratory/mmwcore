@@ -96,6 +96,10 @@ nested capture session with an explicit recipe or preset. `causal_pairs` joins s
 conservative mapped intervals and an explicit lag window; it does not infer synchronization from
 item indices.
 
+For a finalized radar CFG whose legacy `frameCfg` count is zero, the nested ADC file supplies the
+actual positive whole-frame count. The aggregate radar source `item_count`, payload bytes, and fixed
+index must agree with that derived count exactly. Live capture-stream contracts remain finite.
+
 `open_multisensor_stream` decodes caller-owned `mmwcli.multisensor_stream.v1` data. It exposes
 cross-source provisional items, source outcomes, and final COMMIT+EOF validation. RADAR_START maps
 radar tick zero to a conservative host interval, while `delivery_observed` camera ticks are exact

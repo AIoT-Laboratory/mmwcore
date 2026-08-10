@@ -89,8 +89,10 @@ See the [example index](examples/README.md) for copyable commands and finalizati
 
 ### Open a versioned capture directory
 
-`open_capture` validates the manifest schema, required regular files, hashes, byte count, and finite
-physical contract. The directory must remain unchanged while it is open.
+`open_capture` validates the manifest schema, required regular files, hashes, byte count, and whole
+ADC-frame geometry. A finalized CFG with `frameCfg numFrames=0` keeps its open-ended acquisition
+semantics; mmwcore derives the positive actual frame count from the immutable ADC file instead of
+inventing a planned length. The directory must remain unchanged while it is open.
 
 ```python
 from mmwcore import open_capture

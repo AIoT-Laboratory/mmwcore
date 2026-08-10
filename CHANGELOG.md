@@ -4,6 +4,11 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Read finalized open-ended mmwcli capture directories by deriving their positive actual frame
+  count from complete ADC bytes, while keeping both live stream protocols finite.
+
 ## [0.3.0] - 2026-08-08
 
 ### Added
