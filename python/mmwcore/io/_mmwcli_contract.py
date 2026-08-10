@@ -181,8 +181,6 @@ def _parse_mmwcli_radar_config(
         layout=layout,
         family=raw_capture.family,
     )
-    if capture.num_frames is None or capture.expected_size_bytes is None:
-        raise ValueError(f"{context} requires a finite radar frame count.")
     return capture
 
 

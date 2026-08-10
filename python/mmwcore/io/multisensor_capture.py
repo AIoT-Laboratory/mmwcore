@@ -337,10 +337,10 @@ def _validate_nested_radar_capture(
             "Nested radar capture frame count does not match the multisensor source index."
         )
     frame_bytes = capture.radar_capture.adc.raw_values_per_frame * 2
+    expected_size_bytes = capture.radar_capture.expected_size_bytes
     if (
-        capture.radar_capture.expected_size_bytes != source.payload_bytes
-        or frame_bytes * source.item_count != source.payload_bytes
-    ):
+        expected_size_bytes is not None and expected_size_bytes != source.payload_bytes
+    ) or frame_bytes * source.item_count != source.payload_bytes:
         raise ValueError("Nested radar capture frame size does not match the multisensor payload.")
 
     _require_file_size(payload_path, source.payload_bytes, "radar source payload")

@@ -171,7 +171,7 @@ def _validate_capture_reader(capture: ADCFileCapture) -> None:
         raise ValueError("ADCFileCapture reader path does not match its ADC payload.")
     if reader.spec != contract.adc:
         raise ValueError("ADCFileCapture reader ADC spec does not match its capture contract.")
-    if reader.num_frames != contract.num_frames:
+    if contract.num_frames is not None and reader.num_frames != contract.num_frames:
         raise ValueError("ADCFileCapture reader frame count does not match its capture contract.")
     if reader.frame_periodicity_s != contract.frame_periodicity_s:
         raise ValueError("ADCFileCapture reader period does not match its capture contract.")
@@ -232,10 +232,11 @@ def open_capture(
         expected_sha256=manifest.radar_config_sha256,
         context="mmwcli capture",
     )
-    if radar_capture.expected_size_bytes != manifest.adc_size_bytes:
+    expected_size_bytes = radar_capture.expected_size_bytes
+    if expected_size_bytes is not None and expected_size_bytes != manifest.adc_size_bytes:
         raise ValueError(
             "mmwcli capture CFG-derived size does not match capture.json: "
-            f"{radar_capture.expected_size_bytes} != {manifest.adc_size_bytes}."
+            f"{expected_size_bytes} != {manifest.adc_size_bytes}."
         )
 
     adc_digest = _sha256_regular_file(adc_path, expected_size=manifest.adc_size_bytes)

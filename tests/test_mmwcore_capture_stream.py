@@ -190,6 +190,25 @@ def test_capture_stream_rejects_descriptor_family_config_mismatch(
         CaptureStreamReader(source).read_contract()
 
 
+def test_capture_stream_rejects_infinite_cfg_even_with_finite_session_shape() -> None:
+    config = _CONFIG.replace(b"frameCfg 0 0 1 1", b"frameCfg 0 0 1 0")
+    session = _golden_session()
+    radar_config = _object(session, "radar_config")
+    radar_config["size_bytes"] = len(config)
+    radar_config["sha256"] = hashlib.sha256(config).hexdigest()
+    records = _golden_records()
+    session_kind, session_sequence, session_item_index, _ = records[0]
+    config_kind, config_sequence, config_item_index, _ = records[1]
+    records[0] = (session_kind, session_sequence, session_item_index, _json_line(session))
+    records[1] = (config_kind, config_sequence, config_item_index, config)
+    stream = b"".join(_record(*record) for record in records)
+
+    with pytest.raises(CaptureStreamError) as caught:
+        CaptureStreamReader(io.BytesIO(stream)).read_contract()
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert "requires a finite radar frame count" in str(caught.value.__cause__)
+
+
 class _ChunkedSource(io.BytesIO):
     def read(self, size: int = -1, /) -> bytes:
         return super().read(min(size, 7) if size >= 0 else 7)

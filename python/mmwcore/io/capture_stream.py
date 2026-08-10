@@ -773,6 +773,8 @@ def _parse_terminal(
 
 
 def _validate_config_binding(session: _Session, capture: RadarCaptureSpec) -> None:
+    if capture.num_frames is None or capture.expected_size_bytes is None:
+        raise ValueError("mmwcli capture stream requires a finite radar frame count.")
     if capture.num_frames != session.frame_count:
         raise ValueError("CFG frame count does not match SESSION.capture.frame_count.")
     if capture.adc.raw_values_per_frame * 2 != session.frame_bytes:

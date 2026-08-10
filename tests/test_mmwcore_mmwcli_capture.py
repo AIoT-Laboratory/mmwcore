@@ -102,6 +102,24 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert first.metadata["tx_order"] == [0]
 
 
+def test_open_capture_restores_completed_infinite_cfg_from_adc_frames(tmp_path: Path) -> None:
+    config = _CONFIG_BYTES.replace(b"frameCfg 0 0 1 2", b"frameCfg 0 0 1 0")
+
+    capture = open_capture(_write_capture(tmp_path, config=config))
+
+    assert capture.radar_capture.num_frames is None
+    assert capture.radar_capture.expected_size_bytes is None
+    assert capture.num_frames == 2
+    assert [frame.frame_id for frame in capture.frames()] == [0, 1]
+
+
+def test_open_capture_rejects_partial_finalized_infinite_cfg_payload(tmp_path: Path) -> None:
+    config = _CONFIG_BYTES.replace(b"frameCfg 0 0 1 2", b"frameCfg 0 0 1 0")
+
+    with pytest.raises(ValueError, match="whole number of frames"):
+        open_capture(_write_capture(tmp_path, config=config, adc=_ADC_BYTES + b"\x00\x00"))
+
+
 @pytest.mark.parametrize(
     ("family", "expected_tx_order"),
     [
@@ -514,7 +532,6 @@ def test_open_capture_rejects_leaf_symlink(tmp_path: Path) -> None:
         "config digest",
         "config UTF-8",
         "config semantics",
-        "infinite frames",
         "CFG-derived size",
         "oversize config",
     ],
@@ -539,9 +556,6 @@ def test_open_capture_rejects_integrity_and_contract_failures(
         _object(record, "radar_config")["sha256"] = _sha256(config)
     elif failure == "config semantics":
         config = b"sensorStart\n"
-        _object(record, "radar_config")["sha256"] = _sha256(config)
-    elif failure == "infinite frames":
-        config = _CONFIG_BYTES.replace(b"frameCfg 0 0 1 2", b"frameCfg 0 0 1 0")
         _object(record, "radar_config")["sha256"] = _sha256(config)
     elif failure == "CFG-derived size":
         config = _CONFIG_BYTES.replace(b"frameCfg 0 0 1 2", b"frameCfg 0 0 1 3")

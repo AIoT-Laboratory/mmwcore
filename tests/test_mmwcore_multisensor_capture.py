@@ -333,6 +333,38 @@ def test_radar_source_opens_nested_capture_with_explicit_recipe(tmp_path: Path) 
     assert bound.range_doppler(frame_index=0).frame_id == 0
 
 
+def test_radar_source_restores_completed_infinite_cfg_from_source_index(tmp_path: Path) -> None:
+    root, record = _write_nested_radar_fixture(tmp_path)
+    infinite_config = _NESTED_RADAR_CONFIG.replace(
+        b"frameCfg 0 0 1 2",
+        b"frameCfg 0 0 1 0",
+    )
+    _replace_nested_radar_config(root, record, infinite_config)
+
+    source = open_multisensor_capture(root).source("radar-0")
+    nested = source.open_radar_capture()
+
+    assert nested.radar_capture.num_frames is None
+    assert nested.num_frames == source.item_count == 2
+
+
+def test_radar_source_rejects_infinite_cfg_when_source_index_count_disagrees(
+    tmp_path: Path,
+) -> None:
+    root, record = _write_nested_radar_fixture(tmp_path)
+    infinite_config = _NESTED_RADAR_CONFIG.replace(
+        b"frameCfg 0 0 1 2",
+        b"frameCfg 0 0 1 0",
+    )
+    _replace_nested_radar_config(root, record, infinite_config)
+    _replace_radar_index(root, record, [(0, len(_NESTED_RADAR_ADC), 100)])
+
+    source = open_multisensor_capture(root).source("radar-0")
+
+    with pytest.raises(ValueError, match="frame count"):
+        source.open_radar_capture()
+
+
 def test_nested_radar_capture_is_parsed_only_when_requested(tmp_path: Path) -> None:
     root, record = _write_nested_radar_fixture(tmp_path, name="lazy-nested")
     manifest_path = root / "sensors" / "radar-0" / "capture.json"
@@ -642,6 +674,27 @@ def _replace_radar_index(
     index_artifact["size_bytes"] = len(index)
     index_artifact["sha256"] = hashlib.sha256(index).hexdigest()
     record["totals"]["item_count"] = len(entries) + 1
+    _write_session(root, record)
+
+
+def _replace_nested_radar_config(
+    root: Path,
+    record: dict[str, Any],
+    config: bytes,
+) -> None:
+    radar_root = root / "sensors" / "radar-0"
+    config_path = radar_root / "radar.cfg"
+    config_path.write_bytes(config)
+    manifest_path = radar_root / "capture.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["radar_config"]["sha256"] = hashlib.sha256(config).hexdigest()
+    manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode()
+    manifest_path.write_bytes(manifest_bytes)
+    radar = _source(record, "radar-0")
+    for role, payload in (("configuration", config), ("manifest", manifest_bytes)):
+        artifact = _artifact(radar, role)
+        artifact["size_bytes"] = len(payload)
+        artifact["sha256"] = hashlib.sha256(payload).hexdigest()
     _write_session(root, record)
 
 
