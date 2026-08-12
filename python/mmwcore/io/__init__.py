@@ -19,6 +19,12 @@ from .capture_stream import (
     ProvisionalRangeDopplerFrame,
     open_capture_stream,
 )
+from .evidence_archive import (
+    EvidenceArchive,
+    EvidenceArchiveError,
+    open_evidence_archive,
+    write_evidence_archive,
+)
 from .mmwcli_capture import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
     ADCFileCapture,
@@ -72,6 +78,8 @@ __all__ = [
     "DCA1000_PACKET_HEADER_BYTES",
     "ADCFileFrameReader",
     "ADCFileCapture",
+    "EvidenceArchive",
+    "EvidenceArchiveError",
     "DCA1000_PACKET_PAYLOAD_BYTES",
     "DCA1000_PACKET_PAYLOAD_INT16_VALUES",
     "DCA1000Packet",
@@ -121,9 +129,11 @@ __all__ = [
     "load_adc_file",
     "open_capture",
     "open_capture_stream",
+    "open_evidence_archive",
     "open_multisensor_capture",
     "open_multisensor_stream",
     "parse_dca1000_packet",
     "read_dca1000_frame_from_packets",
     "reorder_dca1000_packets",
+    "write_evidence_archive",
 ]

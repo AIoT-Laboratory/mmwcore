@@ -52,6 +52,6 @@ Peak RSS is intentionally absent from v1. Python allocation tracing omits some N
 Rust allocations, while dependency-free process RSS is not sufficiently consistent across the
 supported operating systems. No OpenRadar comparison or relative performance claim is implied.
 
-The separate [evidence-storage experiment](evidence-storage.md) measures reversible ADC chunk
-transforms, exact replay, and random-window access on caller-owned captures. It is not part of the
-synthetic DSP benchmark and does not define an accepted storage format.
+The separate [evidence-storage study](evidence-storage.md) records the reversible-codec screening
+and validates the implemented offline archive on caller-owned captures. It is independent of this
+synthetic DSP benchmark.

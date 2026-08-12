@@ -4,6 +4,13 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+### Added
+
+- Add a fixed offline ADC evidence archive with Rust byte-shuffle/zlib coding, independent frame
+  verification, strict structural opening, bounded random-window reads, and atomic publication.
+- Add corpus acceptance reporting for total archive overhead, publication throughput, full
+  verification throughput, and verified versus post-admission trusted window latency.
+
 ### Changed
 
 - Read finalized open-ended mmwcli capture directories by deriving their positive actual frame

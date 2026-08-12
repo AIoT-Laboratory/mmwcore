@@ -13,6 +13,7 @@ pub mod cube;
 pub mod dca1000;
 pub mod detection;
 pub mod detection_postprocess;
+pub mod evidence;
 pub mod fft;
 pub mod pointcloud;
 pub mod sparsification;
@@ -70,6 +71,7 @@ pub use detection_postprocess::{
     DetectionQualityInput, PeakGroupingConfig, PeakGroupingInput, filter_detection_quality,
     group_range_doppler_candidates,
 };
+pub use evidence::{EvidenceCodecError, decode_evidence_frame, encode_evidence_frame};
 pub use fft::{ComplexFftSpec, FftTransformError, FftWindow, fft_complex_axis};
 pub use pointcloud::{
     DetectionPointCloudColumns, DetectionPointCloudConfig, DetectionPointCloudError,

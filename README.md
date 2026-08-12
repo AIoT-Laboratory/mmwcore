@@ -256,8 +256,33 @@ cargo test --workspace --locked
 uv run python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ```
 
-The offline [evidence-storage experiment](docs/evidence-storage.md) evaluates byte-exact chunked
-ADC coding and random-window access without replacing raw evidence or adding a public API.
+### Archive completed ADC evidence
+
+The offline evidence archive preserves every source byte in independently compressed and verified
+frames. The capture contract remains caller-owned and is bound by its lowercase SHA-256 digest.
+
+```python
+from mmwcore.io import open_evidence_archive, write_evidence_archive
+
+archive = write_evidence_archive(
+    "capture/adc.bin",
+    "capture/adc.mmwe",
+    frame_bytes=1_572_864,
+    capture_contract_sha256="0123456789abcdef" * 4,
+)
+archive.verify_all()
+four_frames = archive.read_frames(100, 104, verify=False)
+
+reopened = open_evidence_archive("capture/adc.mmwe")
+one_verified_frame = reopened.read_frames(100, 101)
+```
+
+The fixed v1 codec is one-frame little-endian `int16` byte shuffle plus zlib level 1. Writes verify
+the complete temporary archive before an atomic no-overwrite publication. Reads verify each frame
+by default; `verify=False` is accepted only after `verify_all()` succeeds on that same reader.
+See the [evidence-storage study](docs/evidence-storage.md) for corpus results, exact format scope,
+and the admission benchmark. Acquisition still publishes exact raw payloads; conversion is an
+offline step for completed files.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 

@@ -4,6 +4,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 type DCA1000PacketResult = tuple[int, int, NDArray[np.int16]]
+
+def encode_evidence_frame(data: bytes) -> bytes: ...
+def decode_evidence_frame(data: bytes, expected_raw_bytes: int) -> bytes: ...
+
 type DCA1000AssemblyResult = tuple[
     NDArray[np.int16],
     int,

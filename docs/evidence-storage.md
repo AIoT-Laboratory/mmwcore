@@ -1,6 +1,6 @@
 # Evidence Storage Research
 
-This document defines an experiment, not an accepted file format or public API.
+This document records the codec study and the acceptance path for the offline v1 evidence archive.
 
 ## Objective
 
@@ -159,8 +159,36 @@ takes, adaptive coding projects to about `5.43 GiB` instead of `7.91 GiB` raw; i
 larger system gain must come from deleting regenerable dense tensors and overlapping windows, then
 materializing content-addressed research views on demand.
 
-The pilot reports were produced from a dirty development revision. A clean committed revision and
-full-corpus run remain mandatory before a storage format proposal.
+The pilot reports were produced from a dirty development revision and cannot admit a format by
+themselves.
+
+## Full Corpus Result
+
+The focused corpus run used clean revision
+`34bdb9683e9796f8c5c50ab70054615613e3fd90`, 14 complete sources, 600 frames per source, and
+`1,572,864` bytes per frame. It covered empty scenes, sitting, standing, walking, and waving across
+the retained capture layouts. The logical corpus contained 8,400 frames and 13,212,057,600 bytes.
+Each case replayed every source sequentially and compared 128 random four-frame windows with direct
+source reads. Every chunk and window was byte-exact.
+
+| Case | Payload ratio | Payload bytes | Minimum pack | Minimum replay | Worst verified random P95 |
+|---|---:|---:|---:|---:|---:|
+| `raw:1` | 1.0000 | 13,212,057,600 | 470.5 MiB/s | 446.9 MiB/s | 29.2 ms |
+| `shuffle-zlib:1` | 0.7124 | 9,412,566,507 | 69.6 MiB/s | 111.9 MiB/s | 73.1 ms |
+| `shuffle-zlib:4` | 0.7123 | 9,411,526,729 | 69.7 MiB/s | 117.4 MiB/s | 118.1 ms |
+| `adaptive-shuffle-zlib:4` | 0.6905 | 9,122,669,306 | 35.5 MiB/s | 93.0 MiB/s | 152.9 ms |
+
+Single-frame shuffle retained between `70.04%` and `73.06%` for every source and removed
+3,799,491,093 bytes from the corpus. Four-frame shuffle saved only 1,039,778 additional bytes while
+increasing the worst verified random-window P95 by about 62%; it is rejected. Adaptive coding saved
+288,857,423 bytes beyond matched four-frame shuffle, but its worst pack throughput fell close to
+the development gate before durable-write costs. It remains a cold-archive and learned-entropy
+control, not the first format.
+
+The corpus passes the offline codec gate for one-frame `shuffle-zlib` at level 1. It does not yet
+admit a stable archive format. The benchmark excluded manifest/index overhead, `fsync`, atomic
+publication, interruption recovery, malformed-index attacks, decompression bounds, and a Rust
+implementation. Those properties belong to the format implementation and its acceptance tests.
 
 Top-level case summaries use total-byte-weighted storage ratio, the minimum throughput across
 sources, separate maximum trusted and verified random-read P95 values, and an all-source
@@ -199,6 +227,43 @@ A storage format may enter `mmwcore` only after the offline corpus shows all of 
 Reject a candidate if it changes any evidence byte, hides missing data, requires decoding the whole
 capture for a random frame, only works in one scene, or adds complexity without consistently
 beating the simple controls.
+
+The first format candidate is deliberately fixed: one complete frame per independently decodable
+chunk, little-endian `int16` byte-plane shuffle, zlib-wrapped DEFLATE level 1, and a digest of each
+decoded frame. There is no codec selector, adaptive transform, frame delta, learned decoder,
+progressive layer, or compatibility negotiation. The archive is an offline representation of a
+completed ADC file; it does not replace acquisition publication until durable-write and recovery
+evidence exists.
+
+The implementation exposes `write_evidence_archive()` and `open_evidence_archive()`. Its fixed
+little-endian layout contains a 64-byte header, one encoded payload per frame, a 48-byte fixed index
+record per frame, and a 160-byte commit footer at physical EOF. The header binds frame dimensions
+and the caller-owned capture-contract SHA-256. Each index record binds its payload offset, encoded
+length, and decoded-frame SHA-256. The self-digested footer binds the header, complete index, and
+concatenated logical ADC SHA-256. Frame size and encoded payload length have explicit bounds.
+
+The writer uses a same-directory temporary file, flushes and `fsync`s the complete archive file,
+reopens and fully verifies it, then atomically publishes it with no overwrite. POSIX publication
+also `fsync`s the containing directory; Windows relies on the completed file flush plus atomic
+hard-link publication. Structural open validates the complete header/index/footer chain. Ordinary
+reads verify frame digests; trusted reads are available only after the same reader has completed
+`verify_all()` and are revoked if the opened file identity, size, or modification time changes.
+
+Run the implemented-format acceptance pass only after the codec corpus. Publish throughput covers
+source read, per-frame Rust transform/compression, source and frame hashing, temporary-file
+`fsync`, full pre-publication decode verification, and atomic publication. `full_verify` measures a
+separate reopened full replay. Random windows report verified reads and trusted reads after that
+full verification. Archive ratio includes header, index, footer, and every encoded payload.
+
+```console
+uv run --no-sync python -m benchmarks.evidence_archive_acceptance_cli CAPTURE_ROOT \
+  --frame-bytes 1572864 --random-windows 128 --window-frames 4 \
+  --scratch-dir D:/Shared --output D:/Shared/mmwcore-evidence-archive-v1.json
+```
+
+The command writes only temporary archives under `--scratch-dir`, removes each after its source is
+measured, and leaves the ADC inputs untouched. This is a long I/O task and should be run manually
+on the fixed corpus.
 
 ## Repository Boundary
 
