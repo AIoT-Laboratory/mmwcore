@@ -22,7 +22,7 @@ pub fn map_tdm_virtual_array_complex(
     }
 
     let num_chirps = shape[chirp_axis];
-    if num_chirps % num_tx != 0 {
+    if !num_chirps.is_multiple_of(num_tx) {
         return Err(CubeTransformError::IncompleteTdmLoops {
             chirps: num_chirps,
             num_tx,

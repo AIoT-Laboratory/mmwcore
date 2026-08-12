@@ -68,24 +68,22 @@ impl MeasurementTracker2D {
                 if distance > self.state.config.gating.max_distance_m {
                     continue;
                 }
-                if let Some(limit) = self.state.config.gating.max_mahalanobis_distance {
-                    if self
+                if let Some(limit) = self.state.config.gating.max_mahalanobis_distance
+                    && self
                         .state
                         .filter
                         .mahalanobis_distance(track, [point[0], point[1]])?
                         > limit
-                    {
-                        continue;
-                    }
+                {
+                    continue;
                 }
-                if let Some(limit) = self.state.config.gating.max_radial_velocity_difference_mps {
-                    if (radial_velocity(track.state)
+                if let Some(limit) = self.state.config.gating.max_radial_velocity_difference_mps
+                    && (radial_velocity(track.state)
                         - f64::from(measurements.velocities[point_index]))
                     .abs()
                         > limit
-                    {
-                        continue;
-                    }
+                {
+                    continue;
                 }
                 if distance < best_distance {
                     best_distance = distance;

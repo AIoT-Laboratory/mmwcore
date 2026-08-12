@@ -368,15 +368,15 @@ fn validate_input(
             });
         }
     }
-    if let Some(index) = input.suppressed_doppler_index {
-        if index >= input.shape_dzyx[0] {
-            return Err(
-                CartesianSparsificationError::SuppressedDopplerIndexOutOfBounds {
-                    index,
-                    bins: input.shape_dzyx[0],
-                },
-            );
-        }
+    if let Some(index) = input.suppressed_doppler_index
+        && index >= input.shape_dzyx[0]
+    {
+        return Err(
+            CartesianSparsificationError::SuppressedDopplerIndexOutOfBounds {
+                index,
+                bins: input.shape_dzyx[0],
+            },
+        );
     }
     Ok(())
 }

@@ -106,7 +106,7 @@ fn assemble_dca1000_frame_bytes<'py>(
             "payload_values_per_packet must be positive.",
         ));
     }
-    if raw_values_per_frame % payload_values_per_packet != 0 {
+    if !raw_values_per_frame.is_multiple_of(payload_values_per_packet) {
         return Err(PyValueError::new_err(
             "raw_values_per_frame must be divisible by payload_values_per_packet.",
         ));

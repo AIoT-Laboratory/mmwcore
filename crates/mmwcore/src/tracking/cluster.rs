@@ -108,23 +108,20 @@ impl ClusterTracker2D {
                 let distance = (track.state[0] - center[0]).hypot(track.state[1] - center[1]);
                 let mut accepted = distance <= self.state.config.gating.max_distance_m
                     && self.state.config.scenery.contains(center[0], center[1]);
-                if accepted {
-                    if let Some(limit) = self.state.config.gating.max_mahalanobis_distance {
-                        accepted = self
-                            .state
-                            .filter
-                            .mahalanobis_distance(track, [center[0], center[1]])?
-                            <= limit;
-                    }
+                if accepted && let Some(limit) = self.state.config.gating.max_mahalanobis_distance {
+                    accepted = self
+                        .state
+                        .filter
+                        .mahalanobis_distance(track, [center[0], center[1]])?
+                        <= limit;
                 }
-                if accepted {
-                    if let Some(limit) = self.state.config.gating.max_radial_velocity_difference_mps
-                    {
-                        accepted = (predicted_radial_velocity
-                            - f64::from(measurements.mean_velocities[cluster_index]))
-                        .abs()
-                            <= limit;
-                    }
+                if accepted
+                    && let Some(limit) = self.state.config.gating.max_radial_velocity_difference_mps
+                {
+                    accepted = (predicted_radial_velocity
+                        - f64::from(measurements.mean_velocities[cluster_index]))
+                    .abs()
+                        <= limit;
                 }
                 let index = track_index * cluster_count + cluster_index;
                 valid[index] = accepted;

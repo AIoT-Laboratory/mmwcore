@@ -6,7 +6,7 @@ examples/, and docs/.
 ## Supported toolchains
 
 - Support the latest three stable CPython releases only: currently 3.12-3.14.
-- Rust 1.85 is the MSRV. The Python package embeds the Rust core through PyO3.
+- Rust 1.97 is the MSRV. The Python package embeds the Rust core through PyO3.
 - Python and Rust packages share one workspace version. Keep Cargo.toml, Cargo.lock, the
   mmwcore-python exact dependency, version tests, and the dated changelog section aligned.
 

@@ -10,7 +10,7 @@ mmwcore targets the latest three stable CPython releases. The current matrix is 
 current floor is Python 3.12. When the rolling matrix advances, update the declared floor and remove
 dropped-version code; do not add compatibility shims or fallback implementations for older Python.
 
-Rust 1.85 is the current minimum supported Rust version. New Rust features must compile on that
+Rust 1.97 is the current minimum supported Rust version. New Rust features must compile on that
 toolchain unless the declared minimum is intentionally raised in the same change.
 
 ## Boundary rules

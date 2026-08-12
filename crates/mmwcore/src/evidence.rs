@@ -74,7 +74,7 @@ fn validate_frame_bytes(bytes: usize, name: &'static str) -> Result<(), Evidence
     if bytes == 0 {
         return Err(EvidenceCodecError::EmptyFrame { name });
     }
-    if bytes % 2 != 0 {
+    if !bytes.is_multiple_of(2) {
         return Err(EvidenceCodecError::OddByteLength { name, bytes });
     }
     Ok(())

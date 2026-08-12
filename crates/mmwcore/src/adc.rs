@@ -184,7 +184,7 @@ pub fn decode_adc_i16(
         .num_chirps
         .checked_mul(complex_values_per_chirp)
         .ok_or(AdcDecodeError::FrameSizeOverflow)?;
-    if spec.layout == AdcComplexLayout::Group2IThenQ && spec.num_samples % 2 != 0 {
+    if spec.layout == AdcComplexLayout::Group2IThenQ && !spec.num_samples.is_multiple_of(2) {
         return Err(AdcDecodeError::Group2RequiresEvenSamples {
             num_samples: spec.num_samples,
         });

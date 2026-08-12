@@ -15,7 +15,7 @@ CPython 3.12–3.14:
 pip install mmwcore
 ```
 
-Rust 1.85 or newer:
+Rust 1.97 or newer:
 
 ```console
 cargo add mmwcore

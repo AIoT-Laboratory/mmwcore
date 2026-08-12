@@ -221,7 +221,7 @@ pub fn parse_dca1000_packet(data: &[u8]) -> Result<Dca1000Packet, Dca1000Error> 
     let byte_count =
         u64::from_le_bytes([data[4], data[5], data[6], data[7], data[8], data[9], 0, 0]);
     let payload_bytes = &data[DCA1000_PACKET_HEADER_BYTES..];
-    if payload_bytes.len() % size_of::<i16>() != 0 {
+    if !payload_bytes.len().is_multiple_of(size_of::<i16>()) {
         return Err(Dca1000Error::OddPayloadByteCount {
             bytes: payload_bytes.len(),
         });
@@ -442,7 +442,7 @@ fn validate_exact_frame_config(
             payload_values_per_packet,
         });
     }
-    if raw_values_per_frame % payload_values_per_packet != 0 {
+    if !raw_values_per_frame.is_multiple_of(payload_values_per_packet) {
         return Err(Dca1000Error::NonIntegralFramePacketCount {
             raw_values_per_frame,
             payload_values_per_packet,
@@ -504,7 +504,7 @@ pub fn assemble_dca1000_frame_bytes(
                 });
             }
             let payload_bytes = packet.len() - DCA1000_PACKET_HEADER_BYTES;
-            if payload_bytes % size_of::<i16>() != 0 {
+            if !payload_bytes.is_multiple_of(size_of::<i16>()) {
                 return Err(Dca1000Error::OddPayloadByteCount {
                     bytes: payload_bytes,
                 });
