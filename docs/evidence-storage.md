@@ -1,0 +1,213 @@
+# Evidence Storage Research
+
+This document defines an experiment, not an accepted file format or public API.
+
+## Objective
+
+Radar capture storage must preserve the complete acquired ADC evidence while supporting bounded
+random access and efficient repeated training. Point clouds, detections, dense radar tensors, and
+model tokens are derived views and cannot replace the captured ADC payload.
+
+The working data model has three layers:
+
+1. **Evidence**: exact ADC bytes, frame boundaries, packet coverage, timing, radar configuration,
+   calibration identity, and integrity digests.
+2. **Reversible representation**: chunking, byte-plane transforms, integer prediction, and lossless
+   entropy coding. Full decoding must reproduce the evidence bytes exactly.
+3. **Research views**: range, Doppler, angle, Cartesian tensors, point clouds, crops, reduced
+   precision tensors, and model inputs. These are content-addressed caches that may be deleted and
+   rebuilt from evidence plus an explicit processing recipe.
+
+FFT output, magnitude conversion, quantization, clipping, filtering, and learned reconstruction
+are not evidence-preserving operations.
+
+## Hypotheses
+
+- **H1 - axis-aware lossless coding**: reversible transforms that respect frame and sample layout
+  reduce storage relative to direct general-purpose compression without changing a byte.
+- **H2 - bounded chunks**: independently decodable frame chunks provide useful compression while
+  retaining practical sequential and random-window throughput.
+- **H3 - progressive views**: a small approximate base plus an exact residual may reduce routine
+  training I/O; only the complete base and residual pair is evidence.
+- **H4 - learned entropy models**: a learned probability model may improve lossless coding across
+  held-out captures. Prediction errors may increase bitrate but must never alter decoded samples.
+
+H3 and H4 are deferred until simple lossless controls establish a credible baseline.
+
+## AI-assisted Research Data Plane
+
+The intended workflow is broader than a compressor:
+
+1. Acquisition publishes immutable evidence segments plus packet coverage, clocks, geometry,
+   configuration, calibration identity, and an explicit commit outcome.
+2. An admitted mmwcore codec stores each exact segment in independently verifiable chunks.
+3. Processing recipes create content-addressed views on demand. Dense RT/RD/RA tensors,
+   overlapping windows, point clouds, and model tokens are caches rather than duplicate truth.
+4. Training reads only the requested frame windows and regenerates missing views from the exact
+   evidence and recipe hash.
+
+AI may optimize a lossless entropy model, identify low-quality or novel intervals, prioritize
+derived caches, and select samples for annotation or adaptation. It must not synthesize missing
+ADC bytes, silently repair packet loss, or decide that filtered point clouds are sufficient
+evidence. Model weights used by a learned lossless codec become part of the decoder identity and
+must be versioned with the chunk contract.
+
+## Offline Baseline
+
+`benchmarks/evidence_storage_cli.py` compares a closed set of controls requiring no new compression
+dependency on caller-owned ADC files:
+
+- `raw`
+- `zlib`
+- `shuffle-zlib`: separate the low and high byte planes of each little-endian `int16` word before
+  compression
+- `frame-delta-shuffle-zlib`: apply modulo-`2^16` prediction at equal sample positions across
+  frames, then byte-plane shuffle and compression
+- `adaptive-shuffle-zlib`: encode both shuffle candidates per chunk, retain the shorter one, and
+  store a one-byte reversible transform tag
+
+The zlib controls use level 1 by default. The selected level and the compile/runtime zlib versions
+are recorded in the report; change the level explicitly rather than relying on environment state.
+
+The runner creates temporary chunk payloads and removes them after each case. It does not publish
+an archive and does not modify its inputs. Each chunk is decoded and compared with the source
+bytes. Random windows are also compared with direct source reads.
+
+Random-window results separate two scopes over the same generated windows. `trusted` measures
+seek, read, decode, and slice after the archive has passed sequential admission; it omits a
+repeated SHA-256 calculation on every chunk read. `verified` additionally hashes every decoded
+chunk. Both modes compare their output with direct source bytes outside the timed interval, and
+sequential replay always verifies every chunk digest. The report records the mode order, so the
+two numbers describe different read policies rather than an interchangeable headline latency.
+
+Pack throughput measures buffered source read, hashing, transform, and payload write. It does not
+issue `fsync` and is not a durable-acquisition throughput claim. An acquisition integration must
+separately measure persistence, commit publication, recovery from interruption, and backpressure.
+
+Smoke-test two frames of one capture:
+
+```console
+uv run --no-sync python -m benchmarks.evidence_storage_cli CAPTURE.bin \
+  --frame-bytes 1572864 --case raw:1 --case adaptive-shuffle-zlib:2 --max-frames 2 \
+  --random-windows 2 --window-frames 1 --output evidence-smoke.json
+```
+
+Run a corpus benchmark by passing a directory. The default discovery name is
+`adc_data_Raw_0.bin`; use `--filename` for another acquisition convention.
+
+```console
+uv run --no-sync python -m benchmarks.evidence_storage_cli CAPTURE_ROOT \
+  --frame-bytes 1572864 \
+  --case raw:1 --case shuffle-zlib:1 \
+  --case shuffle-zlib:4 --case adaptive-shuffle-zlib:4 \
+  --zlib-level 1 --random-windows 128 --window-frames 4 \
+  --output evidence-corpus.json
+```
+
+This is a long I/O benchmark. Run it on an idle workstation against a fixed corpus and filesystem.
+Do not compare results across different cache states, storage devices, source selections, Python
+versions, or revisions.
+
+Use two stages rather than scanning a large matrix blindly:
+
+1. **Pilot**: screen codecs and chunk sizes on fixed ranges from an empty scene, a mostly static
+   person, and fast motion. Reject candidates that fail exact replay or the encode-throughput gate.
+2. **Corpus**: run only the surviving one or two candidates on every retained take. Require stable
+   results across scene classes before proposing a format.
+
+The focused defaults are `raw:1`, `shuffle-zlib:1`, `shuffle-zlib:4`, and
+`adaptive-shuffle-zlib:4`. Four frames match the current random training window; the matched
+shuffle case separates transform gain from chunk-size gain. Direct zlib, fixed frame-delta
+prediction, and longer chunks remain explicit controls, not defaults. The adaptive candidate is an
+oracle baseline for future learned entropy models: a learned method must beat its storage/throughput
+tradeoff without weakening exact replay or failure isolation.
+
+## Development Pilot
+
+The first pilot used 128 frames each from an empty scene, standing, and waving, with 64 random
+four-frame reads. It is development evidence from a dirty revision, not a publication result.
+
+- Every tested case reproduced the selected ADC bytes exactly.
+- Direct zlib expanded the payload to `1.01-1.02x`; it is rejected as a candidate.
+- Byte-plane shuffle was stable near `0.70-0.71x` across all three scenes.
+- Eight-frame delta plus shuffle reached `0.71x` for the empty scene, `0.68x` for standing, and
+  `0.67x` for waving. Temporal prediction is useful but scene-dependent.
+- Moving from 8 to 32 frames improved the aggregate ratio only from `0.69x` to `0.68x`, while the
+  worst verified random-read P95 increased from `241 ms` to `1295 ms`; 16- and 32-frame chunks are
+  rejected.
+- A one-frame delta case is mathematically identical to shuffle and must not be benchmarked as a
+  separate candidate.
+
+The focused adaptive pilot then processed 128 frames per scene with matched four-frame controls:
+
+- `shuffle-zlib:1` retained `70.73%` overall, with worst verified random-read P95 of `59 ms`.
+- `shuffle-zlib:4` retained `70.72%` overall, confirming that chunk size alone did not improve
+  compression; its worst verified random-read P95 increased to `104 ms`.
+- `adaptive-shuffle-zlib:4` retained `68.59%` overall. Relative to matched `shuffle-zlib:4`, it
+  reduced encoded bytes by `0%` for empty, `3.57%` for standing, and `5.41%` for waving.
+- Adaptive encoding was `1.6-2.6x` slower than matched shuffle. Its minimum encode throughput was
+  `41 MiB/s`, minimum end-to-end pack throughput was `38 MiB/s`, and worst verified random-read
+  P95 was `132 ms`; it still passed the `30 MiB/s` development gate.
+- All 32 empty-scene chunks selected shuffle. All 32 standing and all 32 waving chunks selected
+  frame-delta. The result is systematic across each selected interval rather than driven by a few
+  outliers.
+
+The candidates now have different roles. `shuffle-zlib:1` is the low-latency training-read
+baseline. `adaptive-shuffle-zlib:4` is the cold-evidence archive candidate. On the current nine
+takes, adaptive coding projects to about `5.43 GiB` instead of `7.91 GiB` raw; it saves only about
+`0.17 GiB` beyond simple shuffle. Therefore compression alone is not the new data paradigm. The
+larger system gain must come from deleting regenerable dense tensors and overlapping windows, then
+materializing content-addressed research views on demand.
+
+The pilot reports were produced from a dirty development revision. A clean committed revision and
+full-corpus run remain mandatory before a storage format proposal.
+
+Top-level case summaries use total-byte-weighted storage ratio, the minimum throughput across
+sources, separate maximum trusted and verified random-read P95 values, and an all-source
+verification flag. They deliberately do not average away a bad capture.
+
+## Required Evidence
+
+Every candidate must report:
+
+- stored payload ratio and reduction;
+- encode and sequential-decode MiB/s;
+- trusted and per-read-verified random-window p50 and p95 latency;
+- windows/s and chunks decoded per window;
+- selected source range and logical source SHA-256;
+- successful byte-exact sequential and random-window replay.
+
+The report also records all benchmark parameters, random seed, environment, repository revision,
+and whether the worktree was dirty. Evidence intended for comparison should come from a clean,
+committed revision.
+
+The benchmark excludes archive index and manifest overhead. A format proposal must measure those
+costs separately. Pure encode/decode throughput is not applicable to the `raw` no-codec control;
+its end-to-end pack and sequential replay throughput remain available.
+
+## Admission Gate
+
+A storage format may enter `mmwcore` only after the offline corpus shows all of the following:
+
+- exact byte reconstruction for every tested chunk and window;
+- sustained encode throughput above twice the target acquisition byte rate;
+- independently verifiable chunks with bounded dependency length;
+- useful sequential and random-window throughput for training;
+- stable behavior across empty, static, and moving scenes;
+- lower total retained storage after regenerable DSP and overlapping-window copies are removed.
+
+Reject a candidate if it changes any evidence byte, hides missing data, requires decoding the whole
+capture for a random frame, only works in one scene, or adds complexity without consistently
+beating the simple controls.
+
+## Repository Boundary
+
+- Acquisition software owns hardware control, packet coverage, clock evidence, atomic publication,
+  and capture backpressure.
+- `mmwcore` owns an admitted lossless chunk contract, deterministic codecs, integrity checks, and
+  frame/window reads.
+- Research platforms own labels, splits, processing recipes, disposable caches, and training
+  scheduling.
+
+The first implementation remains offline. Acquisition must continue writing its current exact
+payload until the candidate encoder proves sufficient throughput and failure isolation.

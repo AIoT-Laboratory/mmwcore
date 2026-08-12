@@ -51,3 +51,7 @@ before starting Python; the maintained Rust FFT path is single-threaded.
 Peak RSS is intentionally absent from v1. Python allocation tracing omits some NumPy and native
 Rust allocations, while dependency-free process RSS is not sufficiently consistent across the
 supported operating systems. No OpenRadar comparison or relative performance claim is implied.
+
+The separate [evidence-storage experiment](evidence-storage.md) measures reversible ADC chunk
+transforms, exact replay, and random-window access on caller-owned captures. It is not part of the
+synthetic DSP benchmark and does not define an accepted storage format.

@@ -256,6 +256,9 @@ cargo test --workspace --locked
 uv run python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ```
 
+The offline [evidence-storage experiment](docs/evidence-storage.md) evaluates byte-exact chunked
+ADC coding and random-window access without replacing raw evidence or adding a public API.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 
 ## License
