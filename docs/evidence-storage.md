@@ -185,10 +185,11 @@ increasing the worst verified random-window P95 by about 62%; it is rejected. Ad
 the development gate before durable-write costs. It remains a cold-archive and learned-entropy
 control, not the first format.
 
-The corpus passes the offline codec gate for one-frame `shuffle-zlib` at level 1. It does not yet
-admit a stable archive format. The benchmark excluded manifest/index overhead, `fsync`, atomic
-publication, interruption recovery, malformed-index attacks, decompression bounds, and a Rust
-implementation. Those properties belong to the format implementation and its acceptance tests.
+The corpus passes the offline codec gate for one-frame `shuffle-zlib` at level 1. This codec-only
+run does not by itself admit a stable archive format: it excluded manifest/index overhead, `fsync`,
+atomic publication, interruption recovery, malformed-index attacks, decompression bounds, and a
+Rust implementation. Those properties belong to the format implementation and its acceptance
+tests.
 
 Top-level case summaries use total-byte-weighted storage ratio, the minimum throughput across
 sources, separate maximum trusted and verified random-read P95 values, and an all-source
@@ -265,6 +266,40 @@ The command writes only temporary archives under `--scratch-dir`, removes each a
 measured, and leaves the ADC inputs untouched. This is a long I/O task and should be run manually
 on the fixed corpus.
 
+## Implemented Archive Acceptance
+
+The fixed offline archive was admitted on 2026-08-13 using clean revision
+`9864cca55b9517d3bb80f80f4c3449a46174eee5`. The acceptance run used the same 14 complete sources,
+8,400 frames, and 13,212,057,600 logical bytes as the codec corpus. It covered empty scenes,
+sitting, standing, walking, and waving across both retained capture-directory layouts. Every source
+passed complete replay and 128 direct-source comparisons of randomly selected four-frame windows.
+
+| Measurement | Corpus result |
+|---|---:|
+| Raw evidence | 12.3047 GiB |
+| Complete archive | 8.0590 GiB |
+| Total archive ratio | 0.6550 |
+| Storage reduction | 4.2457 GiB / 34.50% |
+| Header, index, and footer | 406,336 bytes / 0.00308% |
+| Minimum verified atomic-publication throughput | 72.3 MiB/s |
+| Minimum reopened full-verification throughput | 212.2 MiB/s |
+| Worst verified four-frame random-read P95 | 32.93 ms |
+| Worst trusted four-frame random-read P95 after full verification | 30.36 ms |
+| Exact source round trips | 14 / 14 |
+
+Per-source archive ratios remained between `0.6426` and `0.6633`. Verified atomic publication remained
+between `72.3` and `93.1 MiB/s`, and reopened full verification remained between `212.2` and
+`235.1 MiB/s`. No scene or motion class was an outlier. The minimum publication result is `2.41x`
+the established `30 MiB/s` development gate and includes source hashing, Rust encoding, payload and
+metadata writes, file `fsync`, source rehashing, complete decode verification, and atomic
+publication.
+
+This result admits evidence archive v1 only as an offline representation of finalized ADC files.
+It does not admit inline acquisition encoding or make claims about capture backpressure, power-loss
+durability, or interrupted-device operation. The external machine-readable report intentionally
+remains outside the public repository because it contains workstation paths; this document records
+the aggregate acceptance evidence and committed implementation revision.
+
 ## Repository Boundary
 
 - Acquisition software owns hardware control, packet coverage, clock evidence, atomic publication,
@@ -274,5 +309,6 @@ on the fixed corpus.
 - Research platforms own labels, splits, processing recipes, disposable caches, and training
   scheduling.
 
-The first implementation remains offline. Acquisition must continue writing its current exact
-payload until the candidate encoder proves sufficient throughput and failure isolation.
+The admitted implementation remains offline. Acquisition must continue writing its current exact
+ADC payload until inline encoding, backpressure, and interruption recovery are independently
+implemented and measured.

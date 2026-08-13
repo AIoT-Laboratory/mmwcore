@@ -281,8 +281,8 @@ The fixed v1 codec is one-frame little-endian `int16` byte shuffle plus zlib lev
 the complete temporary archive before an atomic no-overwrite publication. Reads verify each frame
 by default; `verify=False` is accepted only after `verify_all()` succeeds on that same reader.
 See the [evidence-storage study](docs/evidence-storage.md) for corpus results, exact format scope,
-and the admission benchmark. Acquisition still publishes exact raw payloads; conversion is an
-offline step for completed files.
+and the admission benchmark. The fixed v1 format is admitted only for finalized ADC files;
+acquisition still publishes exact raw payloads and conversion remains offline.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 

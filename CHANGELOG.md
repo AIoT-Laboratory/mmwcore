@@ -13,6 +13,9 @@ All notable changes to mmwcore are documented here.
 
 ### Changed
 
+- Admit the fixed evidence archive v1 for finalized ADC files after a clean 14-source corpus passes
+  exact replay, verified atomic publication, full verification, random-window, and scene-stability
+  gates.
 - Raise the Rust MSRV from 1.85 to 1.97 and validate CI and release builds against Rust 1.97.0.
 - Read finalized open-ended mmwcli capture directories by deriving their positive actual frame
   count from complete ADC bytes, while keeping both live stream protocols finite.
