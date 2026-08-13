@@ -12,6 +12,8 @@ All notable changes to mmwcore are documented here.
   verification, strict structural opening, bounded random-window reads, and atomic publication.
 - Add corpus acceptance reporting for total archive overhead, publication throughput, full
   verification throughput, and verified versus post-admission trusted window latency.
+- Add metadata-only readers for finalized mmwcli capture contracts, multi-sensor session manifests,
+  and per-source timelines so archived ADC can retain its validated capture and timing context.
 
 ### Changed
 
@@ -21,6 +23,8 @@ All notable changes to mmwcore are documented here.
 - Raise the Rust MSRV from 1.85 to 1.97 and validate CI and release builds against Rust 1.97.0.
 - Read finalized open-ended mmwcli capture directories by deriving their positive actual frame
   count from complete ADC bytes, while keeping both live stream protocols finite.
+- Revalidate opened archive, capture-metadata, and timeline inputs before publishing derived
+  artifacts or starting long processing.
 
 ## [0.3.0] - 2026-08-08
 

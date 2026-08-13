@@ -122,7 +122,7 @@ jobs:
           python -c "import glob, subprocess, sys;
           subprocess.check_call([sys.executable, '-m', 'pip', 'install',
           '--force-reinstall', *glob.glob('dist/*.whl')])"
-      - name: Smoke-test installed native ADC decoding
+      - name: Smoke-test installed native and archive APIs
         run: >-
           python -c "import numpy as np; import mmwcore;
           from mmwcore import _native;
@@ -132,6 +132,12 @@ jobs:
           assert decoded.shape == (1, 1, 1, 2);
           assert decoded.dtype == np.dtype(np.complex64);
           np.testing.assert_array_equal(decoded, expected);
+          evidence = bytes([1, 0, 2, 0]);
+          encoded = _native.encode_evidence_frame(evidence);
+          assert _native.decode_evidence_frame(encoded, len(evidence)) == evidence;
+          assert callable(mmwcore.open_mmwcli_capture_metadata);
+          assert callable(mmwcore.open_multisensor_capture_metadata);
+          assert callable(mmwcore.open_multisensor_source_timeline);
           print(mmwcore.__version__)"
       - uses: actions/upload-artifact@v7
         with:
@@ -154,7 +160,16 @@ jobs:
           command: sdist
           args: --out dist
       - run: python -m pip install --force-reinstall dist/*.tar.gz
-      - run: python -c "import mmwcore; from mmwcore import _native; print(mmwcore.__version__)"
+      - name: Smoke-test installed sdist APIs
+        run: >-
+          python -c "import mmwcore; from mmwcore import _native;
+          evidence = bytes([1, 0, 2, 0]);
+          encoded = _native.encode_evidence_frame(evidence);
+          assert _native.decode_evidence_frame(encoded, len(evidence)) == evidence;
+          assert callable(mmwcore.open_mmwcli_capture_metadata);
+          assert callable(mmwcore.open_multisensor_capture_metadata);
+          assert callable(mmwcore.open_multisensor_source_timeline);
+          print(mmwcore.__version__)"
       - uses: actions/upload-artifact@v7
         with:
           name: sdist

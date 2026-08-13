@@ -34,6 +34,20 @@ let result = detect_cfar_1d(&power, config).expect("valid CFAR input");
 assert_eq!(result.indices, [3]);
 ~~~
 
+## ADC evidence codec
+
+~~~rust
+use mmwcore::{decode_evidence_frame, encode_evidence_frame};
+
+let raw = [1_u8, 0, 2, 0];
+let encoded = encode_evidence_frame(&raw).expect("valid little-endian int16 bytes");
+let decoded = decode_evidence_frame(&encoded, raw.len()).expect("valid evidence frame");
+assert_eq!(decoded, raw);
+~~~
+
+The codec is lossless and frame-local. Archive structure, capture identity, and publication rules
+remain explicit higher-level contracts.
+
 See the [repository README](https://github.com/AIoT-Laboratory/mmwcore) for Python pipelines,
 capture examples, project scope, and development commands. Python bindings and higher-level
 contracts are published as [`mmwcore`](https://pypi.org/project/mmwcore/) on PyPI.

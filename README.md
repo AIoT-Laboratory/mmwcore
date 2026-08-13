@@ -146,6 +146,27 @@ If training needs Range-Doppler cubes instead of raw frames, bind the exact reci
 `open_radar_capture(range_doppler=...)` and call `range_doppler`. Choose processing geometry from
 the actual board, never from the family string alone.
 
+### Read session metadata after archiving ADC
+
+```python
+from mmwcore import (
+    open_mmwcli_capture_metadata,
+    open_multisensor_capture_metadata,
+    open_multisensor_source_timeline,
+)
+
+capture = open_mmwcli_capture_metadata("training-session/sensors/radar-0")
+session = open_multisensor_capture_metadata("training-session")
+radar_timeline = open_multisensor_source_timeline("training-session", "radar-0")
+
+print(capture.adc_sha256, session.session_id, radar_timeline.items[0].mapped_time)
+```
+
+These readers validate capture contracts, session metadata, and source timing without opening the
+sensor payload. They keep synchronized training context usable after raw ADC is replaced by a
+verified evidence archive. Call `revalidate_inputs()` before publishing a derived artifact when the
+source files may have changed during processing.
+
 ### Consume a live aggregate stream
 
 ```python
@@ -210,7 +231,8 @@ print(reader.num_frames, raw.samples.shape)
 `read_frame()` verifies the selected frame before returning it. Use `reader.verify_all()` for an
 explicit complete replay before a long processing or training run. `write_adc_evidence_archive()`
 creates the corresponding archive and refuses to publish when the source digest does not match the
-caller-provided evidence identity.
+caller-provided evidence identity. Use `reader.revalidate_input()` before publishing derived output
+to confirm that the opened archive did not change during processing.
 
 ### Assemble archived datagrams
 
