@@ -245,7 +245,7 @@ concatenated logical ADC SHA-256. Frame size and encoded payload length have exp
 
 For a declared `RadarCaptureSpec`, `write_adc_evidence_archive()` derives the frame size and
 capture-contract digest from that contract and requires the SHA-256 of the original ADC file. The
-matching `ADCEvidenceArchiveFrameReader.from_capture()` checks all three identities before exposing
+matching `ADCEvidenceArchiveFrameReader()` checks all three identities before exposing
 random-access frames. This makes the archive a storage representation of one known ADC source, not a
 replacement contract that infers layout or hardware metadata.
 

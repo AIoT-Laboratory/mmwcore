@@ -79,7 +79,7 @@ def test_archive_reader_binds_capture_and_decodes_verified_raw_frames(tmp_path: 
     archive, capture, raw = _archive(tmp_path)
     evidence_sha256 = hashlib.sha256(raw).hexdigest()
 
-    reader = ADCEvidenceArchiveFrameReader.from_capture(
+    reader = ADCEvidenceArchiveFrameReader(
         archive,
         capture,
         expected_evidence_sha256=evidence_sha256,
@@ -119,7 +119,7 @@ def test_archive_reader_rejects_unbound_or_noncanonical_expected_digests(
     archive, capture, _ = _archive(tmp_path)
 
     with pytest.raises(ValueError, match=match):
-        ADCEvidenceArchiveFrameReader.from_capture(
+        ADCEvidenceArchiveFrameReader(
             archive,
             capture,
             expected_evidence_sha256=value,
@@ -133,7 +133,7 @@ def test_archive_reader_rejects_contract_count_and_frame_integrity_mismatches(
 
     mismatched_capture = replace(capture, frame_periodicity_s=0.2)
     with pytest.raises(ValueError, match="capture_contract_sha256"):
-        ADCEvidenceArchiveFrameReader.from_capture(
+        ADCEvidenceArchiveFrameReader(
             archive,
             mismatched_capture,
             expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
@@ -150,7 +150,7 @@ def test_archive_reader_rejects_contract_count_and_frame_integrity_mismatches(
         capture_contract_sha256=capture_contract_sha256(wrong_count),
     )
     with pytest.raises(ValueError, match="frame count"):
-        ADCEvidenceArchiveFrameReader.from_capture(
+        ADCEvidenceArchiveFrameReader(
             wrong_count_archive,
             wrong_count,
             expected_evidence_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
@@ -160,7 +160,7 @@ def test_archive_reader_rejects_contract_count_and_frame_integrity_mismatches(
     payload[64] ^= 0xFF
     archive.write_bytes(payload)
     with pytest.raises(EvidenceArchiveError, match="Native decode_evidence_frame"):
-        ADCEvidenceArchiveFrameReader.from_capture(
+        ADCEvidenceArchiveFrameReader(
             archive,
             capture,
             expected_evidence_sha256=hashlib.sha256(_archive_raw(capture)).hexdigest(),
@@ -178,7 +178,7 @@ def test_archive_reader_open_does_not_verify_all_frames(
 
     monkeypatch.setattr(EvidenceArchive, "verify_all", reject_eager_verification)
 
-    reader = ADCEvidenceArchiveFrameReader.from_capture(
+    reader = ADCEvidenceArchiveFrameReader(
         archive,
         capture,
         expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
@@ -201,7 +201,7 @@ def test_archive_reader_accepts_a_finalized_open_ended_capture(tmp_path: Path) -
         expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
     )
 
-    reader = ADCEvidenceArchiveFrameReader.from_capture(
+    reader = ADCEvidenceArchiveFrameReader(
         archive,
         capture,
         expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
@@ -243,7 +243,7 @@ def test_capture_bound_writer_and_reader_preserve_the_logical_source(tmp_path: P
         capture,
         expected_evidence_sha256=digest,
     )
-    reader = ADCEvidenceArchiveFrameReader.from_capture(
+    reader = ADCEvidenceArchiveFrameReader(
         destination,
         capture,
         expected_evidence_sha256=digest,
@@ -267,7 +267,7 @@ def test_raw_and_archive_readers_produce_identical_range_doppler_data(tmp_path: 
         expected_evidence_sha256=digest,
     )
     raw_reader = ADCFileFrameReader.from_capture(source, capture)
-    archive_reader = ADCEvidenceArchiveFrameReader.from_capture(
+    archive_reader = ADCEvidenceArchiveFrameReader(
         archive,
         capture,
         expected_evidence_sha256=digest,

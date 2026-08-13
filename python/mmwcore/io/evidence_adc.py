@@ -79,24 +79,6 @@ class ADCEvidenceArchiveFrameReader:
     def path(self) -> Path:
         return self._archive.path
 
-    @classmethod
-    def from_capture(
-        cls,
-        path: str | Path,
-        capture: RadarCaptureSpec,
-        *,
-        expected_evidence_sha256: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> ADCEvidenceArchiveFrameReader:
-        """Open an archive after binding its bytes and contract to ``capture``."""
-
-        return cls(
-            path,
-            capture,
-            expected_evidence_sha256=expected_evidence_sha256,
-            metadata=metadata,
-        )
-
     def read_frame(self, index: int) -> RawADCFrame:
         """Decode and verify one frame by zero-based index."""
 

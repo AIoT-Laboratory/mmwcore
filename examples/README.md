@@ -8,7 +8,7 @@ mmwcli, or restore mmwcore.session.
 | Strict capture directory | python examples/capture_or_raw.py capture CAPTURE |
 | Headerless ADC frames | python examples/capture_or_raw.py raw adc.bin --chirps 32 --rx 4 --samples 256 --layout group2_i_then_q |
 | Archive completed ADC | python examples/evidence_archive.py adc.bin adc.mmwe --frame-bytes 1572864 --capture-contract-sha256 SHA256 |
-| Capture-bound archive reader | use `ADCEvidenceArchiveFrameReader.from_capture()` with a `RadarCaptureSpec` and source SHA-256 |
+| Capture-bound archive reader | use `ADCEvidenceArchiveFrameReader()` with a `RadarCaptureSpec` and source SHA-256 |
 | Explicit XWR1843 EVM recipe | python examples/xwr18_range_doppler.py XWR18_CAPTURE |
 | Radar live stream | mmwcli ... capture ... --stream \| python examples/radar_live_stream.py |
 | Offline multi-sensor training | python examples/multisensor_offline_training.py SESSION |

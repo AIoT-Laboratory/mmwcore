@@ -198,7 +198,7 @@ from mmwcore.io import ADCEvidenceArchiveFrameReader
 capture = RadarCaptureSpec.from_record(capture_record)
 with Path("adc.bin").open("rb") as stream:
     source_digest = hashlib.file_digest(stream, "sha256").hexdigest()
-reader = ADCEvidenceArchiveFrameReader.from_capture(
+reader = ADCEvidenceArchiveFrameReader(
     "adc.mmwe",
     capture,
     expected_evidence_sha256=source_digest,
