@@ -278,6 +278,23 @@ def test_source_change_aborts_and_cleans_temporary_file(
     assert not list(tmp_path.glob(".capture.mmwe.*.tmp"))
 
 
+def test_expected_logical_digest_mismatch_aborts_before_publication(tmp_path: Path) -> None:
+    source = _write_source(tmp_path, _raw_frames(count=2))
+    destination = tmp_path / "capture.mmwe"
+
+    with pytest.raises(EvidenceArchiveError, match="expected_evidence_sha256"):
+        write_evidence_archive(
+            source,
+            destination,
+            frame_bytes=32,
+            capture_contract_sha256=_contract(),
+            expected_evidence_sha256="0" * 64,
+        )
+
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".capture.mmwe.*.tmp"))
+
+
 def test_rejects_strict_paths_integers_and_digests(tmp_path: Path) -> None:
     source = _write_source(tmp_path, _raw_frames())
     destination = tmp_path / "capture.mmwe"

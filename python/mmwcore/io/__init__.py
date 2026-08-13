@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ._mmwcli_contract import MmwcliRawCaptureContract
 from .adc_file import ADCFileFrameReader, load_adc_cube, load_adc_file
+from .adc_reader import ADCFrameReader
 from .capture_stream import (
     MMWCLI_CAPTURE_STREAM_SCHEMA_V1,
     MMWCLI_CAPTURE_STREAM_TERMINAL_SCHEMA_V1,
@@ -19,6 +20,7 @@ from .capture_stream import (
     ProvisionalRangeDopplerFrame,
     open_capture_stream,
 )
+from .evidence_adc import ADCEvidenceArchiveFrameReader, write_adc_evidence_archive
 from .evidence_archive import (
     EvidenceArchive,
     EvidenceArchiveError,
@@ -77,6 +79,8 @@ from .packets import (
 __all__ = [
     "DCA1000_PACKET_HEADER_BYTES",
     "ADCFileFrameReader",
+    "ADCFrameReader",
+    "ADCEvidenceArchiveFrameReader",
     "ADCFileCapture",
     "EvidenceArchive",
     "EvidenceArchiveError",
@@ -136,4 +140,5 @@ __all__ = [
     "read_dca1000_frame_from_packets",
     "reorder_dca1000_packets",
     "write_evidence_archive",
+    "write_adc_evidence_archive",
 ]

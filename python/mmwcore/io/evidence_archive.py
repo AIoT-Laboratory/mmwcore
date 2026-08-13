@@ -86,6 +86,12 @@ class EvidenceArchive:
         return self._frame_bytes
 
     @property
+    def path(self) -> Path:
+        """The resolved archive file path."""
+
+        return self._path
+
+    @property
     def frame_count(self) -> int:
         """The number of fixed-size raw frames."""
 
@@ -206,6 +212,7 @@ def write_evidence_archive(
     *,
     frame_bytes: int,
     capture_contract_sha256: str,
+    expected_evidence_sha256: str | None = None,
 ) -> EvidenceArchive:
     """Encode a finite ADC file into an atomically committed evidence archive."""
 
@@ -215,6 +222,11 @@ def write_evidence_archive(
     capture_contract_digest = _require_sha256(
         capture_contract_sha256,
         "capture_contract_sha256",
+    )
+    expected_evidence_digest = (
+        None
+        if expected_evidence_sha256 is None
+        else _require_sha256(expected_evidence_sha256, "expected_evidence_sha256")
     )
 
     source_fingerprint = _fingerprint(source_path)
@@ -242,6 +254,13 @@ def write_evidence_archive(
             frame_count,
             source_fingerprint,
         )
+        if expected_evidence_digest is not None and not hmac.compare_digest(
+            logical_sha256,
+            expected_evidence_digest,
+        ):
+            raise EvidenceArchiveError(
+                "Source logical SHA-256 does not match expected_evidence_sha256."
+            )
         index = b"".join(
             _INDEX_RECORD.pack(record.offset, record.stored_bytes, record.raw_sha256)
             for record in records

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
@@ -11,6 +13,7 @@ from mmwcore.config.profiles import RadarProfile
 from mmwcore.core import ADCComplexLayout, ADCFrameSpec
 
 RADAR_CAPTURE_SPEC_SCHEMA = "mmwcore.radar_capture_spec.v1"
+_CAPTURE_CONTRACT_DIGEST_DOMAIN = b"mmwcore.radar_capture_spec.v1\0"
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,21 @@ class RadarCaptureSpec:
         if record.get("expected_size_bytes") != capture.expected_size_bytes:
             raise ValueError("Radar capture expected_size_bytes does not match its frame contract.")
         return capture
+
+
+def capture_contract_sha256(capture: RadarCaptureSpec) -> str:
+    """Return the stable SHA-256 identity of an explicit radar capture contract."""
+
+    if not isinstance(capture, RadarCaptureSpec):
+        raise TypeError("capture must be a RadarCaptureSpec.")
+    canonical = json.dumps(
+        capture.to_record(),
+        allow_nan=False,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+    return hashlib.sha256(_CAPTURE_CONTRACT_DIGEST_DOMAIN + canonical).hexdigest()
 
 
 def _number(record: Mapping[str, object], field: str) -> float:
@@ -233,4 +251,4 @@ def _optional_integer(record: Mapping[str, object], field: str) -> int | None:
     return None if record.get(field) is None else _integer(record, field)
 
 
-__all__ = ["RADAR_CAPTURE_SPEC_SCHEMA", "RadarCaptureSpec"]
+__all__ = ["RADAR_CAPTURE_SPEC_SCHEMA", "RadarCaptureSpec", "capture_contract_sha256"]

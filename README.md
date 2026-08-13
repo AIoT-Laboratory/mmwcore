@@ -182,6 +182,36 @@ print(raw.samples.shape)
 `ADCFileFrameReader` rejects incomplete files by default and reads frames without loading the full
 capture.
 
+### Read a capture-bound evidence archive
+
+An evidence archive can be opened as the same finite frame-reader contract as a raw ADC file. The
+reader requires both the immutable capture contract and the SHA-256 of the original logical ADC
+bytes; an archive with a different layout, frame count, contract, or source digest is rejected.
+
+```python
+import hashlib
+from pathlib import Path
+
+from mmwcore.config import RadarCaptureSpec
+from mmwcore.io import ADCEvidenceArchiveFrameReader
+
+capture = RadarCaptureSpec.from_record(capture_record)
+with Path("adc.bin").open("rb") as stream:
+    source_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+reader = ADCEvidenceArchiveFrameReader.from_capture(
+    "adc.mmwe",
+    capture,
+    expected_evidence_sha256=source_digest,
+)
+raw = reader.read_frame(100)
+print(reader.num_frames, raw.samples.shape)
+```
+
+`read_frame()` verifies the selected frame before returning it. Use `reader.verify_all()` for an
+explicit complete replay before a long processing or training run. `write_adc_evidence_archive()`
+creates the corresponding archive and refuses to publish when the source digest does not match the
+caller-provided evidence identity.
+
 ### Assemble archived datagrams
 
 ```python

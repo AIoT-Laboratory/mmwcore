@@ -243,6 +243,12 @@ and the caller-owned capture-contract SHA-256. Each index record binds its paylo
 length, and decoded-frame SHA-256. The self-digested footer binds the header, complete index, and
 concatenated logical ADC SHA-256. Frame size and encoded payload length have explicit bounds.
 
+For a declared `RadarCaptureSpec`, `write_adc_evidence_archive()` derives the frame size and
+capture-contract digest from that contract and requires the SHA-256 of the original ADC file. The
+matching `ADCEvidenceArchiveFrameReader.from_capture()` checks all three identities before exposing
+random-access frames. This makes the archive a storage representation of one known ADC source, not a
+replacement contract that infers layout or hardware metadata.
+
 The writer uses a same-directory temporary file, flushes and `fsync`s the complete archive file,
 reopens and fully verifies it, then atomically publishes it with no overwrite. POSIX publication
 also `fsync`s the containing directory; Windows relies on the completed file flush plus atomic
@@ -311,4 +317,5 @@ the aggregate acceptance evidence and committed implementation revision.
 
 The admitted implementation remains offline. Acquisition must continue writing its current exact
 ADC payload until inline encoding, backpressure, and interruption recovery are independently
-implemented and measured.
+implemented and measured. The archive reader is intended for post-capture processing, replay, and
+training input; it does not silently change the source identity used by those workflows.

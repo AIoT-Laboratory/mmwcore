@@ -13,13 +13,13 @@ from mmwcore.core import (
     TrackFrame,
 )
 from mmwcore.dsp import cluster_point_cloud, process_adc_to_calibrated_point_cloud
-from mmwcore.io import ADCFileFrameReader
+from mmwcore.io import ADCFrameReader
 from mmwcore.tracking.measurement_tracker import MeasurementTracker2D
 from mmwcore.tracking.tracker import ClusterTracker2D
 
 
 def iter_adc_cluster_track_frames(
-    reader: ADCFileFrameReader,
+    reader: ADCFrameReader,
     point_cloud_recipe: PointCloudRecipe,
     clustering: DBSCANClusteringSpec,
     tracker: Tracker2DSpec,
@@ -41,7 +41,7 @@ def iter_adc_cluster_track_frames(
 
 
 def iter_adc_measurement_track_frames(
-    reader: ADCFileFrameReader,
+    reader: ADCFrameReader,
     point_cloud_recipe: PointCloudRecipe,
     allocation_clustering: DBSCANClusteringSpec,
     tracker: Tracker2DSpec,
@@ -63,7 +63,7 @@ def iter_adc_measurement_track_frames(
 
 
 def _iter_adc_point_clouds(
-    reader: ADCFileFrameReader,
+    reader: ADCFrameReader,
     point_cloud_recipe: PointCloudRecipe,
     tracker: Tracker2DSpec,
     *,

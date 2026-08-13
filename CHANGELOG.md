@@ -4,6 +4,8 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+## [0.4.0] - 2026-08-13
+
 ### Added
 
 - Add a fixed offline ADC evidence archive with Rust byte-shuffle/zlib coding, independent frame
