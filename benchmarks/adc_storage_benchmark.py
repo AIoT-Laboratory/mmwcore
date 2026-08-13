@@ -1,4 +1,4 @@
-"""Benchmark strictly reversible chunk storage for offline radar ADC evidence.
+"""Benchmark strictly reversible chunk storage for offline radar ADC data.
 
 This repository-local tool measures storage and read behaviour only. It does
 not define an archive format, change capture output, or expose a mmwcore API.
@@ -15,29 +15,29 @@ from pathlib import Path
 
 import numpy as np
 
-from benchmarks.evidence_archive import (
+from benchmarks.adc_storage_chunks import (
     ChunkRecord,
     read_frames,
     read_source_frames,
     replay_and_verify,
     write_payload,
 )
-from benchmarks.evidence_codecs import DEFAULT_ZLIB_LEVEL
-from benchmarks.evidence_inputs import (
-    EvidenceCase,
+from benchmarks.adc_storage_codecs import DEFAULT_ZLIB_LEVEL
+from benchmarks.adc_storage_inputs import (
+    StorageCase,
     discover_sources,
     source_selection,
     validate_options,
 )
-from benchmarks.evidence_report import build_report
+from benchmarks.adc_storage_report import build_report
 
-SCHEMA = "mmwcore.evidence_storage_benchmark.v2"
+SCHEMA = "mmwcore.adc_storage_benchmark.v1"
 DEFAULT_FILENAME = "adc_data_Raw_0.bin"
 DEFAULT_CASES = (
-    EvidenceCase(codec="raw", chunk_frames=1),
-    EvidenceCase(codec="shuffle-zlib", chunk_frames=1),
-    EvidenceCase(codec="shuffle-zlib", chunk_frames=4),
-    EvidenceCase(codec="adaptive-shuffle-zlib", chunk_frames=4),
+    StorageCase(codec="raw", chunk_frames=1),
+    StorageCase(codec="shuffle-zlib", chunk_frames=1),
+    StorageCase(codec="shuffle-zlib", chunk_frames=4),
+    StorageCase(codec="adaptive-shuffle-zlib", chunk_frames=4),
 )
 
 
@@ -46,7 +46,7 @@ def run_benchmark(
     *,
     frame_bytes: int,
     filename: str = DEFAULT_FILENAME,
-    cases: Sequence[EvidenceCase] = DEFAULT_CASES,
+    cases: Sequence[StorageCase] = DEFAULT_CASES,
     start_frame: int = 0,
     max_frames: int | None = None,
     random_windows: int = 32,
@@ -114,7 +114,7 @@ def _benchmark_source(
     start_frame: int,
     max_frames: int | None,
     frame_bytes: int,
-    case_specs: Sequence[EvidenceCase],
+    case_specs: Sequence[StorageCase],
     random_windows: int,
     window_frames: int,
     seed: int,
@@ -141,7 +141,7 @@ def _benchmark_source(
                 f"chunk_frames={case_spec.chunk_frames}"
             )
         with tempfile.TemporaryDirectory(
-            prefix="mmwcore-evidence-storage-",
+            prefix="mmwcore-adc-storage-",
             dir=scratch_dir,
         ) as temporary_directory:
             case_hash, case = _run_case(
@@ -160,7 +160,7 @@ def _benchmark_source(
         if logical_sha256 is None:
             logical_sha256 = case_hash
         elif case_hash != logical_sha256:
-            raise RuntimeError("Evidence logical source hash changed between benchmark cases.")
+            raise RuntimeError("ADC logical source hash changed between benchmark cases.")
         cases.append(case)
         if progress is not None:
             progress(
@@ -326,7 +326,7 @@ def _measure_random_windows(
                 frame_bytes=frame_bytes,
             )
             if actual != expected:
-                raise RuntimeError("Random evidence window differs from the source ADC bytes.")
+                raise RuntimeError("Random ADC window differs from the source ADC bytes.")
             chunks_per_window.append(decoded_chunks)
     return durations, chunks_per_window
 

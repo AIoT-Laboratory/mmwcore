@@ -27,7 +27,7 @@ caller-owned stream readers, composition, tracking utilities, and plotting.
 
 ## Layers
 
-`crates/mmwcore` owns deterministic parsing, exact evidence coding, ADC decoding, FFT transforms,
+`crates/mmwcore` owns deterministic parsing, exact ADC archive coding, ADC decoding, FFT transforms,
 CFAR, calibration, geometry, point-cloud projection, clustering primitives, assignment, and
 tracking kernels.
 
@@ -52,7 +52,7 @@ ADC files require an explicit shape, complex layout, and timing when used by tem
 The listed TI-family layout decoders and board geometries remain caller-selected capabilities;
 firmware profiles do not prove lane layout, board geometry, orientation, or provenance.
 
-Completed fixed-frame ADC files may be converted offline into `mmwcore.evidence.v1`. The format
+Completed fixed-frame ADC files may be converted offline into `mmwcore.adc_archive.v1`. The format
 binds exact frame bytes and a caller-owned capture-contract digest; it does not duplicate capture
 timing, geometry, packet coverage, or calibration contracts. Each frame is independently decoded
 and verified. A valid commit footer must terminate at physical EOF.

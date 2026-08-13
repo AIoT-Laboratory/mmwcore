@@ -3,6 +3,7 @@
 //! Typed mmWave radar data-link and signal-processing primitives.
 
 pub mod adc;
+pub mod adc_archive;
 pub mod angle;
 pub mod assignment;
 pub mod candidate_aoa;
@@ -13,7 +14,6 @@ pub mod cube;
 pub mod dca1000;
 pub mod detection;
 pub mod detection_postprocess;
-pub mod evidence;
 pub mod fft;
 pub mod pointcloud;
 pub mod sparsification;
@@ -31,6 +31,7 @@ pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<us
 }
 
 pub use adc::{AdcComplexLayout, AdcCube, AdcDecodeError, AdcFrameSpec, decode_adc_i16};
+pub use adc_archive::{AdcArchiveCodecError, decode_adc_archive_frame, encode_adc_archive_frame};
 pub use angle::{
     AngleAxis, AngleBinCalibrationConfig, AngleBinCalibrationInput, AngleCalibrationError,
     calibrate_angle_bins,
@@ -71,7 +72,6 @@ pub use detection_postprocess::{
     DetectionQualityInput, PeakGroupingConfig, PeakGroupingInput, filter_detection_quality,
     group_range_doppler_candidates,
 };
-pub use evidence::{EvidenceCodecError, decode_evidence_frame, encode_evidence_frame};
 pub use fft::{ComplexFftSpec, FftTransformError, FftWindow, fft_complex_axis};
 pub use pointcloud::{
     DetectionPointCloudColumns, DetectionPointCloudConfig, DetectionPointCloudError,

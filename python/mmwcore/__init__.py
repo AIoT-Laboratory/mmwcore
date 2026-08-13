@@ -5,8 +5,8 @@ from __future__ import annotations
 from importlib.metadata import version
 
 from .io import (
+    ADCArchive,
     CaptureStream,
-    EvidenceArchive,
     MappedTimeInterval,
     MmwcliCaptureMetadata,
     MultisensorArtifactMetadata,
@@ -24,21 +24,21 @@ from .io import (
     ProvisionalRangeDopplerFrame,
     TrainingKey,
     causal_match,
+    open_adc_archive,
     open_capture,
     open_capture_stream,
-    open_evidence_archive,
     open_mmwcli_capture_metadata,
     open_multisensor_capture,
     open_multisensor_capture_metadata,
     open_multisensor_source_timeline,
     open_multisensor_stream,
-    write_evidence_archive,
+    write_adc_archive,
 )
 
 __all__ = [
     "__version__",
+    "ADCArchive",
     "CaptureStream",
-    "EvidenceArchive",
     "MappedTimeInterval",
     "MmwcliCaptureMetadata",
     "MultisensorArtifactMetadata",
@@ -56,15 +56,15 @@ __all__ = [
     "ProvisionalRangeDopplerFrame",
     "TrainingKey",
     "causal_match",
+    "open_adc_archive",
     "open_capture",
     "open_mmwcli_capture_metadata",
     "open_capture_stream",
-    "open_evidence_archive",
     "open_multisensor_capture",
     "open_multisensor_capture_metadata",
     "open_multisensor_source_timeline",
     "open_multisensor_stream",
-    "write_evidence_archive",
+    "write_adc_archive",
 ]
 
 __version__ = version("mmwcore")

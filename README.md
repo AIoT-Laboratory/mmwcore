@@ -164,7 +164,7 @@ print(capture.adc_sha256, session.session_id, radar_timeline.items[0].mapped_tim
 
 These readers validate capture contracts, session metadata, and source timing without opening the
 sensor payload. They keep synchronized training context usable after raw ADC is replaced by a
-verified evidence archive. Call `revalidate_inputs()` before publishing a derived artifact when the
+verified ADC archive. Call `revalidate_inputs()` before publishing a derived artifact when the
 source files may have changed during processing.
 
 ### Consume a live aggregate stream
@@ -203,9 +203,9 @@ print(raw.samples.shape)
 `ADCFileFrameReader` rejects incomplete files by default and reads frames without loading the full
 capture.
 
-### Read a capture-bound evidence archive
+### Read a capture-bound ADC archive
 
-An evidence archive can be opened as the same finite frame-reader contract as a raw ADC file. The
+An ADC archive can be opened as the same finite frame-reader contract as a raw ADC file. The
 reader requires both the immutable capture contract and the SHA-256 of the original logical ADC
 bytes; an archive with a different layout, frame count, contract, or source digest is rejected.
 
@@ -214,24 +214,24 @@ import hashlib
 from pathlib import Path
 
 from mmwcore.config import RadarCaptureSpec
-from mmwcore.io import ADCEvidenceArchiveFrameReader
+from mmwcore.io import ADCArchiveFrameReader
 
 capture = RadarCaptureSpec.from_record(capture_record)
 with Path("adc.bin").open("rb") as stream:
     source_digest = hashlib.file_digest(stream, "sha256").hexdigest()
-reader = ADCEvidenceArchiveFrameReader(
-    "adc.mmwe",
+reader = ADCArchiveFrameReader(
+    "adc.mmwa",
     capture,
-    expected_evidence_sha256=source_digest,
+    expected_adc_sha256=source_digest,
 )
 raw = reader.read_frame(100)
 print(reader.num_frames, raw.samples.shape)
 ```
 
 `read_frame()` verifies the selected frame before returning it. Use `reader.verify_all()` for an
-explicit complete replay before a long processing or training run. `write_adc_evidence_archive()`
+explicit complete replay before a long processing or training run. `write_capture_adc_archive()`
 creates the corresponding archive and refuses to publish when the source digest does not match the
-caller-provided evidence identity. Use `reader.revalidate_input()` before publishing derived output
+caller-provided ADC identity. Use `reader.revalidate_input()` before publishing derived output
 to confirm that the opened archive did not change during processing.
 
 ### Assemble archived datagrams
@@ -285,8 +285,8 @@ assert_eq!(cube.shape(), [1, 1, 1, 2]);
 
 The retained laboratory capture used for the figures below has 5000 frames, 2 chirps, 4 receivers,
 128 complex samples, `group2_i_then_q`, and a 10 ms period. It lacks slope and sample-rate metadata,
-so range remains in bins. The source capture is not distributed; the figures are evidence, not a
-runnable fixture.
+so range remains in bins. The source capture is not distributed; the figures are validation assets,
+not runnable fixtures.
 
 ![Range-Time magnitude before and after temporal-background suppression](https://raw.githubusercontent.com/AIoT-Laboratory/mmwcore/main/docs/assets/adc-range-time.png)
 
@@ -308,32 +308,32 @@ cargo test --workspace --locked
 uv run python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ```
 
-### Archive completed ADC evidence
+### Archive completed ADC data
 
-The offline evidence archive preserves every source byte in independently compressed and verified
+The offline ADC archive preserves every source byte in independently compressed and verified
 frames. The capture contract remains caller-owned and is bound by its lowercase SHA-256 digest.
 
 ```python
-from mmwcore.io import open_evidence_archive, write_evidence_archive
+from mmwcore.io import open_adc_archive, write_adc_archive
 
-archive = write_evidence_archive(
+archive = write_adc_archive(
     "capture/adc.bin",
-    "capture/adc.mmwe",
+    "capture/adc.mmwa",
     frame_bytes=1_572_864,
     capture_contract_sha256="0123456789abcdef" * 4,
 )
 archive.verify_all()
 four_frames = archive.read_frames(100, 104, verify=False)
 
-reopened = open_evidence_archive("capture/adc.mmwe")
+reopened = open_adc_archive("capture/adc.mmwa")
 one_verified_frame = reopened.read_frames(100, 101)
 ```
 
 The fixed v1 codec is one-frame little-endian `int16` byte shuffle plus zlib level 1. Writes verify
 the complete temporary archive before an atomic no-overwrite publication. Reads verify each frame
 by default; `verify=False` is accepted only after `verify_all()` succeeds on that same reader.
-See the [evidence-storage study](docs/evidence-storage.md) for corpus results, exact format scope,
-and the admission benchmark. The fixed v1 format is admitted only for finalized ADC files;
+See the [ADC archive study](docs/adc-archive-study.md) for corpus results, exact format scope,
+and the acceptance benchmark. The fixed v1 format is admitted only for finalized ADC files;
 acquisition still publishes exact raw payloads and conversion remains offline.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).

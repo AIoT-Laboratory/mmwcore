@@ -1,8 +1,11 @@
 {
   "include": ["python/mmwcore", "tests", "benchmarks", "examples"],
   "exclude": ["**/__pycache__", "**/.venv"],
+  "extraPaths": ["python"],
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
   "pythonVersion": "3.12",
+  "venvPath": ".",
+  "venv": ".venv",
   "typeCheckingMode": "basic"
 }

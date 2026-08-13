@@ -77,11 +77,11 @@ use numpy::{
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod adc_archive;
 mod capture;
 mod cartesian;
 mod cube;
 mod detection;
-mod evidence;
 mod geometry;
 mod tracking;
 mod vitals;
@@ -97,7 +97,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     cartesian::register(module)?;
     cube::register(module)?;
     detection::register(module)?;
-    evidence::register(module)?;
+    adc_archive::register(module)?;
     geometry::register(module)?;
     tracking::register(module)?;
     vitals::register(module)?;

@@ -1,4 +1,4 @@
-"""Reproducibility metadata and conservative evidence benchmark summaries."""
+"""Reproducibility metadata and conservative ADC storage benchmark summaries."""
 
 from __future__ import annotations
 

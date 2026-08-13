@@ -1,4 +1,4 @@
-"""Strictly reversible transforms used by the evidence-storage benchmark."""
+"""Strictly reversible transforms used by the ADC storage benchmark."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def encode(payload: bytes, *, codec: str, frame_bytes: int, zlib_level: int) -> 
         if len(delta_shuffled) < len(shuffled):
             return bytes((_FRAME_DELTA_TAG,)) + delta_shuffled
         return bytes((_SHUFFLE_TAG,)) + shuffled
-    raise ValueError(f"Unsupported evidence benchmark codec: {codec!r}.")
+    raise ValueError(f"Unsupported ADC storage codec: {codec!r}.")
 
 
 def decode(payload: bytes, *, codec: str, frame_bytes: int) -> bytes:
@@ -58,14 +58,14 @@ def decode(payload: bytes, *, codec: str, frame_bytes: int) -> bytes:
         return _restore_frame_delta(deltas, frame_bytes=frame_bytes)
     if codec == "adaptive-shuffle-zlib":
         if not payload:
-            raise ValueError("Adaptive evidence payload is missing its transform tag.")
+            raise ValueError("Adaptive ADC storage payload is missing its transform tag.")
         transformed = _unshuffle_words(zlib.decompress(payload[1:]))
         if payload[0] == _SHUFFLE_TAG:
             return transformed
         if payload[0] == _FRAME_DELTA_TAG:
             return _restore_frame_delta(transformed, frame_bytes=frame_bytes)
-        raise ValueError(f"Unsupported adaptive evidence transform tag: {payload[0]}.")
-    raise ValueError(f"Unsupported evidence benchmark codec: {codec!r}.")
+        raise ValueError(f"Unsupported adaptive ADC storage transform tag: {payload[0]}.")
+    raise ValueError(f"Unsupported ADC storage codec: {codec!r}.")
 
 
 def selected_transform(codec: str, payload: bytes) -> str:
@@ -74,12 +74,12 @@ def selected_transform(codec: str, payload: bytes) -> str:
     if codec != "adaptive-shuffle-zlib":
         return codec
     if not payload:
-        raise ValueError("Adaptive evidence payload is missing its transform tag.")
+        raise ValueError("Adaptive ADC storage payload is missing its transform tag.")
     if payload[0] == _SHUFFLE_TAG:
         return "shuffle-zlib"
     if payload[0] == _FRAME_DELTA_TAG:
         return "frame-delta-shuffle-zlib"
-    raise ValueError(f"Unsupported adaptive evidence transform tag: {payload[0]}.")
+    raise ValueError(f"Unsupported adaptive ADC storage transform tag: {payload[0]}.")
 
 
 def _shuffle_words(payload: bytes) -> bytes:

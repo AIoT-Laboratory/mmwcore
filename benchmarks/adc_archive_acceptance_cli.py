@@ -1,4 +1,4 @@
-"""CLI for the implemented evidence archive acceptance run."""
+"""CLI for the implemented ADC archive acceptance run."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from benchmarks.evidence_archive_acceptance import (
+from benchmarks.adc_archive_acceptance import (
     DEFAULT_FILENAME,
     run_archive_acceptance,
 )
@@ -31,7 +31,7 @@ def _non_negative_integer(value: str) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate the implemented offline evidence archive on complete ADC files."
+        description="Validate the implemented offline ADC archive on complete ADC files."
     )
     parser.add_argument("inputs", nargs="+", type=Path)
     parser.add_argument("--filename", default=DEFAULT_FILENAME)

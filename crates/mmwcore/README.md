@@ -34,14 +34,14 @@ let result = detect_cfar_1d(&power, config).expect("valid CFAR input");
 assert_eq!(result.indices, [3]);
 ~~~
 
-## ADC evidence codec
+## ADC archive codec
 
 ~~~rust
-use mmwcore::{decode_evidence_frame, encode_evidence_frame};
+use mmwcore::{decode_adc_archive_frame, encode_adc_archive_frame};
 
 let raw = [1_u8, 0, 2, 0];
-let encoded = encode_evidence_frame(&raw).expect("valid little-endian int16 bytes");
-let decoded = decode_evidence_frame(&encoded, raw.len()).expect("valid evidence frame");
+let encoded = encode_adc_archive_frame(&raw).expect("valid little-endian int16 bytes");
+let decoded = decode_adc_archive_frame(&encoded, raw.len()).expect("valid ADC archive frame");
 assert_eq!(decoded, raw);
 ~~~
 

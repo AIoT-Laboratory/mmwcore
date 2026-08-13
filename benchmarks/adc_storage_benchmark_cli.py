@@ -1,4 +1,4 @@
-"""Command-line wrapper for the offline evidence-storage benchmark."""
+"""Command-line wrapper for the offline ADC storage benchmark."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from benchmarks.evidence_codecs import DEFAULT_ZLIB_LEVEL, SUPPORTED_CODECS
-from benchmarks.evidence_inputs import EvidenceCase
-from benchmarks.evidence_storage import DEFAULT_CASES, DEFAULT_FILENAME, run_benchmark
+from benchmarks.adc_storage_benchmark import DEFAULT_CASES, DEFAULT_FILENAME, run_benchmark
+from benchmarks.adc_storage_codecs import DEFAULT_ZLIB_LEVEL, SUPPORTED_CODECS
+from benchmarks.adc_storage_inputs import StorageCase
 
 
 def _positive_integer(value: str) -> int:
@@ -35,7 +35,7 @@ def _zlib_level(value: str) -> int:
     return parsed
 
 
-def _case(value: str) -> EvidenceCase:
+def _case(value: str) -> StorageCase:
     codec, separator, frames_text = value.rpartition(":")
     if not separator or codec not in SUPPORTED_CODECS:
         choices = ", ".join(SUPPORTED_CODECS)
@@ -44,12 +44,12 @@ def _case(value: str) -> EvidenceCase:
         frames = _positive_integer(frames_text)
     except (ValueError, argparse.ArgumentTypeError) as error:
         raise argparse.ArgumentTypeError("case frame count must be positive") from error
-    return EvidenceCase(codec=codec, chunk_frames=frames)
+    return StorageCase(codec=codec, chunk_frames=frames)
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=("Benchmark strictly reversible chunk storage for offline radar ADC evidence.")
+        description="Benchmark strictly reversible chunk storage for offline radar ADC data."
     )
     parser.add_argument("inputs", nargs="+", type=Path, help="ADC files or directories to scan.")
     parser.add_argument("--filename", default=DEFAULT_FILENAME)

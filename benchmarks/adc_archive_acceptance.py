@@ -1,4 +1,4 @@
-"""Acceptance measurements for the implemented offline evidence archive."""
+"""Acceptance measurements for the implemented offline ADC archive."""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
-from benchmarks.evidence_inputs import discover_sources, source_selection
-from mmwcore.io import EvidenceArchive, open_evidence_archive, write_evidence_archive
+from benchmarks.adc_storage_inputs import discover_sources, source_selection
+from mmwcore.io import ADCArchive, open_adc_archive, write_adc_archive
 
-SCHEMA = "mmwcore.evidence_archive_acceptance.v1"
+SCHEMA = "mmwcore.adc_archive_acceptance.v1"
 DEFAULT_FILENAME = "adc_data_Raw_0.bin"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -112,10 +112,10 @@ def _measure_source(
     if window_frames > total_frames:
         raise ValueError("Window frames must not exceed source frames.")
     raw_bytes = source.stat().st_size
-    with tempfile.TemporaryDirectory(prefix="mmwcore-evidence-archive-", dir=scratch_dir) as root:
-        destination = Path(root) / "evidence.mmwe"
+    with tempfile.TemporaryDirectory(prefix="mmwcore-adc-archive-", dir=scratch_dir) as root:
+        destination = Path(root) / "adc.mmwa"
         started = time.perf_counter_ns()
-        archive = write_evidence_archive(
+        archive = write_adc_archive(
             source,
             destination,
             frame_bytes=frame_bytes,
@@ -123,7 +123,7 @@ def _measure_source(
         )
         publish_ns = time.perf_counter_ns() - started
 
-        archive = open_evidence_archive(destination)
+        archive = open_adc_archive(destination)
         started = time.perf_counter_ns()
         archive.verify_all()
         verify_ns = time.perf_counter_ns() - started
@@ -155,7 +155,7 @@ def _measure_source(
             "frame_count": total_frames,
             "frame_bytes": frame_bytes,
             "raw_bytes": raw_bytes,
-            "logical_sha256": archive.evidence_sha256,
+            "logical_sha256": archive.adc_sha256,
             "archive_bytes": archive.archive_size,
             "payload_bytes": archive.payload_bytes,
             "index_bytes": archive.index_bytes,
@@ -189,7 +189,7 @@ def _measure_source(
 
 
 def _measure_windows(
-    archive: EvidenceArchive,
+    archive: ADCArchive,
     *,
     source: Path,
     starts: Sequence[int],
@@ -206,7 +206,7 @@ def _measure_windows(
             stream.seek(start * frame_bytes)
             expected = stream.read(window_frames * frame_bytes)
             if actual != expected:
-                raise RuntimeError("Evidence archive random window differs from source bytes.")
+                raise RuntimeError("ADC archive random window differs from source bytes.")
     return durations
 
 
@@ -301,7 +301,7 @@ def _validate_options(
     scratch_dir: Path | None,
 ) -> None:
     if not inputs:
-        raise ValueError("At least one evidence source is required.")
+        raise ValueError("At least one ADC source is required.")
     if frame_bytes <= 0 or frame_bytes % 2:
         raise ValueError("Frame bytes must be a positive multiple of two.")
     if random_windows < 0:

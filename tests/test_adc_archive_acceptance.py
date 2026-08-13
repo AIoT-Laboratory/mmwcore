@@ -9,11 +9,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmarks.evidence_archive_acceptance import (  # noqa: E402
+from benchmarks.adc_archive_acceptance import (  # noqa: E402
     SCHEMA,
     run_archive_acceptance,
 )
-from benchmarks.evidence_archive_acceptance_cli import main  # noqa: E402
+from benchmarks.adc_archive_acceptance_cli import main  # noqa: E402
 
 
 def _payload(frame_bytes: int, frame_count: int) -> bytes:

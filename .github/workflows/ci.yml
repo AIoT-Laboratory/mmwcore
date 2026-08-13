@@ -87,9 +87,9 @@ jobs:
           decoded = _native.decode_adc_i16(raw, 1, 1, 2, 0, False);
           expected = np.array([[[[1 + 10j, 2 + 20j]]]], dtype=np.complex64);
           np.testing.assert_array_equal(decoded, expected);
-          evidence = bytes([1, 0, 2, 0]);
-          encoded = _native.encode_evidence_frame(evidence);
-          assert _native.decode_evidence_frame(encoded, len(evidence)) == evidence;
+          adc_frame = bytes([1, 0, 2, 0]);
+          encoded = _native.encode_adc_archive_frame(adc_frame);
+          assert _native.decode_adc_archive_frame(encoded, len(adc_frame)) == adc_frame;
           assert callable(mmwcore.open_mmwcli_capture_metadata);
           assert callable(mmwcore.open_multisensor_capture_metadata);
           assert callable(mmwcore.open_multisensor_source_timeline);

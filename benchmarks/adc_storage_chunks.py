@@ -1,4 +1,4 @@
-"""Temporary chunk archive used only by the evidence-storage benchmark."""
+"""Temporary chunk payloads used only by the ADC storage benchmark."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from benchmarks.evidence_codecs import decode, encode, selected_transform
+from benchmarks.adc_storage_codecs import decode, encode, selected_transform
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ def write_payload(
             frame_count = min(chunk_frames, selected_frames - first_frame)
             raw = source_stream.read(frame_count * frame_bytes)
             if len(raw) != frame_count * frame_bytes:
-                raise RuntimeError("Source changed while evidence benchmark was reading it.")
+                raise RuntimeError("Source changed while ADC storage benchmark was reading it.")
             logical_hash.update(raw)
             codec_started = time.perf_counter_ns()
             encoded = encode(
@@ -120,9 +120,9 @@ def replay_and_verify(
             decode_ns += record_decode_ns
             expected = source_stream.read(record.raw_bytes)
             if len(expected) != record.raw_bytes:
-                raise RuntimeError("Source changed while evidence benchmark was replaying it.")
+                raise RuntimeError("Source changed while ADC storage benchmark was replaying it.")
             if decoded != expected:
-                raise RuntimeError("Sequential evidence replay differs from the source ADC bytes.")
+                raise RuntimeError("Sequential ADC storage replay differs from source ADC bytes.")
     return time.perf_counter_ns() - replay_started, decode_ns
 
 
@@ -163,7 +163,7 @@ def read_frames(
         output.extend(decoded[local_start * frame_bytes : local_stop * frame_bytes])
     expected_bytes = (stop_frame - start_frame) * frame_bytes
     if len(output) != expected_bytes:
-        raise RuntimeError("Evidence payload index does not cover the requested frame window.")
+        raise RuntimeError("ADC storage payload index does not cover the requested frame window.")
     return bytes(output), decoded_chunks
 
 
@@ -178,14 +178,14 @@ def decode_record(
     reader.seek(record.offset)
     encoded = reader.read(record.stored_bytes)
     if len(encoded) != record.stored_bytes:
-        raise RuntimeError("Temporary evidence payload was truncated.")
+        raise RuntimeError("Temporary ADC storage payload was truncated.")
     started = time.perf_counter_ns()
     raw = decode(encoded, codec=codec, frame_bytes=frame_bytes)
     decode_ns = time.perf_counter_ns() - started
     if len(raw) != record.raw_bytes:
-        raise RuntimeError("Evidence codec produced an unexpected raw chunk size.")
+        raise RuntimeError("ADC storage codec produced an unexpected raw chunk size.")
     if verify_digest and hashlib.sha256(raw).hexdigest() != record.sha256:
-        raise RuntimeError("Evidence codec did not reproduce its recorded raw chunk.")
+        raise RuntimeError("ADC storage codec did not reproduce its recorded raw chunk.")
     return raw, decode_ns
 
 
@@ -200,5 +200,5 @@ def read_source_frames(
         handle.seek(absolute_first_frame * frame_bytes)
         payload = handle.read(frame_count * frame_bytes)
     if len(payload) != frame_count * frame_bytes:
-        raise RuntimeError("Source changed while evidence benchmark was reading it.")
+        raise RuntimeError("Source changed while ADC storage benchmark was reading it.")
     return payload

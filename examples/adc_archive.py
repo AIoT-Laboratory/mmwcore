@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mmwcore.io import write_evidence_archive
+from mmwcore.io import write_adc_archive
 
 
 def _arguments() -> argparse.Namespace:
@@ -19,7 +19,7 @@ def _arguments() -> argparse.Namespace:
 
 def main() -> None:
     args = _arguments()
-    archive = write_evidence_archive(
+    archive = write_adc_archive(
         args.source,
         args.destination,
         frame_bytes=args.frame_bytes,
@@ -28,7 +28,7 @@ def main() -> None:
     archive.verify_all()
     print(f"frames={archive.frame_count}")
     print(f"archive_bytes={archive.archive_size}")
-    print(f"evidence_sha256={archive.evidence_sha256}")
+    print(f"adc_sha256={archive.adc_sha256}")
 
 
 if __name__ == "__main__":

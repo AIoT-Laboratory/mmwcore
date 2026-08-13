@@ -11,16 +11,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmarks.evidence_archive import ChunkRecord, read_frames  # noqa: E402
-from benchmarks.evidence_codecs import (  # noqa: E402
+from benchmarks.adc_storage_benchmark import SCHEMA, run_benchmark  # noqa: E402
+from benchmarks.adc_storage_benchmark_cli import main  # noqa: E402
+from benchmarks.adc_storage_chunks import ChunkRecord, read_frames  # noqa: E402
+from benchmarks.adc_storage_codecs import (  # noqa: E402
     SUPPORTED_CODECS,
     decode,
     encode,
     selected_transform,
 )
-from benchmarks.evidence_inputs import EvidenceCase  # noqa: E402
-from benchmarks.evidence_storage import SCHEMA, run_benchmark  # noqa: E402
-from benchmarks.evidence_storage_cli import main  # noqa: E402
+from benchmarks.adc_storage_inputs import StorageCase  # noqa: E402
 
 
 def _frames(frame_bytes: int, count: int) -> bytes:
@@ -109,7 +109,7 @@ def test_benchmark_emits_schema_and_verifies_cross_chunk_random_windows(tmp_path
     result = run_benchmark(
         [tmp_path],
         frame_bytes=16,
-        cases=(EvidenceCase(codec="frame-delta-shuffle-zlib", chunk_frames=2),),
+        cases=(StorageCase(codec="frame-delta-shuffle-zlib", chunk_frames=2),),
         random_windows=5,
         window_frames=3,
         seed=7,
@@ -180,17 +180,17 @@ def test_cli_writes_atomic_json_and_rejects_invalid_source_shapes(tmp_path: Path
     truncated = tmp_path / "truncated.bin"
     truncated.write_bytes(b"not-a-complete-frame")
     with pytest.raises(ValueError, match="incomplete trailing frame"):
-        run_benchmark([truncated], frame_bytes=16, cases=(EvidenceCase("raw", 1),))
+        run_benchmark([truncated], frame_bytes=16, cases=(StorageCase("raw", 1),))
     with pytest.raises(ValueError, match="outside"):
-        run_benchmark([source], frame_bytes=16, start_frame=4, cases=(EvidenceCase("raw", 1),))
+        run_benchmark([source], frame_bytes=16, start_frame=4, cases=(StorageCase("raw", 1),))
     with pytest.raises(ValueError, match="non-negative"):
-        run_benchmark([source], frame_bytes=16, start_frame=-1, cases=(EvidenceCase("raw", 1),))
+        run_benchmark([source], frame_bytes=16, start_frame=-1, cases=(StorageCase("raw", 1),))
     with pytest.raises(ValueError, match="Maximum frames"):
-        run_benchmark([source], frame_bytes=16, max_frames=0, cases=(EvidenceCase("raw", 1),))
+        run_benchmark([source], frame_bytes=16, max_frames=0, cases=(StorageCase("raw", 1),))
     with pytest.raises(ValueError, match="must not exceed"):
         run_benchmark(
             [source],
             frame_bytes=16,
-            cases=(EvidenceCase("raw", 1),),
+            cases=(StorageCase("raw", 1),),
             window_frames=5,
         )

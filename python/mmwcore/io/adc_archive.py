@@ -1,4 +1,4 @@
-"""Immutable, verified storage for finite raw ADC evidence."""
+"""Immutable, verified storage for finite raw ADC frames."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ _INDEX_RECORD = struct.Struct("<QQ32s")
 _FOOTER_BODY = struct.Struct("<8sIIQQ32s32s32s")
 _FOOTER = struct.Struct("<8sIIQQ32s32s32s32s")
 
-_HEADER_MAGIC: Final = b"MMWEVID1"
-_FOOTER_MAGIC: Final = b"MMWECMT1"
+_HEADER_MAGIC: Final = b"MMWADCA1"
+_FOOTER_MAGIC: Final = b"MMWACMT1"
 _VERSION: Final = 1
 _HEADER_SIZE: Final = _HEADER.size
 _INDEX_RECORD_SIZE: Final = _INDEX_RECORD.size
@@ -29,8 +29,8 @@ _SHA256_BYTES: Final = hashlib.sha256().digest_size
 _MAX_FRAME_BYTES: Final = 64 * 1024 * 1024
 
 
-class EvidenceArchiveError(ValueError):
-    """Raised when an evidence archive is malformed, incomplete, or untrusted."""
+class ADCArchiveError(ValueError):
+    """Raised when an ADC archive is malformed, incomplete, or untrusted."""
 
 
 @dataclass(frozen=True)
@@ -48,8 +48,8 @@ class _Fingerprint:
     modified_ns: int
 
 
-class EvidenceArchive:
-    """A read-only, fail-closed archive of independently encoded ADC frames."""
+class ADCArchive:
+    """A read-only archive of independently encoded ADC frames."""
 
     def __init__(
         self,
@@ -61,7 +61,7 @@ class EvidenceArchive:
         frame_bytes: int,
         frame_count: int,
         capture_contract_sha256: bytes,
-        evidence_sha256: bytes,
+        adc_sha256: bytes,
         index_offset: int,
         records: tuple[_FrameRecord, ...],
         fingerprint: _Fingerprint,
@@ -73,7 +73,7 @@ class EvidenceArchive:
         self._frame_bytes = frame_bytes
         self._frame_count = frame_count
         self._capture_contract_sha256 = capture_contract_sha256
-        self._evidence_sha256 = evidence_sha256
+        self._adc_sha256 = adc_sha256
         self._index_offset = index_offset
         self._records = records
         self._fingerprint = fingerprint
@@ -98,10 +98,10 @@ class EvidenceArchive:
         return self._frame_count
 
     @property
-    def evidence_sha256(self) -> str:
+    def adc_sha256(self) -> str:
         """SHA-256 of the concatenated logical raw ADC bytes."""
 
-        return self._evidence_sha256.hex()
+        return self._adc_sha256.hex()
 
     @property
     def capture_contract_sha256(self) -> str:
@@ -140,7 +140,7 @@ class EvidenceArchive:
         if not isinstance(verify, bool):
             raise TypeError("verify must be a bool.")
         if not verify and not self._verified_all:
-            raise EvidenceArchiveError(
+            raise ADCArchiveError(
                 "Trusted reads require a successful verify_all() on this archive object."
             )
         try:
@@ -167,8 +167,8 @@ class EvidenceArchive:
             for record in self._records:
                 logical_digest.update(self._decode_record(archive, record, verify=True))
             self._require_unchanged_stream(archive)
-        if not hmac.compare_digest(logical_digest.digest(), self._evidence_sha256):
-            raise EvidenceArchiveError("Archive logical raw SHA-256 does not match the footer.")
+        if not hmac.compare_digest(logical_digest.digest(), self._adc_sha256):
+            raise ADCArchiveError("Archive logical raw SHA-256 does not match the footer.")
         self._verified_all = True
 
     def revalidate_input(self) -> None:
@@ -178,7 +178,7 @@ class EvidenceArchive:
             archive.seek(self._index_offset)
             if archive.read(len(self._index)) != self._index:
                 self._verified_all = False
-                raise EvidenceArchiveError("Evidence archive index changed after it was opened.")
+                raise ADCArchiveError("ADC archive index changed after it was opened.")
             self._require_unchanged_stream(archive)
 
     def _open_checked(self) -> BinaryIO:
@@ -186,10 +186,10 @@ class EvidenceArchive:
         try:
             self._require_unchanged_stream(archive)
             if archive.read(_HEADER_SIZE) != self._header:
-                raise EvidenceArchiveError("Evidence archive header changed after it was opened.")
+                raise ADCArchiveError("ADC archive header changed after it was opened.")
             archive.seek(self.archive_size - _FOOTER_SIZE)
             if archive.read(_FOOTER_SIZE) != self._footer:
-                raise EvidenceArchiveError("Evidence archive footer changed after it was opened.")
+                raise ADCArchiveError("ADC archive footer changed after it was opened.")
             self._require_unchanged_stream(archive)
             return archive
         except Exception:
@@ -199,7 +199,7 @@ class EvidenceArchive:
     def _require_unchanged_stream(self, archive: BinaryIO) -> None:
         if _fingerprint_stream(archive) != self._fingerprint:
             self._verified_all = False
-            raise EvidenceArchiveError("Evidence archive changed after it was opened.")
+            raise ADCArchiveError("ADC archive changed after it was opened.")
 
     def _decode_record(
         self,
@@ -210,21 +210,21 @@ class EvidenceArchive:
     ) -> bytes:
         archive.seek(record.offset)
         encoded = _read_exact(archive, record.stored_bytes, "encoded frame payload")
-        raw = _decode_evidence_frame(encoded, self._frame_bytes)
+        raw = _decode_adc_archive_frame(encoded, self._frame_bytes)
         if verify and not hmac.compare_digest(hashlib.sha256(raw).digest(), record.raw_sha256):
-            raise EvidenceArchiveError("Decoded frame SHA-256 does not match the archive index.")
+            raise ADCArchiveError("Decoded frame SHA-256 does not match the archive index.")
         return raw
 
 
-def write_evidence_archive(
+def write_adc_archive(
     source: str | Path,
     destination: str | Path,
     *,
     frame_bytes: int,
     capture_contract_sha256: str,
-    expected_evidence_sha256: str | None = None,
-) -> EvidenceArchive:
-    """Encode a finite ADC file into an atomically committed evidence archive."""
+    expected_adc_sha256: str | None = None,
+) -> ADCArchive:
+    """Encode a finite ADC file into an atomically committed ADC archive."""
 
     source_path = _require_regular_file(source, "source")
     destination_path = _require_new_destination(destination)
@@ -233,10 +233,10 @@ def write_evidence_archive(
         capture_contract_sha256,
         "capture_contract_sha256",
     )
-    expected_evidence_digest = (
+    expected_adc_digest = (
         None
-        if expected_evidence_sha256 is None
-        else _require_sha256(expected_evidence_sha256, "expected_evidence_sha256")
+        if expected_adc_sha256 is None
+        else _require_sha256(expected_adc_sha256, "expected_adc_sha256")
     )
 
     source_fingerprint = _fingerprint(source_path)
@@ -264,13 +264,11 @@ def write_evidence_archive(
             frame_count,
             source_fingerprint,
         )
-        if expected_evidence_digest is not None and not hmac.compare_digest(
+        if expected_adc_digest is not None and not hmac.compare_digest(
             logical_sha256,
-            expected_evidence_digest,
+            expected_adc_digest,
         ):
-            raise EvidenceArchiveError(
-                "Source logical SHA-256 does not match expected_evidence_sha256."
-            )
+            raise ADCArchiveError("Source logical SHA-256 does not match expected_adc_sha256.")
         index = b"".join(
             _INDEX_RECORD.pack(record.offset, record.stored_bytes, record.raw_sha256)
             for record in records
@@ -293,19 +291,19 @@ def write_evidence_archive(
             archive.flush()
             os.fsync(archive.fileno())
 
-        verified = open_evidence_archive(temporary_path)
+        verified = open_adc_archive(temporary_path)
         verified.verify_all()
         try:
             os.link(temporary_path, destination_path)
         except FileExistsError:
             raise FileExistsError(
-                f"Evidence archive destination already exists: {destination_path}"
+                f"ADC archive destination already exists: {destination_path}"
             ) from None
         try:
-            committed = open_evidence_archive(destination_path)
+            committed = open_adc_archive(destination_path)
             if not os.path.samefile(temporary_path, destination_path):
-                raise EvidenceArchiveError(
-                    "Published evidence archive no longer identifies the verified temporary file."
+                raise ADCArchiveError(
+                    "Published ADC archive no longer identifies the verified temporary file."
                 )
             _fsync_directory(destination_path.parent)
         except Exception:
@@ -322,20 +320,20 @@ def write_evidence_archive(
         raise
 
 
-def open_evidence_archive(path: str | Path) -> EvidenceArchive:
+def open_adc_archive(path: str | Path) -> ADCArchive:
     """Open a completely committed archive after strict structural validation."""
 
     archive_path = _require_regular_file(path, "archive")
     fingerprint = _fingerprint(archive_path)
     minimum_size = _HEADER_SIZE + _FOOTER_SIZE
     if fingerprint.size < minimum_size:
-        raise EvidenceArchiveError("Evidence archive is too small for a header and footer.")
+        raise ADCArchiveError("ADC archive is too small for a header and footer.")
 
     with archive_path.open("rb") as archive:
         if _fingerprint_stream(archive) != fingerprint:
-            raise EvidenceArchiveError("Evidence archive changed while it was being opened.")
+            raise ADCArchiveError("ADC archive changed while it was being opened.")
         header, frame_bytes, frame_count, capture_contract_sha256 = _read_header(archive)
-        footer, index_offset, index_bytes, index_sha256, evidence_sha256 = _read_footer(
+        footer, index_offset, index_bytes, index_sha256, adc_sha256 = _read_footer(
             archive,
             archive_size=fingerprint.size,
             header=header,
@@ -349,12 +347,12 @@ def open_evidence_archive(path: str | Path) -> EvidenceArchive:
             index_sha256=index_sha256,
         )
         if _fingerprint_stream(archive) != fingerprint:
-            raise EvidenceArchiveError("Evidence archive changed while it was being opened.")
+            raise ADCArchiveError("ADC archive changed while it was being opened.")
 
     if _fingerprint(archive_path) != fingerprint:
-        raise EvidenceArchiveError("Evidence archive changed while it was being opened.")
+        raise ADCArchiveError("ADC archive changed while it was being opened.")
     records = _parse_records(index, index_offset, frame_bytes)
-    return EvidenceArchive(
+    return ADCArchive(
         archive_path,
         header=header,
         footer=footer,
@@ -362,7 +360,7 @@ def open_evidence_archive(path: str | Path) -> EvidenceArchive:
         frame_bytes=frame_bytes,
         frame_count=frame_count,
         capture_contract_sha256=capture_contract_sha256,
-        evidence_sha256=evidence_sha256,
+        adc_sha256=adc_sha256,
         index_offset=index_offset,
         records=records,
         fingerprint=fingerprint,
@@ -373,13 +371,13 @@ def _read_header(archive: BinaryIO) -> tuple[bytes, int, int, bytes]:
     header = _read_exact(archive, _HEADER_SIZE, "header")
     magic, version, header_size, frame_bytes, frame_count, contract_sha256 = _HEADER.unpack(header)
     if magic != _HEADER_MAGIC or version != _VERSION or header_size != _HEADER_SIZE:
-        raise EvidenceArchiveError("Evidence archive header is not mmwcore.evidence.v1.")
+        raise ADCArchiveError("ADC archive header is not mmwcore.adc_archive.v1.")
     if frame_bytes == 0 or frame_count == 0:
-        raise EvidenceArchiveError("Evidence archive must declare positive frame dimensions.")
+        raise ADCArchiveError("ADC archive must declare positive frame dimensions.")
     if frame_bytes % 2:
-        raise EvidenceArchiveError("Evidence archive frame byte count must be a multiple of two.")
+        raise ADCArchiveError("ADC archive frame byte count must be a multiple of two.")
     if frame_bytes > _MAX_FRAME_BYTES:
-        raise EvidenceArchiveError(f"Evidence archive frame byte count exceeds {_MAX_FRAME_BYTES}.")
+        raise ADCArchiveError(f"ADC archive frame byte count exceeds {_MAX_FRAME_BYTES}.")
     return header, frame_bytes, frame_count, contract_sha256
 
 
@@ -399,19 +397,19 @@ def _read_footer(
         index_bytes,
         header_sha256,
         index_sha256,
-        evidence_sha256,
+        adc_sha256,
         footer_sha256,
     ) = _FOOTER.unpack(footer)
     if magic != _FOOTER_MAGIC or version != _VERSION or footer_size != _FOOTER_SIZE:
-        raise EvidenceArchiveError("Evidence archive footer is missing or invalid.")
+        raise ADCArchiveError("ADC archive footer is missing or invalid.")
     if not hmac.compare_digest(
         footer_sha256,
         hashlib.sha256(footer[:-_SHA256_BYTES]).digest(),
     ):
-        raise EvidenceArchiveError("Evidence archive footer SHA-256 does not match.")
+        raise ADCArchiveError("ADC archive footer SHA-256 does not match.")
     if not hmac.compare_digest(header_sha256, hashlib.sha256(header).digest()):
-        raise EvidenceArchiveError("Evidence archive header SHA-256 does not match the footer.")
-    return footer, index_offset, index_bytes, index_sha256, evidence_sha256
+        raise ADCArchiveError("ADC archive header SHA-256 does not match the footer.")
+    return footer, index_offset, index_bytes, index_sha256, adc_sha256
 
 
 def _read_index(
@@ -426,15 +424,13 @@ def _read_index(
     expected_index_bytes = frame_count * _INDEX_RECORD_SIZE
     footer_offset = archive_size - _FOOTER_SIZE
     if index_bytes != expected_index_bytes:
-        raise EvidenceArchiveError("Evidence archive index length does not match frame count.")
+        raise ADCArchiveError("ADC archive index length does not match frame count.")
     if index_offset < _HEADER_SIZE or index_offset + index_bytes != footer_offset:
-        raise EvidenceArchiveError(
-            "Evidence archive index and footer must terminate at physical EOF."
-        )
+        raise ADCArchiveError("ADC archive index and footer must terminate at physical EOF.")
     archive.seek(index_offset)
     index = _read_exact(archive, index_bytes, "index")
     if not hmac.compare_digest(index_sha256, hashlib.sha256(index).digest()):
-        raise EvidenceArchiveError("Evidence archive index SHA-256 does not match the footer.")
+        raise ADCArchiveError("ADC archive index SHA-256 does not match the footer.")
     return index
 
 
@@ -454,7 +450,7 @@ def _write_payloads(
         for _ in range(frame_count):
             raw = _read_exact(source_file, frame_bytes, "source frame")
             logical_digest.update(raw)
-            encoded = _encode_evidence_frame(raw)
+            encoded = _encode_adc_archive_frame(raw)
             archive.write(encoded)
             records.append(
                 _FrameRecord(
@@ -465,17 +461,15 @@ def _write_payloads(
             )
             offset += len(encoded)
         if source_file.read(1):
-            raise EvidenceArchiveError(
-                "Source changed while the evidence archive was being written."
-            )
+            raise ADCArchiveError("Source changed while the ADC archive was being written.")
         archive.flush()
         os.fsync(archive.fileno())
 
     if _fingerprint(source_path) != source_fingerprint:
-        raise EvidenceArchiveError("Source changed while the evidence archive was being written.")
+        raise ADCArchiveError("Source changed while the ADC archive was being written.")
     logical_sha256 = logical_digest.digest()
     if _sha256_file(source_path) != logical_sha256:
-        raise EvidenceArchiveError("Source changed while the evidence archive was being written.")
+        raise ADCArchiveError("Source changed while the ADC archive was being written.")
     return tuple(records), logical_sha256, offset
 
 
@@ -489,28 +483,28 @@ def _parse_records(
     for position in range(0, len(index), _INDEX_RECORD_SIZE):
         offset, stored_bytes, raw_sha256 = _INDEX_RECORD.unpack_from(index, position)
         if stored_bytes == 0:
-            raise EvidenceArchiveError("Evidence archive frame payload must not be empty.")
+            raise ADCArchiveError("ADC archive frame payload must not be empty.")
         if stored_bytes > _maximum_encoded_frame_bytes(frame_bytes):
-            raise EvidenceArchiveError("Evidence archive frame payload exceeds its fixed bound.")
+            raise ADCArchiveError("ADC archive frame payload exceeds its fixed bound.")
         if offset != expected_offset:
-            raise EvidenceArchiveError("Evidence archive payload offsets must be contiguous.")
+            raise ADCArchiveError("ADC archive payload offsets must be contiguous.")
         expected_offset += stored_bytes
         if expected_offset > index_offset:
-            raise EvidenceArchiveError("Evidence archive payload extends into the index.")
+            raise ADCArchiveError("ADC archive payload extends into the index.")
         records.append(_FrameRecord(offset, stored_bytes, raw_sha256))
     if expected_offset != index_offset:
-        raise EvidenceArchiveError("Evidence archive payload does not end at the index.")
+        raise ADCArchiveError("ADC archive payload does not end at the index.")
     return tuple(records)
 
 
-def _encode_evidence_frame(raw: bytes) -> bytes:
-    return _native_bytes("encode_evidence_frame", raw)
+def _encode_adc_archive_frame(raw: bytes) -> bytes:
+    return _native_bytes("encode_adc_archive_frame", raw)
 
 
-def _decode_evidence_frame(encoded: bytes, expected_raw_bytes: int) -> bytes:
-    raw = _native_bytes("decode_evidence_frame", encoded, expected_raw_bytes)
+def _decode_adc_archive_frame(encoded: bytes, expected_raw_bytes: int) -> bytes:
+    raw = _native_bytes("decode_adc_archive_frame", encoded, expected_raw_bytes)
     if len(raw) != expected_raw_bytes:
-        raise EvidenceArchiveError("Native decode_evidence_frame() returned the wrong byte length.")
+        raise ADCArchiveError("Native decode_adc_archive_frame() returned the wrong byte length.")
     return raw
 
 
@@ -521,18 +515,18 @@ def _native_bytes(name: str, *args: object) -> bytes:
     try:
         result = function(*args)
     except Exception as exc:
-        raise EvidenceArchiveError(f"Native {name}() failed.") from exc
+        raise ADCArchiveError(f"Native {name}() failed.") from exc
     if type(result) is not bytes:
-        raise EvidenceArchiveError(f"Native {name}() must return bytes.")
+        raise ADCArchiveError(f"Native {name}() must return bytes.")
     if not result:
-        raise EvidenceArchiveError(f"Native {name}() returned an empty payload.")
+        raise ADCArchiveError(f"Native {name}() returned an empty payload.")
     return cast(bytes, result)
 
 
 def _read_exact(stream: BinaryIO, length: int, label: str) -> bytes:
     value = stream.read(length)
     if len(value) != length:
-        raise EvidenceArchiveError(f"Evidence archive has a truncated {label}.")
+        raise ADCArchiveError(f"ADC archive has a truncated {label}.")
     return value
 
 
@@ -602,18 +596,16 @@ def _require_new_destination(value: str | Path) -> Path:
         raise TypeError("destination must be a path.")
     path = Path(value)
     if path.exists():
-        raise FileExistsError(f"Evidence archive destination already exists: {path}")
+        raise FileExistsError(f"ADC archive destination already exists: {path}")
     if not path.parent.is_dir():
-        raise FileNotFoundError(
-            f"Evidence archive destination parent does not exist: {path.parent}"
-        )
+        raise FileNotFoundError(f"ADC archive destination parent does not exist: {path.parent}")
     return path.parent.resolve(strict=True) / path.name
 
 
 def _fingerprint(path: Path) -> _Fingerprint:
     stat = path.stat()
     if not path.is_file():
-        raise EvidenceArchiveError(f"Evidence archive path is no longer a regular file: {path}")
+        raise ADCArchiveError(f"ADC archive path is no longer a regular file: {path}")
     return _Fingerprint(stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
 
 

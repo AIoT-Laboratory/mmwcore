@@ -10,11 +10,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from mmwcore.io import evidence_archive
-from mmwcore.io.evidence_archive import (
-    EvidenceArchiveError,
-    open_evidence_archive,
-    write_evidence_archive,
+from mmwcore.io import adc_archive
+from mmwcore.io.adc_archive import (
+    ADCArchiveError,
+    open_adc_archive,
+    write_adc_archive,
 )
 
 _HEADER_SIZE = 64
@@ -34,11 +34,11 @@ def native_codec(monkeypatch: pytest.MonkeyPatch) -> None:
         return raw
 
     monkeypatch.setattr(
-        evidence_archive,
+        adc_archive,
         "_native",
         SimpleNamespace(
-            encode_evidence_frame=encode,
-            decode_evidence_frame=decode,
+            encode_adc_archive_frame=encode,
+            decode_adc_archive_frame=decode,
         ),
     )
 
@@ -60,8 +60,8 @@ def _contract() -> str:
 def _archive(tmp_path: Path, raw: bytes | None = None) -> tuple[Path, bytes]:
     payload = _raw_frames() if raw is None else raw
     source = _write_source(tmp_path, payload)
-    destination = tmp_path / "capture.mmwe"
-    write_evidence_archive(
+    destination = tmp_path / "capture.mmwa"
+    write_adc_archive(
         source,
         destination,
         frame_bytes=32,
@@ -70,14 +70,25 @@ def _archive(tmp_path: Path, raw: bytes | None = None) -> tuple[Path, bytes]:
     return destination, payload
 
 
+def test_rejects_legacy_evidence_magic(tmp_path: Path) -> None:
+    destination, _ = _archive(tmp_path)
+    legacy = tmp_path / "legacy.mmwe"
+    payload = bytearray(destination.read_bytes())
+    payload[:8] = b"MMWEVID1"
+    legacy.write_bytes(payload)
+
+    with pytest.raises(ADCArchiveError, match="mmwcore.adc_archive.v1"):
+        open_adc_archive(legacy)
+
+
 def test_roundtrip_random_windows_and_metadata_overhead(tmp_path: Path) -> None:
     destination, raw = _archive(tmp_path)
-    archive = open_evidence_archive(destination)
+    archive = open_adc_archive(destination)
 
     assert archive.frame_bytes == 32
     assert archive.frame_count == 6
     assert archive.capture_contract_sha256 == _contract()
-    assert archive.evidence_sha256 == hashlib.sha256(raw).hexdigest()
+    assert archive.adc_sha256 == hashlib.sha256(raw).hexdigest()
     assert archive.read_frames(0, 6) == raw
     assert archive.read_frames(1, 4) == raw[32:128]
     assert archive.read_frames(5, 6) == raw[160:]
@@ -88,34 +99,34 @@ def test_roundtrip_random_windows_and_metadata_overhead(tmp_path: Path) -> None:
 
 def test_trusted_read_requires_a_successful_full_verification(tmp_path: Path) -> None:
     destination, raw = _archive(tmp_path)
-    archive = open_evidence_archive(destination)
+    archive = open_adc_archive(destination)
 
-    with pytest.raises(EvidenceArchiveError, match="verify_all"):
+    with pytest.raises(ADCArchiveError, match="verify_all"):
         archive.read_frames(0, 1, verify=False)
     archive.verify_all()
     assert archive.read_frames(2, 5, verify=False) == raw[64:160]
 
     destination.write_bytes(destination.read_bytes())
-    with pytest.raises(EvidenceArchiveError, match="changed"):
+    with pytest.raises(ADCArchiveError, match="changed"):
         archive.read_frames(0, 1, verify=False)
-    with pytest.raises(EvidenceArchiveError, match="verify_all"):
+    with pytest.raises(ADCArchiveError, match="verify_all"):
         archive.read_frames(0, 1, verify=False)
 
 
 def test_revalidate_input_rejects_archive_changed_after_open(tmp_path: Path) -> None:
     destination, _ = _archive(tmp_path)
-    archive = open_evidence_archive(destination)
+    archive = open_adc_archive(destination)
     payload = bytearray(destination.read_bytes())
     payload[-1] ^= 0x01
     destination.write_bytes(payload)
 
-    with pytest.raises(EvidenceArchiveError, match="changed"):
+    with pytest.raises(ADCArchiveError, match="changed"):
         archive.revalidate_input()
 
 
 def test_failed_verified_read_revokes_trusted_state(tmp_path: Path) -> None:
     destination, _ = _archive(tmp_path)
-    archive = open_evidence_archive(destination)
+    archive = open_adc_archive(destination)
     archive.verify_all()
 
     records = vars(archive)["_records"]
@@ -128,9 +139,9 @@ def test_failed_verified_read_revokes_trusted_state(tmp_path: Path) -> None:
             *records[1:],
         ),
     )
-    with pytest.raises(EvidenceArchiveError, match="Decoded frame SHA-256"):
+    with pytest.raises(ADCArchiveError, match="Decoded frame SHA-256"):
         archive.read_frames(0, 1)
-    with pytest.raises(EvidenceArchiveError, match="verify_all"):
+    with pytest.raises(ADCArchiveError, match="verify_all"):
         archive.read_frames(1, 2, verify=False)
 
 
@@ -152,8 +163,8 @@ def test_header_index_and_footer_tampering_fail_structural_open(
     payload[actual_offset] ^= 0x01
     destination.write_bytes(payload)
 
-    with pytest.raises(EvidenceArchiveError):
-        open_evidence_archive(destination)
+    with pytest.raises(ADCArchiveError):
+        open_adc_archive(destination)
 
 
 def test_payload_tampering_and_decode_error_fail_verified_read(tmp_path: Path) -> None:
@@ -161,9 +172,9 @@ def test_payload_tampering_and_decode_error_fail_verified_read(tmp_path: Path) -
     payload = bytearray(destination.read_bytes())
     payload[_HEADER_SIZE + 1] ^= 0xFF
     destination.write_bytes(payload)
-    archive = open_evidence_archive(destination)
+    archive = open_adc_archive(destination)
 
-    with pytest.raises(EvidenceArchiveError, match="Native decode_evidence_frame"):
+    with pytest.raises(ADCArchiveError, match="Native decode_adc_archive_frame"):
         archive.read_frames(0, 1)
 
 
@@ -173,8 +184,8 @@ def test_logical_footer_digest_tampering_fails_structural_open(tmp_path: Path) -
     payload[-1] ^= 0x01
     destination.write_bytes(payload)
 
-    with pytest.raises(EvidenceArchiveError, match="footer SHA-256"):
-        open_evidence_archive(destination)
+    with pytest.raises(ADCArchiveError, match="footer SHA-256"):
+        open_adc_archive(destination)
 
 
 def test_self_consistent_wrong_logical_digest_fails_full_verification(tmp_path: Path) -> None:
@@ -186,8 +197,8 @@ def test_self_consistent_wrong_logical_digest_fails_full_verification(tmp_path: 
     payload[footer_offset + 128 :] = hashlib.sha256(footer_body).digest()
     destination.write_bytes(payload)
 
-    archive = open_evidence_archive(destination)
-    with pytest.raises(EvidenceArchiveError, match="logical raw SHA-256"):
+    archive = open_adc_archive(destination)
+    with pytest.raises(ADCArchiveError, match="logical raw SHA-256"):
         archive.verify_all()
 
 
@@ -202,8 +213,8 @@ def test_truncation_and_trailing_bytes_fail_open(
     destination, _ = _archive(tmp_path)
     destination.write_bytes(mutator(destination.read_bytes()))
 
-    with pytest.raises(EvidenceArchiveError):
-        open_evidence_archive(destination)
+    with pytest.raises(ADCArchiveError):
+        open_adc_archive(destination)
 
 
 def test_write_is_atomic_and_cleans_temporary_file_after_codec_failure(
@@ -212,7 +223,7 @@ def test_write_is_atomic_and_cleans_temporary_file_after_codec_failure(
 ) -> None:
     raw = _raw_frames(count=2)
     source = _write_source(tmp_path, raw)
-    destination = tmp_path / "capture.mmwe"
+    destination = tmp_path / "capture.mmwa"
     calls = 0
 
     def fail_after_one_frame(value: bytes) -> bytes:
@@ -222,17 +233,17 @@ def test_write_is_atomic_and_cleans_temporary_file_after_codec_failure(
             raise RuntimeError("native encoder failed")
         return zlib.compress(value, level=1)
 
-    monkeypatch.setattr(evidence_archive, "_encode_evidence_frame", fail_after_one_frame)
+    monkeypatch.setattr(adc_archive, "_encode_adc_archive_frame", fail_after_one_frame)
 
     with pytest.raises(RuntimeError, match="native encoder failed"):
-        write_evidence_archive(
+        write_adc_archive(
             source,
             destination,
             frame_bytes=32,
             capture_contract_sha256=_contract(),
         )
     assert not destination.exists()
-    assert not list(tmp_path.glob(".capture.mmwe.*.tmp"))
+    assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
 def test_atomic_publication_never_overwrites_a_racing_destination(
@@ -240,7 +251,7 @@ def test_atomic_publication_never_overwrites_a_racing_destination(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _write_source(tmp_path, _raw_frames(count=2))
-    destination = tmp_path / "capture.mmwe"
+    destination = tmp_path / "capture.mmwa"
 
     def race(_source: Path, target: Path) -> None:
         target.write_bytes(b"racing-writer")
@@ -249,14 +260,14 @@ def test_atomic_publication_never_overwrites_a_racing_destination(
     monkeypatch.setattr(os, "link", race)
 
     with pytest.raises(FileExistsError, match="already exists"):
-        write_evidence_archive(
+        write_adc_archive(
             source,
             destination,
             frame_bytes=32,
             capture_contract_sha256=_contract(),
         )
     assert destination.read_bytes() == b"racing-writer"
-    assert not list(tmp_path.glob(".capture.mmwe.*.tmp"))
+    assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
 def test_source_change_aborts_and_cleans_temporary_file(
@@ -265,7 +276,7 @@ def test_source_change_aborts_and_cleans_temporary_file(
 ) -> None:
     raw = _raw_frames(count=2)
     source = _write_source(tmp_path, raw)
-    destination = tmp_path / "capture.mmwe"
+    destination = tmp_path / "capture.mmwa"
     calls = 0
 
     def alter_source(value: bytes) -> bytes:
@@ -276,59 +287,57 @@ def test_source_change_aborts_and_cleans_temporary_file(
             os.utime(source, None)
         return zlib.compress(value, level=1)
 
-    monkeypatch.setattr(evidence_archive, "_encode_evidence_frame", alter_source)
+    monkeypatch.setattr(adc_archive, "_encode_adc_archive_frame", alter_source)
 
-    with pytest.raises(EvidenceArchiveError, match="Source changed"):
-        write_evidence_archive(
+    with pytest.raises(ADCArchiveError, match="Source changed"):
+        write_adc_archive(
             source,
             destination,
             frame_bytes=32,
             capture_contract_sha256=_contract(),
         )
     assert not destination.exists()
-    assert not list(tmp_path.glob(".capture.mmwe.*.tmp"))
+    assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
 def test_expected_logical_digest_mismatch_aborts_before_publication(tmp_path: Path) -> None:
     source = _write_source(tmp_path, _raw_frames(count=2))
-    destination = tmp_path / "capture.mmwe"
+    destination = tmp_path / "capture.mmwa"
 
-    with pytest.raises(EvidenceArchiveError, match="expected_evidence_sha256"):
-        write_evidence_archive(
+    with pytest.raises(ADCArchiveError, match="expected_adc_sha256"):
+        write_adc_archive(
             source,
             destination,
             frame_bytes=32,
             capture_contract_sha256=_contract(),
-            expected_evidence_sha256="0" * 64,
+            expected_adc_sha256="0" * 64,
         )
 
     assert not destination.exists()
-    assert not list(tmp_path.glob(".capture.mmwe.*.tmp"))
+    assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
 def test_rejects_strict_paths_integers_and_digests(tmp_path: Path) -> None:
     source = _write_source(tmp_path, _raw_frames())
-    destination = tmp_path / "capture.mmwe"
+    destination = tmp_path / "capture.mmwa"
     with pytest.raises(TypeError, match="not bool"):
-        write_evidence_archive(
+        write_adc_archive(
             source, destination, frame_bytes=True, capture_contract_sha256=_contract()
         )
     with pytest.raises(ValueError, match="64 lowercase"):
-        write_evidence_archive(source, destination, frame_bytes=32, capture_contract_sha256="short")
+        write_adc_archive(source, destination, frame_bytes=32, capture_contract_sha256="short")
     with pytest.raises(ValueError, match="multiple of two"):
-        write_evidence_archive(
-            source, destination, frame_bytes=31, capture_contract_sha256=_contract()
-        )
+        write_adc_archive(source, destination, frame_bytes=31, capture_contract_sha256=_contract())
     with pytest.raises(FileNotFoundError, match="parent"):
-        write_evidence_archive(
+        write_adc_archive(
             source,
-            tmp_path / "missing" / "capture.mmwe",
+            tmp_path / "missing" / "capture.mmwa",
             frame_bytes=32,
             capture_contract_sha256=_contract(),
         )
     source.write_bytes(b"incomplete")
     with pytest.raises(ValueError, match="trailing"):
-        write_evidence_archive(
+        write_adc_archive(
             source,
             destination,
             frame_bytes=4,
@@ -354,8 +363,8 @@ def test_index_offsets_must_be_contiguous(tmp_path: Path) -> None:
     payload[footer_offset + 128 :] = hashlib.sha256(footer_body).digest()
     destination.write_bytes(payload)
 
-    with pytest.raises(EvidenceArchiveError, match="contiguous"):
-        open_evidence_archive(destination)
+    with pytest.raises(ADCArchiveError, match="contiguous"):
+        open_adc_archive(destination)
 
 
 def test_index_rejects_encoded_frame_larger_than_fixed_bound(tmp_path: Path) -> None:
@@ -372,5 +381,5 @@ def test_index_rejects_encoded_frame_larger_than_fixed_bound(tmp_path: Path) -> 
     payload[footer_offset + 128 :] = hashlib.sha256(footer_body).digest()
     destination.write_bytes(payload)
 
-    with pytest.raises(EvidenceArchiveError, match="fixed bound"):
-        open_evidence_archive(destination)
+    with pytest.raises(ADCArchiveError, match="fixed bound"):
+        open_adc_archive(destination)

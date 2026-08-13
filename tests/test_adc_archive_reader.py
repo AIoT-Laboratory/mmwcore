@@ -13,15 +13,15 @@ from mmwcore.config import RadarCaptureSpec, RadarProfile, capture_contract_sha2
 from mmwcore.core import ADCDecodeRecipe, ADCFrameSpec, DopplerFFTSpec, RangeDopplerRecipe
 from mmwcore.dsp import process_adc_to_range_doppler
 from mmwcore.io import (
-    ADCEvidenceArchiveFrameReader,
+    ADCArchiveFrameReader,
     ADCFileFrameReader,
-    evidence_archive,
-    write_adc_evidence_archive,
+    adc_archive,
+    write_capture_adc_archive,
 )
-from mmwcore.io.evidence_archive import (
-    EvidenceArchive,
-    EvidenceArchiveError,
-    write_evidence_archive,
+from mmwcore.io.adc_archive import (
+    ADCArchive,
+    ADCArchiveError,
+    write_adc_archive,
 )
 
 
@@ -37,9 +37,9 @@ def native_codec(monkeypatch: pytest.MonkeyPatch) -> None:
         return raw
 
     monkeypatch.setattr(
-        evidence_archive,
+        adc_archive,
         "_native",
-        SimpleNamespace(encode_evidence_frame=encode, decode_evidence_frame=decode),
+        SimpleNamespace(encode_adc_archive_frame=encode, decode_adc_archive_frame=decode),
     )
 
 
@@ -65,8 +65,8 @@ def _archive(tmp_path: Path) -> tuple[Path, RadarCaptureSpec, bytes]:
     raw = np.arange(capture.adc.raw_values_per_frame * capture.num_frames, dtype=np.int16).tobytes()
     source = tmp_path / "adc.bin"
     source.write_bytes(raw)
-    archive = tmp_path / "adc.mmwe"
-    write_evidence_archive(
+    archive = tmp_path / "adc.mmwa"
+    write_adc_archive(
         source,
         archive,
         frame_bytes=capture.adc.raw_values_per_frame * np.dtype(np.int16).itemsize,
@@ -77,12 +77,12 @@ def _archive(tmp_path: Path) -> tuple[Path, RadarCaptureSpec, bytes]:
 
 def test_archive_reader_binds_capture_and_decodes_verified_raw_frames(tmp_path: Path) -> None:
     archive, capture, raw = _archive(tmp_path)
-    evidence_sha256 = hashlib.sha256(raw).hexdigest()
+    adc_sha256 = hashlib.sha256(raw).hexdigest()
 
-    reader = ADCEvidenceArchiveFrameReader(
+    reader = ADCArchiveFrameReader(
         archive,
         capture,
-        expected_evidence_sha256=evidence_sha256,
+        expected_adc_sha256=adc_sha256,
         metadata={"session": "fixture"},
     )
     frame = reader.read_frame(2)
@@ -98,7 +98,7 @@ def test_archive_reader_binds_capture_and_decodes_verified_raw_frames(tmp_path: 
         "session": "fixture",
         "frame_index": 2,
         "num_frames": 3,
-        "evidence_sha256": evidence_sha256,
+        "adc_sha256": adc_sha256,
         "capture_contract_sha256": capture_contract_sha256(capture),
     }
 
@@ -106,8 +106,8 @@ def test_archive_reader_binds_capture_and_decodes_verified_raw_frames(tmp_path: 
 @pytest.mark.parametrize(
     ("keyword", "value", "match"),
     [
-        ("expected_evidence_sha256", "0" * 64, "does not match"),
-        ("expected_evidence_sha256", "A" * 64, "lowercase"),
+        ("expected_adc_sha256", "0" * 64, "does not match"),
+        ("expected_adc_sha256", "A" * 64, "lowercase"),
     ],
 )
 def test_archive_reader_rejects_unbound_or_noncanonical_expected_digests(
@@ -119,10 +119,10 @@ def test_archive_reader_rejects_unbound_or_noncanonical_expected_digests(
     archive, capture, _ = _archive(tmp_path)
 
     with pytest.raises(ValueError, match=match):
-        ADCEvidenceArchiveFrameReader(
+        ADCArchiveFrameReader(
             archive,
             capture,
-            expected_evidence_sha256=value,
+            expected_adc_sha256=value,
         )
 
 
@@ -133,37 +133,37 @@ def test_archive_reader_rejects_contract_count_and_frame_integrity_mismatches(
 
     mismatched_capture = replace(capture, frame_periodicity_s=0.2)
     with pytest.raises(ValueError, match="capture_contract_sha256"):
-        ADCEvidenceArchiveFrameReader(
+        ADCArchiveFrameReader(
             archive,
             mismatched_capture,
-            expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+            expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
         )
 
     wrong_count = replace(capture, num_frames=2)
     source = tmp_path / "wrong-count.bin"
     source.write_bytes(np.arange(12, dtype=np.int16).tobytes())
-    wrong_count_archive = tmp_path / "wrong-count.mmwe"
-    write_evidence_archive(
+    wrong_count_archive = tmp_path / "wrong-count.mmwa"
+    write_adc_archive(
         source,
         wrong_count_archive,
         frame_bytes=wrong_count.adc.raw_values_per_frame * np.dtype(np.int16).itemsize,
         capture_contract_sha256=capture_contract_sha256(wrong_count),
     )
     with pytest.raises(ValueError, match="frame count"):
-        ADCEvidenceArchiveFrameReader(
+        ADCArchiveFrameReader(
             wrong_count_archive,
             wrong_count,
-            expected_evidence_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+            expected_adc_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
         )
 
     payload = bytearray(archive.read_bytes())
     payload[64] ^= 0xFF
     archive.write_bytes(payload)
-    with pytest.raises(EvidenceArchiveError, match="Native decode_evidence_frame"):
-        ADCEvidenceArchiveFrameReader(
+    with pytest.raises(ADCArchiveError, match="Native decode_adc_archive_frame"):
+        ADCArchiveFrameReader(
             archive,
             capture,
-            expected_evidence_sha256=hashlib.sha256(_archive_raw(capture)).hexdigest(),
+            expected_adc_sha256=hashlib.sha256(_archive_raw(capture)).hexdigest(),
         ).read_frame(0)
 
 
@@ -173,15 +173,15 @@ def test_archive_reader_open_does_not_verify_all_frames(
 ) -> None:
     archive, capture, raw = _archive(tmp_path)
 
-    def reject_eager_verification(self: EvidenceArchive) -> None:
+    def reject_eager_verification(self: ADCArchive) -> None:
         raise AssertionError("verify_all must remain explicit")
 
-    monkeypatch.setattr(EvidenceArchive, "verify_all", reject_eager_verification)
+    monkeypatch.setattr(ADCArchive, "verify_all", reject_eager_verification)
 
-    reader = ADCEvidenceArchiveFrameReader(
+    reader = ADCArchiveFrameReader(
         archive,
         capture,
-        expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
     )
 
     assert reader.num_frames == 3
@@ -190,10 +190,10 @@ def test_archive_reader_open_does_not_verify_all_frames(
 
 def test_archive_reader_revalidates_unchanged_input(tmp_path: Path) -> None:
     archive, capture, raw = _archive(tmp_path)
-    reader = ADCEvidenceArchiveFrameReader(
+    reader = ADCArchiveFrameReader(
         archive,
         capture,
-        expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
     )
 
     reader.revalidate_input()
@@ -204,18 +204,18 @@ def test_archive_reader_accepts_a_finalized_open_ended_capture(tmp_path: Path) -
     raw = np.arange(capture.adc.raw_values_per_frame * 3, dtype=np.int16).tobytes()
     source = tmp_path / "open-ended.bin"
     source.write_bytes(raw)
-    archive = tmp_path / "open-ended.mmwe"
-    write_adc_evidence_archive(
+    archive = tmp_path / "open-ended.mmwa"
+    write_capture_adc_archive(
         source,
         archive,
         capture,
-        expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
     )
 
-    reader = ADCEvidenceArchiveFrameReader(
+    reader = ADCArchiveFrameReader(
         archive,
         capture,
-        expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
     )
 
     assert reader.num_frames == 3
@@ -227,14 +227,14 @@ def test_capture_bound_writer_rejects_wrong_source_identity_before_publication(
     capture = _capture()
     source = tmp_path / "adc.bin"
     source.write_bytes(_archive_raw(capture))
-    destination = tmp_path / "adc.mmwe"
+    destination = tmp_path / "adc.mmwa"
 
-    with pytest.raises(EvidenceArchiveError, match="expected_evidence_sha256"):
-        write_adc_evidence_archive(
+    with pytest.raises(ADCArchiveError, match="expected_adc_sha256"):
+        write_capture_adc_archive(
             source,
             destination,
             capture,
-            expected_evidence_sha256="0" * 64,
+            expected_adc_sha256="0" * 64,
         )
 
     assert not destination.exists()
@@ -245,22 +245,22 @@ def test_capture_bound_writer_and_reader_preserve_the_logical_source(tmp_path: P
     raw = _archive_raw(capture)
     source = tmp_path / "adc.bin"
     source.write_bytes(raw)
-    destination = tmp_path / "adc.mmwe"
+    destination = tmp_path / "adc.mmwa"
     digest = hashlib.sha256(raw).hexdigest()
 
-    written = write_adc_evidence_archive(
+    written = write_capture_adc_archive(
         source,
         destination,
         capture,
-        expected_evidence_sha256=digest,
+        expected_adc_sha256=digest,
     )
-    reader = ADCEvidenceArchiveFrameReader(
+    reader = ADCArchiveFrameReader(
         destination,
         capture,
-        expected_evidence_sha256=digest,
+        expected_adc_sha256=digest,
     )
 
-    assert written.evidence_sha256 == digest
+    assert written.adc_sha256 == digest
     np.testing.assert_array_equal(reader.read_frame(1).samples, np.array([4, 5, 6, 7]))
 
 
@@ -269,19 +269,19 @@ def test_raw_and_archive_readers_produce_identical_range_doppler_data(tmp_path: 
     raw = _archive_raw(capture)
     source = tmp_path / "adc.bin"
     source.write_bytes(raw)
-    archive = tmp_path / "adc.mmwe"
+    archive = tmp_path / "adc.mmwa"
     digest = hashlib.sha256(raw).hexdigest()
-    write_adc_evidence_archive(
+    write_capture_adc_archive(
         source,
         archive,
         capture,
-        expected_evidence_sha256=digest,
+        expected_adc_sha256=digest,
     )
     raw_reader = ADCFileFrameReader.from_capture(source, capture)
-    archive_reader = ADCEvidenceArchiveFrameReader(
+    archive_reader = ADCArchiveFrameReader(
         archive,
         capture,
-        expected_evidence_sha256=digest,
+        expected_adc_sha256=digest,
     )
     recipe = RangeDopplerRecipe(
         decode=ADCDecodeRecipe(capture.adc),

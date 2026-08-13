@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from ._mmwcli_contract import MmwcliRawCaptureContract
+from .adc_archive import (
+    ADCArchive,
+    ADCArchiveError,
+    open_adc_archive,
+    write_adc_archive,
+)
+from .adc_archive_reader import ADCArchiveFrameReader, write_capture_adc_archive
 from .adc_file import ADCFileFrameReader, load_adc_cube, load_adc_file
 from .adc_reader import ADCFrameReader
 from .capture_stream import (
@@ -19,13 +26,6 @@ from .capture_stream import (
     ProvisionalADCFrame,
     ProvisionalRangeDopplerFrame,
     open_capture_stream,
-)
-from .evidence_adc import ADCEvidenceArchiveFrameReader, write_adc_evidence_archive
-from .evidence_archive import (
-    EvidenceArchive,
-    EvidenceArchiveError,
-    open_evidence_archive,
-    write_evidence_archive,
 )
 from .mmwcli_capture import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
@@ -89,10 +89,10 @@ __all__ = [
     "DCA1000_PACKET_HEADER_BYTES",
     "ADCFileFrameReader",
     "ADCFrameReader",
-    "ADCEvidenceArchiveFrameReader",
+    "ADCArchiveFrameReader",
     "ADCFileCapture",
-    "EvidenceArchive",
-    "EvidenceArchiveError",
+    "ADCArchive",
+    "ADCArchiveError",
     "DCA1000_PACKET_PAYLOAD_BYTES",
     "DCA1000_PACKET_PAYLOAD_INT16_VALUES",
     "DCA1000Packet",
@@ -149,7 +149,7 @@ __all__ = [
     "open_capture",
     "open_mmwcli_capture_metadata",
     "open_capture_stream",
-    "open_evidence_archive",
+    "open_adc_archive",
     "open_multisensor_capture",
     "open_multisensor_capture_metadata",
     "open_multisensor_source_timeline",
@@ -157,6 +157,6 @@ __all__ = [
     "parse_dca1000_packet",
     "read_dca1000_frame_from_packets",
     "reorder_dca1000_packets",
-    "write_evidence_archive",
-    "write_adc_evidence_archive",
+    "write_adc_archive",
+    "write_capture_adc_archive",
 ]

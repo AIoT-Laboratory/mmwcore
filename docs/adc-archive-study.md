@@ -1,25 +1,25 @@
-# Evidence Storage Research
+# ADC Archive Study
 
-This document records the codec study and the acceptance path for the offline v1 evidence archive.
+This document records the codec study and acceptance results for the offline v1 ADC archive.
 
 ## Objective
 
-Radar capture storage must preserve the complete acquired ADC evidence while supporting bounded
+Radar capture storage must preserve complete acquired ADC data while supporting bounded
 random access and efficient repeated training. Point clouds, detections, dense radar tensors, and
 model tokens are derived views and cannot replace the captured ADC payload.
 
 The working data model has three layers:
 
-1. **Evidence**: exact ADC bytes, frame boundaries, packet coverage, timing, radar configuration,
+1. **ADC source**: exact ADC bytes, frame boundaries, packet coverage, timing, radar configuration,
    calibration identity, and integrity digests.
 2. **Reversible representation**: chunking, byte-plane transforms, integer prediction, and lossless
-   entropy coding. Full decoding must reproduce the evidence bytes exactly.
+   entropy coding. Full decoding must reproduce the ADC bytes exactly.
 3. **Research views**: range, Doppler, angle, Cartesian tensors, point clouds, crops, reduced
    precision tensors, and model inputs. These are content-addressed caches that may be deleted and
-   rebuilt from evidence plus an explicit processing recipe.
+   rebuilt from the ADC source plus an explicit processing recipe.
 
 FFT output, magnitude conversion, quantization, clipping, filtering, and learned reconstruction
-are not evidence-preserving operations.
+are not lossless ADC storage operations.
 
 ## Hypotheses
 
@@ -28,7 +28,7 @@ are not evidence-preserving operations.
 - **H2 - bounded chunks**: independently decodable frame chunks provide useful compression while
   retaining practical sequential and random-window throughput.
 - **H3 - progressive views**: a small approximate base plus an exact residual may reduce routine
-  training I/O; only the complete base and residual pair is evidence.
+  training I/O; only the complete base and residual pair restores the source ADC bytes.
 - **H4 - learned entropy models**: a learned probability model may improve lossless coding across
   held-out captures. Prediction errors may increase bitrate but must never alter decoded samples.
 
@@ -38,23 +38,23 @@ H3 and H4 are deferred until simple lossless controls establish a credible basel
 
 The intended workflow is broader than a compressor:
 
-1. Acquisition publishes immutable evidence segments plus packet coverage, clocks, geometry,
+1. Acquisition publishes immutable ADC segments plus packet coverage, clocks, geometry,
    configuration, calibration identity, and an explicit commit outcome.
 2. An admitted mmwcore codec stores each exact segment in independently verifiable chunks.
 3. Processing recipes create content-addressed views on demand. Dense RT/RD/RA tensors,
    overlapping windows, point clouds, and model tokens are caches rather than duplicate truth.
 4. Training reads only the requested frame windows and regenerates missing views from the exact
-   evidence and recipe hash.
+   ADC source and recipe hash.
 
 AI may optimize a lossless entropy model, identify low-quality or novel intervals, prioritize
 derived caches, and select samples for annotation or adaptation. It must not synthesize missing
-ADC bytes, silently repair packet loss, or decide that filtered point clouds are sufficient
-evidence. Model weights used by a learned lossless codec become part of the decoder identity and
+ADC bytes, silently repair packet loss, or decide that filtered point clouds replace the captured
+ADC source. Model weights used by a learned lossless codec become part of the decoder identity and
 must be versioned with the chunk contract.
 
 ## Offline Baseline
 
-`benchmarks/evidence_storage_cli.py` compares a closed set of controls requiring no new compression
+`benchmarks/adc_storage_benchmark_cli.py` compares a closed set of controls requiring no new compression
 dependency on caller-owned ADC files:
 
 - `raw`
@@ -87,21 +87,21 @@ separately measure persistence, commit publication, recovery from interruption, 
 Smoke-test two frames of one capture:
 
 ```console
-uv run --no-sync python -m benchmarks.evidence_storage_cli CAPTURE.bin \
+uv run --no-sync python -m benchmarks.adc_storage_benchmark_cli CAPTURE.bin \
   --frame-bytes 1572864 --case raw:1 --case adaptive-shuffle-zlib:2 --max-frames 2 \
-  --random-windows 2 --window-frames 1 --output evidence-smoke.json
+  --random-windows 2 --window-frames 1 --output adc-storage-smoke.json
 ```
 
 Run a corpus benchmark by passing a directory. The default discovery name is
 `adc_data_Raw_0.bin`; use `--filename` for another acquisition convention.
 
 ```console
-uv run --no-sync python -m benchmarks.evidence_storage_cli CAPTURE_ROOT \
+uv run --no-sync python -m benchmarks.adc_storage_benchmark_cli CAPTURE_ROOT \
   --frame-bytes 1572864 \
   --case raw:1 --case shuffle-zlib:1 \
   --case shuffle-zlib:4 --case adaptive-shuffle-zlib:4 \
   --zlib-level 1 --random-windows 128 --window-frames 4 \
-  --output evidence-corpus.json
+  --output adc-storage-corpus.json
 ```
 
 This is a long I/O benchmark. Run it on an idle workstation against a fixed corpus and filesystem.
@@ -153,7 +153,7 @@ The focused adaptive pilot then processed 128 frames per scene with matched four
   outliers.
 
 The candidates now have different roles. `shuffle-zlib:1` is the low-latency training-read
-baseline. `adaptive-shuffle-zlib:4` is the cold-evidence archive candidate. On the current nine
+baseline. `adaptive-shuffle-zlib:4` is the cold-storage candidate. On the current nine
 takes, adaptive coding projects to about `5.43 GiB` instead of `7.91 GiB` raw; it saves only about
 `0.17 GiB` beyond simple shuffle. Therefore compression alone is not the new data paradigm. The
 larger system gain must come from deleting regenerable dense tensors and overlapping windows, then
@@ -236,16 +236,16 @@ progressive layer, or compatibility negotiation. The archive is an offline repre
 completed ADC file; it does not replace acquisition publication until durable-write and recovery
 evidence exists.
 
-The implementation exposes `write_evidence_archive()` and `open_evidence_archive()`. Its fixed
+The implementation exposes `write_adc_archive()` and `open_adc_archive()`. Its fixed
 little-endian layout contains a 64-byte header, one encoded payload per frame, a 48-byte fixed index
 record per frame, and a 160-byte commit footer at physical EOF. The header binds frame dimensions
 and the caller-owned capture-contract SHA-256. Each index record binds its payload offset, encoded
 length, and decoded-frame SHA-256. The self-digested footer binds the header, complete index, and
 concatenated logical ADC SHA-256. Frame size and encoded payload length have explicit bounds.
 
-For a declared `RadarCaptureSpec`, `write_adc_evidence_archive()` derives the frame size and
+For a declared `RadarCaptureSpec`, `write_capture_adc_archive()` derives the frame size and
 capture-contract digest from that contract and requires the SHA-256 of the original ADC file. The
-matching `ADCEvidenceArchiveFrameReader()` checks all three identities before exposing
+matching `ADCArchiveFrameReader()` checks all three identities before exposing
 random-access frames. This makes the archive a storage representation of one known ADC source, not a
 replacement contract that infers layout or hardware metadata.
 
@@ -263,9 +263,9 @@ separate reopened full replay. Random windows report verified reads and trusted 
 full verification. Archive ratio includes header, index, footer, and every encoded payload.
 
 ```console
-uv run --no-sync python -m benchmarks.evidence_archive_acceptance_cli CAPTURE_ROOT \
+uv run --no-sync python -m benchmarks.adc_archive_acceptance_cli CAPTURE_ROOT \
   --frame-bytes 1572864 --random-windows 128 --window-frames 4 \
-  --scratch-dir D:/Shared --output D:/Shared/mmwcore-evidence-archive-v1.json
+  --scratch-dir D:/Shared --output D:/Shared/mmwcore-adc-archive-v1.json
 ```
 
 The command writes only temporary archives under `--scratch-dir`, removes each after its source is
@@ -282,7 +282,7 @@ passed complete replay and 128 direct-source comparisons of randomly selected fo
 
 | Measurement | Corpus result |
 |---|---:|
-| Raw evidence | 12.3047 GiB |
+| Raw ADC data | 12.3047 GiB |
 | Complete archive | 8.0590 GiB |
 | Total archive ratio | 0.6550 |
 | Storage reduction | 4.2457 GiB / 34.50% |
@@ -300,7 +300,7 @@ the established `30 MiB/s` development gate and includes source hashing, Rust en
 metadata writes, file `fsync`, source rehashing, complete decode verification, and atomic
 publication.
 
-This result admits evidence archive v1 only as an offline representation of finalized ADC files.
+This result admits ADC archive v1 only as an offline representation of finalized ADC files.
 It does not admit inline acquisition encoding or make claims about capture backpressure, power-loss
 durability, or interrupted-device operation. The external machine-readable report intentionally
 remains outside the public repository because it contains workstation paths; this document records

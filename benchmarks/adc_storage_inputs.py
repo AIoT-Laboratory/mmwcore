@@ -1,4 +1,4 @@
-"""Input discovery and option validation for evidence-storage benchmarks."""
+"""Input discovery and option validation for ADC storage benchmarks."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from benchmarks.evidence_codecs import SUPPORTED_CODECS
+from benchmarks.adc_storage_codecs import SUPPORTED_CODECS
 
 
 @dataclass(frozen=True)
-class EvidenceCase:
+class StorageCase:
     codec: str
     chunk_frames: int
 
@@ -30,7 +30,7 @@ def discover_sources(inputs: Iterable[Path], *, filename: str) -> list[Path]:
                 if candidate.is_file():
                     found[candidate.resolve()] = None
         else:
-            raise FileNotFoundError(f"Evidence benchmark input does not exist: {input_path}")
+            raise FileNotFoundError(f"ADC storage benchmark input does not exist: {input_path}")
     sources = sorted(found)
     if not sources:
         raise FileNotFoundError(f"No files named {filename!r} were found in the requested inputs.")
@@ -66,7 +66,7 @@ def validate_options(
     inputs: Sequence[Path],
     *,
     frame_bytes: int,
-    cases: Sequence[EvidenceCase],
+    cases: Sequence[StorageCase],
     start_frame: int,
     max_frames: int | None,
     random_windows: int,
@@ -75,7 +75,7 @@ def validate_options(
     scratch_dir: Path | None,
 ) -> None:
     if not inputs:
-        raise ValueError("At least one evidence source file or directory is required.")
+        raise ValueError("At least one ADC source file or directory is required.")
     if frame_bytes <= 0 or frame_bytes % 2:
         raise ValueError("Frame bytes must be a positive multiple of two.")
     _validate_cases(cases)
@@ -91,17 +91,17 @@ def validate_options(
         raise FileNotFoundError(f"Scratch directory does not exist: {scratch_dir}")
 
 
-def _validate_cases(cases: Sequence[EvidenceCase]) -> None:
+def _validate_cases(cases: Sequence[StorageCase]) -> None:
     if not cases:
-        raise ValueError("At least one evidence benchmark case is required.")
+        raise ValueError("At least one ADC storage benchmark case is required.")
     if any(case.chunk_frames <= 0 for case in cases):
         raise ValueError("Case chunk frames must be positive.")
     unsupported = {case.codec for case in cases}.difference(SUPPORTED_CODECS)
     if unsupported:
-        raise ValueError(f"Unsupported evidence benchmark codecs: {sorted(unsupported)!r}.")
+        raise ValueError(f"Unsupported ADC storage codecs: {sorted(unsupported)!r}.")
     identities = {(case.codec, case.chunk_frames) for case in cases}
     if len(identities) != len(cases):
-        raise ValueError("Evidence benchmark cases must be unique.")
+        raise ValueError("ADC storage benchmark cases must be unique.")
 
 
 def _validate_selection(
