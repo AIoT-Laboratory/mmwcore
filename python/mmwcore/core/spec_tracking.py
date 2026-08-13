@@ -114,7 +114,7 @@ class TrackGatingSpec:
 
 @dataclass(frozen=True)
 class TrackAllocationSpec:
-    """Minimum cluster evidence required to allocate a tentative track."""
+    """Minimum cluster support required to allocate a tentative track."""
 
     min_points: int = 1
     min_abs_radial_velocity_mps: float = 0.0

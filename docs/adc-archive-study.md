@@ -34,15 +34,15 @@ are not lossless ADC storage operations.
 
 H3 and H4 are deferred until simple lossless controls establish a credible baseline.
 
-## AI-assisted Research Data Plane
+## Research Workflow and AI Use
 
 The intended workflow is broader than a compressor:
 
 1. Acquisition publishes immutable ADC segments plus packet coverage, clocks, geometry,
    configuration, calibration identity, and an explicit commit outcome.
-2. An admitted mmwcore codec stores each exact segment in independently verifiable chunks.
+2. A validated mmwcore codec stores each exact segment in independently verifiable chunks.
 3. Processing recipes create content-addressed views on demand. Dense RT/RD/RA tensors,
-   overlapping windows, point clouds, and model tokens are caches rather than duplicate truth.
+   overlapping windows, point clouds, and model tokens are caches rather than duplicate source data.
 4. Training reads only the requested frame windows and regenerates missing views from the exact
    ADC source and recipe hash.
 
@@ -74,7 +74,7 @@ an archive and does not modify its inputs. Each chunk is decoded and compared wi
 bytes. Random windows are also compared with direct source reads.
 
 Random-window results separate two scopes over the same generated windows. `trusted` measures
-seek, read, decode, and slice after the archive has passed sequential admission; it omits a
+seek, read, decode, and slice after the archive has passed sequential verification; it omits a
 repeated SHA-256 calculation on every chunk read. `verified` additionally hashes every decoded
 chunk. Both modes compare their output with direct source bytes outside the timed interval, and
 sequential replay always verifies every chunk digest. The report records the mode order, so the
@@ -125,7 +125,7 @@ tradeoff without weakening exact replay or failure isolation.
 ## Development Pilot
 
 The first pilot used 128 frames each from an empty scene, standing, and waving, with 64 random
-four-frame reads. It is development evidence from a dirty revision, not a publication result.
+four-frame reads. It is a development measurement from a dirty revision, not a publication result.
 
 - Every tested case reproduced the selected ADC bytes exactly.
 - Direct zlib expanded the payload to `1.01-1.02x`; it is rejected as a candidate.
@@ -147,7 +147,7 @@ The focused adaptive pilot then processed 128 frames per scene with matched four
   reduced encoded bytes by `0%` for empty, `3.57%` for standing, and `5.41%` for waving.
 - Adaptive encoding was `1.6-2.6x` slower than matched shuffle. Its minimum encode throughput was
   `41 MiB/s`, minimum end-to-end pack throughput was `38 MiB/s`, and worst verified random-read
-  P95 was `132 ms`; it still passed the `30 MiB/s` development gate.
+  P95 was `132 ms`; it still exceeded the `30 MiB/s` development target.
 - All 32 empty-scene chunks selected shuffle. All 32 standing and all 32 waving chunks selected
   frame-delta. The result is systematic across each selected interval rather than driven by a few
   outliers.
@@ -159,7 +159,7 @@ takes, adaptive coding projects to about `5.43 GiB` instead of `7.91 GiB` raw; i
 larger system gain must come from deleting regenerable dense tensors and overlapping windows, then
 materializing content-addressed research views on demand.
 
-The pilot reports were produced from a dirty development revision and cannot admit a format by
+The pilot reports were produced from a dirty development revision and cannot validate a format by
 themselves.
 
 ## Full Corpus Result
@@ -182,11 +182,11 @@ Single-frame shuffle retained between `70.04%` and `73.06%` for every source and
 3,799,491,093 bytes from the corpus. Four-frame shuffle saved only 1,039,778 additional bytes while
 increasing the worst verified random-window P95 by about 62%; it is rejected. Adaptive coding saved
 288,857,423 bytes beyond matched four-frame shuffle, but its worst pack throughput fell close to
-the development gate before durable-write costs. It remains a cold-archive and learned-entropy
+the development target before durable-write costs. It remains a cold-archive and learned-entropy
 control, not the first format.
 
-The corpus passes the offline codec gate for one-frame `shuffle-zlib` at level 1. This codec-only
-run does not by itself admit a stable archive format: it excluded manifest/index overhead, `fsync`,
+The corpus satisfies the offline codec criteria for one-frame `shuffle-zlib` at level 1. This codec-only
+run does not by itself validate a stable archive format: it excluded manifest/index overhead, `fsync`,
 atomic publication, interruption recovery, malformed-index attacks, decompression bounds, and a
 Rust implementation. Those properties belong to the format implementation and its acceptance
 tests.
@@ -195,7 +195,7 @@ Top-level case summaries use total-byte-weighted storage ratio, the minimum thro
 sources, separate maximum trusted and verified random-read P95 values, and an all-source
 verification flag. They deliberately do not average away a bad capture.
 
-## Required Evidence
+## Required Measurements
 
 Every candidate must report:
 
@@ -207,14 +207,14 @@ Every candidate must report:
 - successful byte-exact sequential and random-window replay.
 
 The report also records all benchmark parameters, random seed, environment, repository revision,
-and whether the worktree was dirty. Evidence intended for comparison should come from a clean,
+and whether the worktree was dirty. Results intended for comparison should come from a clean,
 committed revision.
 
 The benchmark excludes archive index and manifest overhead. A format proposal must measure those
 costs separately. Pure encode/decode throughput is not applicable to the `raw` no-codec control;
 its end-to-end pack and sequential replay throughput remain available.
 
-## Admission Gate
+## Acceptance Criteria
 
 A storage format may enter `mmwcore` only after the offline corpus shows all of the following:
 
@@ -225,7 +225,7 @@ A storage format may enter `mmwcore` only after the offline corpus shows all of 
 - stable behavior across empty, static, and moving scenes;
 - lower total retained storage after regenerable DSP and overlapping-window copies are removed.
 
-Reject a candidate if it changes any evidence byte, hides missing data, requires decoding the whole
+Reject a candidate if it changes any ADC byte, hides missing data, requires decoding the whole
 capture for a random frame, only works in one scene, or adds complexity without consistently
 beating the simple controls.
 
@@ -234,7 +234,7 @@ chunk, little-endian `int16` byte-plane shuffle, zlib-wrapped DEFLATE level 1, a
 decoded frame. There is no codec selector, adaptive transform, frame delta, learned decoder,
 progressive layer, or compatibility negotiation. The archive is an offline representation of a
 completed ADC file; it does not replace acquisition publication until durable-write and recovery
-evidence exists.
+measurements exist.
 
 The implementation exposes `write_adc_archive()` and `open_adc_archive()`. Its fixed
 little-endian layout contains a 64-byte header, one encoded payload per frame, a 48-byte fixed index
@@ -274,7 +274,7 @@ on the fixed corpus.
 
 ## Implemented Archive Acceptance
 
-The fixed offline archive was admitted on 2026-08-13 using clean revision
+The fixed offline archive was validated on 2026-08-13 using clean revision
 `9864cca55b9517d3bb80f80f4c3449a46174eee5`. The acceptance run used the same 14 complete sources,
 8,400 frames, and 13,212,057,600 logical bytes as the codec corpus. It covered empty scenes,
 sitting, standing, walking, and waving across both retained capture-directory layouts. Every source
@@ -296,26 +296,26 @@ passed complete replay and 128 direct-source comparisons of randomly selected fo
 Per-source archive ratios remained between `0.6426` and `0.6633`. Verified atomic publication remained
 between `72.3` and `93.1 MiB/s`, and reopened full verification remained between `212.2` and
 `235.1 MiB/s`. No scene or motion class was an outlier. The minimum publication result is `2.41x`
-the established `30 MiB/s` development gate and includes source hashing, Rust encoding, payload and
+the established `30 MiB/s` development target and includes source hashing, Rust encoding, payload and
 metadata writes, file `fsync`, source rehashing, complete decode verification, and atomic
 publication.
 
-This result admits ADC archive v1 only as an offline representation of finalized ADC files.
-It does not admit inline acquisition encoding or make claims about capture backpressure, power-loss
+This result validates ADC archive v1 only as an offline representation of finalized ADC files.
+It does not validate inline acquisition encoding or make claims about capture backpressure, power-loss
 durability, or interrupted-device operation. The external machine-readable report intentionally
 remains outside the public repository because it contains workstation paths; this document records
-the aggregate acceptance evidence and committed implementation revision.
+the aggregate acceptance results and committed implementation revision.
 
 ## Repository Boundary
 
-- Acquisition software owns hardware control, packet coverage, clock evidence, atomic publication,
+- Acquisition software owns hardware control, packet coverage, clock records, atomic publication,
   and capture backpressure.
-- `mmwcore` owns an admitted lossless chunk contract, deterministic codecs, integrity checks, and
+- `mmwcore` owns a validated lossless chunk contract, deterministic codecs, integrity checks, and
   frame/window reads.
 - Research platforms own labels, splits, processing recipes, disposable caches, and training
   scheduling.
 
-The admitted implementation remains offline. Acquisition must continue writing its current exact
+The validated implementation remains offline. Acquisition must continue writing its current exact
 ADC payload until inline encoding, backpressure, and interruption recovery are independently
 implemented and measured. The archive reader is intended for post-capture processing, replay, and
 training input; it does not silently change the source identity used by those workflows.

@@ -271,7 +271,7 @@ def open_capture(
 def open_mmwcli_capture_metadata(path: str | Path) -> MmwcliCaptureMetadata:
     """Open a strict mmwcli capture contract without touching ``adc.bin``.
 
-    This is suitable when a verified evidence archive supplies the payload but
+    This is suitable when a verified ADC archive supplies the payload but
     the original ADC file has been removed.  The returned contract binds the
     manifest's raw-capture declaration, ADC identity, and parsed radar CFG.
     """

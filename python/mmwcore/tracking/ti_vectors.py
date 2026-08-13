@@ -109,7 +109,7 @@ class TiGTrack2DBenchmarkReport:
     measurement: TiGTrackComparison
 
     def to_record(self) -> dict[str, object]:
-        """Return a JSON-serializable evidence record."""
+        """Return a JSON-serializable comparison record."""
 
         return {
             "schema_version": 1,
