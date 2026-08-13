@@ -4,6 +4,21 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+## [0.5.0] - 2026-08-13
+
+### Changed
+
+- Rename the public raw-ADC storage API to `ADCArchive`, `ADCArchiveFrameReader`,
+  `open_adc_archive()`, `write_adc_archive()`, and `write_capture_adc_archive()`.
+- Rename the native frame codec to `encode_adc_archive_frame()` and
+  `decode_adc_archive_frame()` and use the Rust error type `AdcArchiveCodecError`.
+- Publish ADC archives with the `.mmwa` suffix and the `mmwcore.adc_archive.v1` format identity.
+- Create a GitHub Release with wheel and source-distribution assets from the release workflow.
+
+### Removed
+
+- Remove the former evidence-named archive API and `.mmwe` format without compatibility aliases.
+
 ## [0.4.0] - 2026-08-13
 
 ### Added

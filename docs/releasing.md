@@ -9,6 +9,10 @@ Python and Rust artifacts use the same version from the Cargo workspace.
 3. Run CI, `cargo publish -p mmwcore --dry-run --locked`, and a wheel installation smoke test.
 4. Verify that the Git tag is `v<version>`.
 
+After wheels and the source distribution succeed, the release workflow creates or updates the
+GitHub Release, uploads those assets, and generates release notes. This job does not wait for PyPI
+or crates.io publication.
+
 ## PyPI
 
 The `release.yml` workflow builds interpreter-specific wheels for ordinary, GIL-enabled CPython
