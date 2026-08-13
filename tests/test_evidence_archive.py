@@ -102,6 +102,17 @@ def test_trusted_read_requires_a_successful_full_verification(tmp_path: Path) ->
         archive.read_frames(0, 1, verify=False)
 
 
+def test_revalidate_input_rejects_archive_changed_after_open(tmp_path: Path) -> None:
+    destination, _ = _archive(tmp_path)
+    archive = open_evidence_archive(destination)
+    payload = bytearray(destination.read_bytes())
+    payload[-1] ^= 0x01
+    destination.write_bytes(payload)
+
+    with pytest.raises(EvidenceArchiveError, match="changed"):
+        archive.revalidate_input()
+
+
 def test_failed_verified_read_revokes_trusted_state(tmp_path: Path) -> None:
     destination, _ = _archive(tmp_path)
     archive = open_evidence_archive(destination)

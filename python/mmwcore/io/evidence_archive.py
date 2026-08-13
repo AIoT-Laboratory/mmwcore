@@ -171,6 +171,16 @@ class EvidenceArchive:
             raise EvidenceArchiveError("Archive logical raw SHA-256 does not match the footer.")
         self._verified_all = True
 
+    def revalidate_input(self) -> None:
+        """Confirm that the opened archive file still has the same identity."""
+
+        with self._open_checked() as archive:
+            archive.seek(self._index_offset)
+            if archive.read(len(self._index)) != self._index:
+                self._verified_all = False
+                raise EvidenceArchiveError("Evidence archive index changed after it was opened.")
+            self._require_unchanged_stream(archive)
+
     def _open_checked(self) -> BinaryIO:
         archive = self._path.open("rb")
         try:

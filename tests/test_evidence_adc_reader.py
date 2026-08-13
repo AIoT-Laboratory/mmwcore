@@ -188,6 +188,17 @@ def test_archive_reader_open_does_not_verify_all_frames(
     np.testing.assert_array_equal(reader.read_frame(0).samples, np.array([0, 1, 2, 3]))
 
 
+def test_archive_reader_revalidates_unchanged_input(tmp_path: Path) -> None:
+    archive, capture, raw = _archive(tmp_path)
+    reader = ADCEvidenceArchiveFrameReader(
+        archive,
+        capture,
+        expected_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+    )
+
+    reader.revalidate_input()
+
+
 def test_archive_reader_accepts_a_finalized_open_ended_capture(tmp_path: Path) -> None:
     capture = replace(_capture(), num_frames=None)
     raw = np.arange(capture.adc.raw_values_per_frame * 3, dtype=np.int16).tobytes()

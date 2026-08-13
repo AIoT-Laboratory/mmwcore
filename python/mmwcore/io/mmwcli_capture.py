@@ -114,6 +114,50 @@ class ADCFileCapture:
 
 
 @dataclass(frozen=True)
+class MmwcliCaptureMetadata:
+    """Validated mmwcli capture metadata that does not access ``adc.bin``.
+
+    This verifies the retained manifest and radar configuration contract.  It
+    deliberately does not establish that the raw ADC payload is present or
+    matches its declared digest; use :func:`open_capture` for that operation.
+    """
+
+    root: Path
+    manifest_path: Path
+    manifest_size_bytes: int
+    manifest_sha256: str
+    radar_config_path: Path
+    radar_config_size_bytes: int
+    radar_config_sha256: str
+    raw_capture: MmwcliRawCaptureContract
+    radar_capture: RadarCaptureSpec
+    adc_size_bytes: int
+    adc_sha256: str
+
+    def revalidate_inputs(self) -> None:
+        """Confirm that retained metadata still has the opened content.
+
+        This intentionally does not inspect ``adc.bin``.  It is a cheap
+        pre-publication guard for consumers that process archive-backed ADC.
+        """
+
+        _revalidate_regular_input(
+            self.manifest_path,
+            label="capture manifest",
+            maximum_bytes=_MAX_MANIFEST_BYTES,
+            expected_size=self.manifest_size_bytes,
+            expected_sha256=self.manifest_sha256,
+        )
+        _revalidate_regular_input(
+            self.radar_config_path,
+            label="radar configuration",
+            maximum_bytes=_MAX_RADAR_CONFIG_BYTES,
+            expected_size=self.radar_config_size_bytes,
+            expected_sha256=self.radar_config_sha256,
+        )
+
+
+@dataclass(frozen=True)
 class _ManifestV1:
     raw_capture: MmwcliRawCaptureContract
     adc_size_bytes: int
@@ -198,29 +242,53 @@ def open_capture(
     if sys.byteorder != "little":
         raise RuntimeError("mmwcli capture sessions require a little-endian host.")
 
+    metadata = open_mmwcli_capture_metadata(path)
+    adc_path = _fixed_regular_leaf(metadata.root, _ADC_FILE_NAME, "ADC payload")
+    adc_status = _regular_file_status(adc_path, "ADC payload")
+    if adc_status.st_size != metadata.adc_size_bytes:
+        raise ValueError(
+            "mmwcli capture ADC size does not match capture.json: "
+            f"{adc_status.st_size} != {metadata.adc_size_bytes}."
+        )
+
+    adc_digest = _sha256_regular_file(adc_path, expected_size=metadata.adc_size_bytes)
+    if not hmac.compare_digest(adc_digest, metadata.adc_sha256):
+        raise ValueError("mmwcli capture adc.bin SHA-256 does not match capture.json.")
+
+    reader = ADCFileFrameReader.from_capture(adc_path, metadata.radar_capture)
+    capture = ADCFileCapture(
+        root=metadata.root,
+        manifest_path=metadata.manifest_path,
+        adc_path=adc_path,
+        radar_config_path=metadata.radar_config_path,
+        raw_capture=metadata.raw_capture,
+        radar_capture=metadata.radar_capture,
+        reader=reader,
+    )
+    return _bind_range_doppler(capture, range_doppler)
+
+
+def open_mmwcli_capture_metadata(path: str | Path) -> MmwcliCaptureMetadata:
+    """Open a strict mmwcli capture contract without touching ``adc.bin``.
+
+    This is suitable when a verified evidence archive supplies the payload but
+    the original ADC file has been removed.  The returned contract binds the
+    manifest's raw-capture declaration, ADC identity, and parsed radar CFG.
+    """
+
     root = _capture_root(path)
     manifest_path = _fixed_regular_leaf(root, _MANIFEST_FILE_NAME, "manifest")
-    manifest = _parse_manifest(
-        _read_regular_bytes(
-            manifest_path,
-            label="capture manifest",
-            maximum_bytes=_MAX_MANIFEST_BYTES,
-        )
+    manifest_bytes = _read_regular_bytes(
+        manifest_path,
+        label="capture manifest",
+        maximum_bytes=_MAX_MANIFEST_BYTES,
     )
-
-    adc_path = _fixed_regular_leaf(root, _ADC_FILE_NAME, "ADC payload")
+    manifest = _parse_manifest(manifest_bytes)
     radar_config_path = _fixed_regular_leaf(
         root,
         _RADAR_CONFIG_FILE_NAME,
         "radar configuration",
     )
-    adc_status = _regular_file_status(adc_path, "ADC payload")
-    if adc_status.st_size != manifest.adc_size_bytes:
-        raise ValueError(
-            "mmwcli capture ADC size does not match capture.json: "
-            f"{adc_status.st_size} != {manifest.adc_size_bytes}."
-        )
-
     config_bytes = _read_regular_bytes(
         radar_config_path,
         label="radar configuration",
@@ -238,22 +306,19 @@ def open_capture(
             "mmwcli capture CFG-derived size does not match capture.json: "
             f"{expected_size_bytes} != {manifest.adc_size_bytes}."
         )
-
-    adc_digest = _sha256_regular_file(adc_path, expected_size=manifest.adc_size_bytes)
-    if not hmac.compare_digest(adc_digest, manifest.adc_sha256):
-        raise ValueError("mmwcli capture adc.bin SHA-256 does not match capture.json.")
-
-    reader = ADCFileFrameReader.from_capture(adc_path, radar_capture)
-    capture = ADCFileCapture(
+    return MmwcliCaptureMetadata(
         root=root,
         manifest_path=manifest_path,
-        adc_path=adc_path,
+        manifest_size_bytes=len(manifest_bytes),
+        manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
         radar_config_path=radar_config_path,
+        radar_config_size_bytes=len(config_bytes),
+        radar_config_sha256=hashlib.sha256(config_bytes).hexdigest(),
         raw_capture=manifest.raw_capture,
         radar_capture=radar_capture,
-        reader=reader,
+        adc_size_bytes=manifest.adc_size_bytes,
+        adc_sha256=manifest.adc_sha256,
     )
-    return _bind_range_doppler(capture, range_doppler)
 
 
 def _capture_root(path: str | Path) -> Path:
@@ -282,7 +347,12 @@ def _regular_file_status(path: Path, label: str) -> os.stat_result:
     return status
 
 
-def _read_regular_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytes:
+def _read_regular_bytes(
+    path: Path,
+    *,
+    label: str,
+    maximum_bytes: int,
+) -> bytes:
     status = _regular_file_status(path, label)
     if status.st_size > maximum_bytes:
         raise ValueError(f"mmwcli capture {label} exceeds the {maximum_bytes}-byte limit.")
@@ -290,6 +360,21 @@ def _read_regular_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytes:
     if len(payload) > maximum_bytes or len(payload) != status.st_size:
         raise ValueError(f"mmwcli capture {label} changed while it was read.")
     return payload
+
+
+def _revalidate_regular_input(
+    path: Path,
+    *,
+    label: str,
+    maximum_bytes: int,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
+    payload = _read_regular_bytes(path, label=label, maximum_bytes=maximum_bytes)
+    if len(payload) > maximum_bytes or len(payload) != expected_size:
+        raise ValueError(f"mmwcli capture {label} changed while it was revalidated.")
+    if not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), expected_sha256):
+        raise ValueError(f"mmwcli capture {label} digest changed after open.")
 
 
 def _sha256_regular_file(path: Path, *, expected_size: int) -> str:
@@ -396,6 +481,8 @@ def _required_sha256(record: dict[str, object], field: str, label: str) -> str:
 __all__ = [
     "ADCFileCapture",
     "MMWCLI_CAPTURE_SESSION_SCHEMA_V1",
+    "MmwcliCaptureMetadata",
     "RangeDopplerPreset",
     "open_capture",
+    "open_mmwcli_capture_metadata",
 ]

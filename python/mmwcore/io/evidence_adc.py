@@ -114,6 +114,11 @@ class ADCEvidenceArchiveFrameReader:
 
         self._archive.verify_all()
 
+    def revalidate_input(self) -> None:
+        """Confirm that the archive input is unchanged since it was opened."""
+
+        self._archive.revalidate_input()
+
 
 def write_adc_evidence_archive(
     source: str | Path,

@@ -12,6 +12,12 @@ from typing import Any, cast
 import pytest
 
 from mmwcore import open_multisensor_capture as public_open_multisensor_capture
+from mmwcore import (
+    open_multisensor_capture_metadata as public_open_multisensor_capture_metadata,
+)
+from mmwcore import (
+    open_multisensor_source_timeline as public_open_multisensor_source_timeline,
+)
 from mmwcore.core import ADCDecodeRecipe, RangeDopplerRecipe
 from mmwcore.io import (
     MMWCLI_MULTISENSOR_SESSION_SCHEMA_V1,
@@ -19,10 +25,15 @@ from mmwcore.io import (
     ADCFileCapture,
     MappedTimeInterval,
     MultisensorCapture,
+    MultisensorCaptureMetadata,
     MultisensorItem,
     MultisensorSource,
+    MultisensorSourceTimeline,
+    MultisensorTimelineItem,
     causal_match,
     open_multisensor_capture,
+    open_multisensor_capture_metadata,
+    open_multisensor_source_timeline,
 )
 
 _SESSION_ID = "12345678-1234-4abc-8def-1234567890ab"
@@ -79,6 +90,143 @@ def test_open_multisensor_capture_reads_training_items_and_time(tmp_path: Path) 
     )
     with pytest.raises(FrozenInstanceError):
         capture.session_id = "changed"  # type: ignore[misc]
+
+
+def test_open_multisensor_capture_metadata_reads_only_session_manifest(tmp_path: Path) -> None:
+    root, _record = _write_fixture(tmp_path)
+    session_bytes = (root / "session.json").read_bytes()
+    shutil.rmtree(root / "sensors")
+
+    metadata = open_multisensor_capture_metadata(root)
+
+    assert isinstance(metadata, MultisensorCaptureMetadata)
+    assert public_open_multisensor_capture_metadata is open_multisensor_capture_metadata
+    assert metadata.root == root.absolute()
+    assert metadata.session_path == root / "session.json"
+    assert metadata.session_size_bytes == len(session_bytes)
+    assert metadata.session_sha256 == hashlib.sha256(session_bytes).hexdigest()
+    assert metadata.session_id == _SESSION_ID
+    assert metadata.host_clock_id == "host-0"
+    assert metadata.item_count == 2
+    assert metadata.payload_bytes == 13
+    radar = metadata.source("radar-0")
+    assert radar.kind == "radar"
+    assert radar.outcome == "complete"
+    assert radar.producer_name == "fixture"
+    assert radar.max_items == 1
+    assert radar.payload_filename == "adc.bin"
+    assert radar.payload_bytes == 5
+    assert [(artifact.role, artifact.path) for artifact in radar.artifacts] == [
+        ("payload", "adc.bin"),
+        ("index", "index.bin"),
+    ]
+    metadata.revalidate_inputs()
+    with pytest.raises(FrozenInstanceError):
+        metadata.session_id = "changed"  # type: ignore[misc]
+    with pytest.raises(ValueError, match="sensor directory is unavailable"):
+        open_multisensor_capture(root)
+
+
+def test_multisensor_capture_metadata_revalidate_inputs_rejects_modified_session(
+    tmp_path: Path,
+) -> None:
+    root, _record = _write_fixture(tmp_path)
+    metadata = open_multisensor_capture_metadata(root)
+    session_path = root / "session.json"
+    session_path.write_bytes(session_path.read_bytes() + b"\n")
+
+    with pytest.raises(ValueError, match="changed|digest"):
+        metadata.revalidate_inputs()
+
+
+def test_source_timeline_reads_radar_and_camera_after_payload_removal(tmp_path: Path) -> None:
+    root, _record = _write_fixture(tmp_path)
+    (root / "sensors" / "radar-0" / "adc.bin").unlink()
+    (root / "sensors" / "camera-0" / "frames.bin").unlink()
+
+    radar = open_multisensor_source_timeline(root, "radar-0")
+    camera = open_multisensor_source_timeline(root, "camera-0")
+
+    assert public_open_multisensor_source_timeline is open_multisensor_source_timeline
+    assert isinstance(radar, MultisensorSourceTimeline)
+    assert radar.source_id == "radar-0"
+    assert radar.item_count == 1
+    assert radar.index_path.name == "index.bin"
+    assert radar.items == (
+        MultisensorTimelineItem(
+            training_key=(_SESSION_ID, "radar-0", 0, _EVENT_ID),
+            payload_offset=0,
+            payload_size=5,
+            mapped_time=MappedTimeInterval(99_999_995, 110_000_005),
+            duration_ticks=10,
+            sync_event_id=_EVENT_ID,
+        ),
+    )
+    assert camera.items == (
+        MultisensorTimelineItem(
+            training_key=(_SESSION_ID, "camera-0", 0, _EVENT_ID),
+            payload_offset=0,
+            payload_size=8,
+            mapped_time=MappedTimeInterval(102_999_990, 107_000_010),
+            duration_ticks=4,
+            sync_event_id=_EVENT_ID,
+        ),
+    )
+    radar.revalidate_inputs()
+    camera.revalidate_inputs()
+
+
+@pytest.mark.parametrize("mutation", ["index", "session", "declared_digest"])
+def test_source_timeline_rejects_tampered_index_or_session(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    root, record = _write_fixture(tmp_path)
+    index_path = root / "sensors" / "radar-0" / "index.bin"
+    if mutation == "index":
+        payload = bytearray(index_path.read_bytes())
+        payload[-1] ^= 1
+        index_path.write_bytes(payload)
+    elif mutation == "session":
+        (root / "session.json").write_text('{"schema":NaN}', encoding="utf-8")
+    else:
+        _artifact(_source(record, "radar-0"), "index")["sha256"] = "0" * 64
+        _write_session(root, record)
+
+    with pytest.raises(ValueError):
+        open_multisensor_source_timeline(root, "radar-0")
+
+
+@pytest.mark.parametrize("replacement", ["session", "index"])
+def test_source_timeline_revalidate_accepts_identical_replacement(
+    tmp_path: Path,
+    replacement: str,
+) -> None:
+    root, _record = _write_fixture(tmp_path)
+    timeline = open_multisensor_source_timeline(root, "radar-0")
+    original = root / ("session.json" if replacement == "session" else "sensors/radar-0/index.bin")
+    replacement_path = tmp_path / f"replacement-{replacement}"
+    shutil.copyfile(original, replacement_path)
+    replacement_path.replace(original)
+
+    timeline.revalidate_inputs()
+
+
+@pytest.mark.parametrize("mutation", ["strict_json", "totals"])
+def test_open_multisensor_capture_metadata_rejects_tampered_session(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    root, record = _write_fixture(tmp_path)
+    path = root / "session.json"
+    if mutation == "strict_json":
+        path.write_text('{"schema":NaN}', encoding="utf-8")
+    else:
+        record["totals"]["payload_bytes"] = 0
+        _write_session(root, record)
+
+    with pytest.raises(ValueError):
+        open_multisensor_capture_metadata(root)
 
 
 def test_opens_delivery_observed_camera_with_identity_mapping(tmp_path: Path) -> None:

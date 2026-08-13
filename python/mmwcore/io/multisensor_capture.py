@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import json
 import re
 import stat
@@ -156,6 +157,40 @@ class _Artifact:
 
 
 @dataclass(frozen=True)
+class MultisensorArtifactMetadata:
+    """One declared immutable source artifact from ``session.json``."""
+
+    role: str
+    path: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class MultisensorSourceMetadata:
+    """One strict source declaration without opening its artifacts."""
+
+    source_id: str
+    kind: str
+    required: bool
+    outcome: str
+    producer_name: str
+    producer_version: str
+    max_items: int
+    max_item_bytes: int
+    max_payload_bytes: int
+    payload_filename: str
+    payload_format: str
+    item_count: int
+    payload_bytes: int
+    clock_id: str
+    tick_hz: int
+    wrap_ticks: int
+    timestamp_semantics: str
+    artifacts: tuple[MultisensorArtifactMetadata, ...]
+
+
+@dataclass(frozen=True)
 class _EventCardinality:
     required: bool
     minimum: int
@@ -172,6 +207,7 @@ class _SourceContract:
     producer_version: str
     max_items: int
     max_item_bytes: int
+    max_payload_bytes: int
     payload_filename: str
     payload_format: str
     item_count: int
@@ -181,6 +217,105 @@ class _SourceContract:
     segments: tuple[_AffineSegment, ...]
     cardinality: _EventCardinality | None
     artifacts: tuple[_Artifact, ...]
+
+
+@dataclass(frozen=True)
+class MultisensorCaptureMetadata:
+    """Validated multisensor session metadata without accessing ``sensors``."""
+
+    root: Path
+    session_path: Path
+    session_size_bytes: int
+    session_sha256: str
+    session_id: str
+    synchronization_grade: str
+    host_clock_id: str
+    sources: tuple[MultisensorSourceMetadata, ...]
+    sync_events: tuple[MultisensorSyncEvent, ...]
+    item_count: int
+    payload_bytes: int
+
+    def source(self, source_id: str) -> MultisensorSourceMetadata:
+        """Return one declared source without opening its artifacts."""
+
+        if type(source_id) is not str:
+            raise TypeError("MultisensorCaptureMetadata source_id must be a string.")
+        for source in self.sources:
+            if source.source_id == source_id:
+                return source
+        raise KeyError(source_id)
+
+    def revalidate_inputs(self) -> None:
+        """Confirm that ``session.json`` still has the opened content.
+
+        This deliberately does not access ``sensors`` or any source artifact.
+        """
+
+        _revalidate_bounded_regular(
+            self.session_path,
+            maximum_bytes=_MAX_SESSION_BYTES,
+            label="multisensor session manifest",
+            expected_size=self.session_size_bytes,
+            expected_sha256=self.session_sha256,
+        )
+
+
+@dataclass(frozen=True)
+class MultisensorTimelineItem:
+    """One payload-free, mapped item identity from a sensor index."""
+
+    training_key: TrainingKey
+    payload_offset: int
+    payload_size: int
+    mapped_time: MappedTimeInterval
+    duration_ticks: int
+    sync_event_id: int | None
+
+
+@dataclass(frozen=True)
+class MultisensorSourceTimeline:
+    """Validated immutable timeline for one complete source without its payload."""
+
+    root: Path
+    session_path: Path
+    session_size_bytes: int
+    session_sha256: str
+    source_id: str
+    item_count: int
+    index_path: Path
+    index_size_bytes: int
+    index_sha256: str
+    items: tuple[MultisensorTimelineItem, ...]
+
+    def revalidate_inputs(self) -> None:
+        """Confirm that session and index files still have the opened content.
+
+        Payload files are deliberately outside this reader's authority and are
+        never inspected, statted, or revalidated.
+        """
+
+        _revalidate_bounded_regular(
+            self.session_path,
+            maximum_bytes=_MAX_SESSION_BYTES,
+            label="multisensor session manifest",
+            expected_size=self.session_size_bytes,
+            expected_sha256=self.session_sha256,
+        )
+        _revalidate_bounded_regular(
+            self.index_path,
+            maximum_bytes=_checked_index_size(self.item_count),
+            label=f"source {self.source_id} sensor index",
+            expected_size=self.index_size_bytes,
+            expected_sha256=self.index_sha256,
+        )
+
+
+@dataclass(frozen=True)
+class _ParsedMultisensorSession:
+    metadata: MultisensorCaptureMetadata
+    host_clock: _Clock
+    contracts: tuple[_SourceContract, ...]
+    event_ids: frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -511,8 +646,145 @@ def _monotonic_mapped_items(
         yield item
 
 
-def open_multisensor_capture(path: str | Path) -> MultisensorCapture:  # noqa: C901
+def open_multisensor_capture(path: str | Path) -> MultisensorCapture:
     """Open one complete, integrity-checked multi-sensor session directory."""
+
+    parsed = _parse_multisensor_session(path)
+    metadata = parsed.metadata
+    sensors_root = _directory_leaf(metadata.root, _SENSORS_NAME, "sensor directory")
+    complete_ids = {
+        contract.source_id for contract in parsed.contracts if contract.outcome == "complete"
+    }
+    _require_directory_names(metadata.root, {_SESSION_NAME, _SENSORS_NAME}, "session root")
+    _require_directory_names(sensors_root, complete_ids, "sensors directory")
+
+    sources: list[MultisensorSource] = []
+    event_counts: dict[str, Counter[int]] = {}
+    for contract in parsed.contracts:
+        source, counts = _open_source(
+            root=sensors_root,
+            session_id=metadata.session_id,
+            contract=contract,
+            event_ids=parsed.event_ids,
+        )
+        sources.append(source)
+        event_counts[contract.source_id] = counts
+    _validate_event_cardinalities(
+        parsed.contracts,
+        event_counts,
+        parsed.event_ids,
+        metadata.synchronization_grade,
+    )
+
+    return MultisensorCapture(
+        root=metadata.root,
+        session_path=metadata.session_path,
+        session_id=metadata.session_id,
+        synchronization_grade=metadata.synchronization_grade,
+        host_clock_id=metadata.host_clock_id,
+        sources=tuple(sources),
+        sync_events=metadata.sync_events,
+        item_count=metadata.item_count,
+        payload_bytes=metadata.payload_bytes,
+    )
+
+
+def open_multisensor_capture_metadata(path: str | Path) -> MultisensorCaptureMetadata:
+    """Open one strict session contract without accessing ``sensors`` or artifacts."""
+
+    return _parse_multisensor_session(path).metadata
+
+
+def open_multisensor_source_timeline(
+    path: str | Path,
+    source_id: str,
+) -> MultisensorSourceTimeline:
+    """Open one complete source's validated index without accessing payload files.
+
+    The session and ``sensors/<source_id>/index.bin`` are read as stable byte
+    snapshots, validated against one another, and retained only as immutable
+    timeline identities. No payload path is resolved, statted, or opened.
+    """
+
+    if type(source_id) is not str:
+        raise TypeError("Multisensor source timeline source_id must be a string.")
+    parsed = _parse_multisensor_session(path)
+    contract = next(
+        (candidate for candidate in parsed.contracts if candidate.source_id == source_id),
+        None,
+    )
+    if contract is None:
+        raise KeyError(source_id)
+    if contract.outcome != "complete":
+        raise ValueError("Only a complete multisensor source has an index timeline.")
+
+    index_artifact = _required_artifact(contract, role="index")
+    sensors_root = _directory_leaf(parsed.metadata.root, _SENSORS_NAME, "sensor directory")
+    source_root = _directory_leaf(sensors_root, source_id, f"source {source_id}")
+    index_path = _regular_leaf(source_root, index_artifact.path, f"source {source_id} index")
+    index_bytes = _read_bounded_regular(
+        index_path,
+        maximum_bytes=_checked_index_size(contract.item_count),
+        label=f"source {source_id} sensor index",
+    )
+    if len(index_bytes) != index_artifact.size_bytes:
+        raise ValueError("Sensor index size does not match session.json.")
+    index_sha256 = hashlib.sha256(index_bytes).hexdigest()
+    if not hmac.compare_digest(index_sha256, index_artifact.sha256):
+        raise ValueError("Sensor index SHA-256 does not match session.json.")
+
+    entries, _event_counts = _read_validated_index(
+        io.BytesIO(index_bytes),
+        contract=contract,
+        event_ids=parsed.event_ids,
+    )
+    _validate_event_cardinalities(
+        (contract,),
+        {source_id: _event_counts},
+        parsed.event_ids,
+        parsed.metadata.synchronization_grade,
+    )
+    items = tuple(
+        MultisensorTimelineItem(
+            training_key=_training_key(parsed.metadata.session_id, source_id, entry),
+            payload_offset=entry.payload_offset,
+            payload_size=entry.payload_size,
+            mapped_time=_map_item_interval(contract.clock, contract.segments, entry),
+            duration_ticks=entry.duration_ticks,
+            sync_event_id=entry.sync_event_id,
+        )
+        for entry in entries
+    )
+    _revalidate_bounded_regular(
+        parsed.metadata.session_path,
+        maximum_bytes=_MAX_SESSION_BYTES,
+        label="multisensor session manifest",
+        expected_size=parsed.metadata.session_size_bytes,
+        expected_sha256=parsed.metadata.session_sha256,
+    )
+    _revalidate_bounded_regular(
+        index_path,
+        maximum_bytes=_checked_index_size(contract.item_count),
+        label=f"source {source_id} sensor index",
+        expected_size=len(index_bytes),
+        expected_sha256=index_sha256,
+    )
+    return MultisensorSourceTimeline(
+        root=parsed.metadata.root,
+        session_path=parsed.metadata.session_path,
+        session_size_bytes=parsed.metadata.session_size_bytes,
+        session_sha256=parsed.metadata.session_sha256,
+        source_id=source_id,
+        item_count=contract.item_count,
+        index_path=index_path,
+        index_size_bytes=len(index_bytes),
+        index_sha256=index_sha256,
+        items=items,
+    )
+
+
+def _parse_multisensor_session(path: str | Path) -> _ParsedMultisensorSession:  # noqa: C901
+    """Parse the complete session JSON contract once before any artifact access."""
 
     root = _session_root(path)
     session_path = _regular_leaf(root, _SESSION_NAME, "multisensor session manifest")
@@ -521,6 +793,7 @@ def open_multisensor_capture(path: str | Path) -> MultisensorCapture:  # noqa: C
         maximum_bytes=_MAX_SESSION_BYTES,
         label="multisensor session manifest",
     )
+    session_sha256 = hashlib.sha256(session_bytes).hexdigest()
     record = _strict_json_object(session_bytes, context="multisensor session manifest")
     if _json_depth(record) > 32:
         raise ValueError("multisensor session JSON nesting exceeds depth 32.")
@@ -580,24 +853,6 @@ def open_multisensor_capture(path: str | Path) -> MultisensorCapture:  # noqa: C
         raise ValueError("session.sync_events IDs must be unique and increasing.")
     known_event_ids = frozenset(event_ids)
 
-    sensors_root = _directory_leaf(root, _SENSORS_NAME, "sensor directory")
-    complete_ids = {source.source_id for source in contracts if source.outcome == "complete"}
-    _require_directory_names(root, {_SESSION_NAME, _SENSORS_NAME}, "session root")
-    _require_directory_names(sensors_root, complete_ids, "sensors directory")
-
-    sources: list[MultisensorSource] = []
-    event_counts: dict[str, Counter[int]] = {}
-    for contract in contracts:
-        source, counts = _open_source(
-            root=sensors_root,
-            session_id=session_id,
-            contract=contract,
-            event_ids=known_event_ids,
-        )
-        sources.append(source)
-        event_counts[contract.source_id] = counts
-    _validate_event_cardinalities(contracts, event_counts, known_event_ids, grade)
-
     events = tuple(
         _public_sync_event(event, host_clock=host_clock, sources=contracts) for event in raw_events
     )
@@ -624,17 +879,20 @@ def open_multisensor_capture(path: str | Path) -> MultisensorCapture:  # noqa: C
         if _uint(totals, name, 0, _MAX_U64, "session.totals") != expected:
             raise ValueError(f"session.totals.{name} does not match its source aggregate.")
 
-    return MultisensorCapture(
+    metadata = MultisensorCaptureMetadata(
         root=root,
         session_path=session_path,
+        session_size_bytes=len(session_bytes),
+        session_sha256=session_sha256,
         session_id=session_id,
         synchronization_grade=grade,
         host_clock_id=host_clock.clock_id,
-        sources=tuple(sources),
+        sources=tuple(_public_source_metadata(contract) for contract in contracts),
         sync_events=events,
         item_count=expected_totals["item_count"],
         payload_bytes=expected_totals["payload_bytes"],
     )
+    return _ParsedMultisensorSession(metadata, host_clock, contracts, known_event_ids)
 
 
 def _parse_source(value: object) -> _SourceContract:
@@ -771,6 +1029,7 @@ def _parse_source(value: object) -> _SourceContract:
         producer_version=producer_version,
         max_items=max_items,
         max_item_bytes=max_item_bytes,
+        max_payload_bytes=max_payload_bytes,
         payload_filename=filename,
         payload_format=payload_format,
         item_count=item_count,
@@ -860,6 +1119,55 @@ def _public_source(
     )
 
 
+def _public_source_metadata(contract: _SourceContract) -> MultisensorSourceMetadata:
+    return MultisensorSourceMetadata(
+        source_id=contract.source_id,
+        kind=contract.kind,
+        required=contract.required,
+        outcome=contract.outcome,
+        producer_name=contract.producer_name,
+        producer_version=contract.producer_version,
+        max_items=contract.max_items,
+        max_item_bytes=contract.max_item_bytes,
+        max_payload_bytes=contract.max_payload_bytes,
+        payload_filename=contract.payload_filename,
+        payload_format=contract.payload_format,
+        item_count=contract.item_count,
+        payload_bytes=contract.payload_bytes,
+        clock_id=contract.clock.clock_id,
+        tick_hz=contract.clock.tick_hz,
+        wrap_ticks=contract.clock.wrap_ticks,
+        timestamp_semantics=contract.clock.timestamp_semantics,
+        artifacts=tuple(
+            MultisensorArtifactMetadata(
+                role=artifact.role,
+                path=artifact.path,
+                size_bytes=artifact.size_bytes,
+                sha256=artifact.sha256,
+            )
+            for artifact in contract.artifacts
+        ),
+    )
+
+
+def _required_artifact(contract: _SourceContract, *, role: str) -> _Artifact:
+    matches = tuple(artifact for artifact in contract.artifacts if artifact.role == role)
+    if len(matches) != 1:
+        raise ValueError(f"Complete source {contract.source_id!r} has no unique {role!r} artifact.")
+    return matches[0]
+
+
+def _training_key(
+    session_id: str,
+    source_id: str,
+    entry: _IndexEntry,
+) -> TrainingKey:
+    base: tuple[str, str, int] = (session_id, source_id, entry.item_index)
+    if entry.sync_event_id is None:
+        return base
+    return (*base, entry.sync_event_id)
+
+
 def _validate_index(  # noqa: C901
     path: Path,
     *,
@@ -867,52 +1175,70 @@ def _validate_index(  # noqa: C901
     event_ids: frozenset[int],
 ) -> Counter[int]:
     _require_file_size(path, _checked_index_size(contract.item_count), "sensor index")
+    with path.open("rb") as file:
+        _entries, event_counts = _read_validated_index(
+            file,
+            contract=contract,
+            event_ids=event_ids,
+        )
+    return event_counts
+
+
+def _read_validated_index(  # noqa: C901
+    file: BinaryIO,
+    *,
+    contract: _SourceContract,
+    event_ids: frozenset[int],
+) -> tuple[tuple[_IndexEntry, ...], Counter[int]]:
+    """Read one index snapshot and validate every session-bound semantic."""
+
+    _read_index_header(
+        file,
+        expected_items=contract.item_count,
+        expected_payload_bytes=contract.payload_bytes,
+    )
+    entries: list[_IndexEntry] = []
     event_counts: Counter[int] = Counter()
     expected_offset = 0
     first_tick: int | None = None
     previous_tick: int | None = None
-    with path.open("rb") as file:
-        _read_index_header(
-            file,
-            expected_items=contract.item_count,
-            expected_payload_bytes=contract.payload_bytes,
+    for expected_index in range(contract.item_count):
+        entry = _decode_index_entry(
+            _read_exact(file, _INDEX_ENTRY_BYTES, "sensor index entry"),
+            expected_index=expected_index,
+            max_item_bytes=contract.max_item_bytes,
         )
-        for expected_index in range(contract.item_count):
-            entry = _decode_index_entry(
-                _read_exact(file, _INDEX_ENTRY_BYTES, "sensor index entry"),
-                expected_index=expected_index,
-                max_item_bytes=contract.max_item_bytes,
-            )
-            if entry.payload_offset != expected_offset:
-                raise ValueError("Sensor index payload ranges must be ordered and contiguous.")
-            expected_offset += entry.payload_size
-            if expected_offset > contract.payload_bytes:
-                raise ValueError("Sensor index payload range exceeds the declared payload.")
-            unwrapped = _unwrapped_tick(contract.clock, entry.ticks, entry.wrap_count)
-            if contract.clock.timestamp_semantics == "delivery_observed" and entry.duration_ticks:
-                raise ValueError("delivery_observed sensor index duration_ticks must be zero.")
-            if first_tick is None:
-                first_tick = unwrapped
-            if previous_tick is not None and unwrapped < previous_tick:
-                raise ValueError("Sensor index source ticks must be monotonic.")
-            previous_tick = unwrapped
-            if unwrapped + entry.duration_ticks > _MAX_U64:
-                raise ValueError("Sensor index duration overflows the unwrapped clock.")
-            _segment_for_tick(contract.segments, unwrapped)
-            _map_item_interval(contract.clock, contract.segments, entry)
-            if entry.sync_event_id is None:
-                if contract.cardinality is not None and contract.cardinality.required:
-                    raise ValueError("Sensor index item omits a required synchronization event.")
-                continue
+        if entry.payload_offset != expected_offset:
+            raise ValueError("Sensor index payload ranges must be ordered and contiguous.")
+        expected_offset += entry.payload_size
+        if expected_offset > contract.payload_bytes:
+            raise ValueError("Sensor index payload range exceeds the declared payload.")
+        unwrapped = _unwrapped_tick(contract.clock, entry.ticks, entry.wrap_count)
+        if contract.clock.timestamp_semantics == "delivery_observed" and entry.duration_ticks:
+            raise ValueError("delivery_observed sensor index duration_ticks must be zero.")
+        if first_tick is None:
+            first_tick = unwrapped
+        if previous_tick is not None and unwrapped < previous_tick:
+            raise ValueError("Sensor index source ticks must be monotonic.")
+        previous_tick = unwrapped
+        if unwrapped + entry.duration_ticks > _MAX_U64:
+            raise ValueError("Sensor index duration overflows the unwrapped clock.")
+        _segment_for_tick(contract.segments, unwrapped)
+        _map_item_interval(contract.clock, contract.segments, entry)
+        if entry.sync_event_id is None:
+            if contract.cardinality is not None and contract.cardinality.required:
+                raise ValueError("Sensor index item omits a required synchronization event.")
+        else:
             if contract.cardinality is None:
                 raise ValueError("Sensor index item declares an event without cardinality.")
             if entry.sync_event_id not in event_ids:
                 raise ValueError("Sensor index references an unknown synchronization event.")
             event_counts[entry.sync_event_id] += 1
-        if expected_offset != contract.payload_bytes:
-            raise ValueError("Sensor index does not exactly cover the declared payload.")
-        if file.read(1):
-            raise ValueError("Sensor index contains trailing data.")
+        entries.append(entry)
+    if expected_offset != contract.payload_bytes:
+        raise ValueError("Sensor index does not exactly cover the declared payload.")
+    if file.read(1):
+        raise ValueError("Sensor index contains trailing data.")
     if contract.clock.timestamp_semantics == "delivery_observed" and first_tick is not None:
         assert previous_tick is not None
         segment = contract.segments[0]
@@ -925,7 +1251,7 @@ def _validate_index(  # noqa: C901
                 "delivery_observed affine range must exactly cover the first through "
                 "last item tick."
             )
-    return event_counts
+    return tuple(entries), event_counts
 
 
 def _read_index_header(
@@ -1534,7 +1860,12 @@ def _require_directory_names(root: Path, expected: set[str], label: str) -> None
         raise ValueError(f"{label} has undeclared or missing leaves.")
 
 
-def _read_bounded_regular(path: Path, *, maximum_bytes: int, label: str) -> bytes:
+def _read_bounded_regular(
+    path: Path,
+    *,
+    maximum_bytes: int,
+    label: str,
+) -> bytes:
     status = path.lstat()
     if not stat.S_ISREG(status.st_mode) or status.st_size > maximum_bytes:
         raise ValueError(f"{label} exceeds its regular-file bound.")
@@ -1542,6 +1873,21 @@ def _read_bounded_regular(path: Path, *, maximum_bytes: int, label: str) -> byte
     if len(payload) != status.st_size or len(payload) > maximum_bytes:
         raise ValueError(f"{label} changed while it was read.")
     return payload
+
+
+def _revalidate_bounded_regular(
+    path: Path,
+    *,
+    maximum_bytes: int,
+    label: str,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
+    payload = _read_bounded_regular(path, maximum_bytes=maximum_bytes, label=label)
+    if len(payload) > maximum_bytes or len(payload) != expected_size:
+        raise ValueError(f"{label} changed while it was revalidated.")
+    if not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), expected_sha256):
+        raise ValueError(f"{label} digest changed after open.")
 
 
 def _require_file_size(path: Path, expected: int, label: str) -> None:
@@ -1749,11 +2095,18 @@ __all__ = [
     "MMWCLI_MULTISENSOR_SESSION_SCHEMA_V1",
     "MMWCLI_SENSOR_INDEX_SCHEMA_V1",
     "MappedTimeInterval",
+    "MultisensorArtifactMetadata",
     "MultisensorCapture",
+    "MultisensorCaptureMetadata",
     "MultisensorItem",
     "MultisensorSource",
+    "MultisensorSourceMetadata",
+    "MultisensorSourceTimeline",
     "MultisensorSyncEvent",
+    "MultisensorTimelineItem",
     "TrainingKey",
     "causal_match",
     "open_multisensor_capture",
+    "open_multisensor_capture_metadata",
+    "open_multisensor_source_timeline",
 ]

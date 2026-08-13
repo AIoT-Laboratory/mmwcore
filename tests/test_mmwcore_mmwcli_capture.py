@@ -10,7 +10,9 @@ from typing import Any
 import numpy as np
 import pytest
 
+import mmwcore.io as mmwcore_io
 from mmwcore import open_capture as public_open_capture
+from mmwcore import open_mmwcli_capture_metadata as public_open_mmwcli_capture_metadata
 from mmwcore.config import RadarProfile, iwr6843_isk_range_doppler_recipe
 from mmwcore.core import (
     ADCComplexLayout,
@@ -24,9 +26,11 @@ from mmwcore.io import (
     MMWCLI_CAPTURE_SESSION_SCHEMA_V1,
     ADCFileCapture,
     ADCFileFrameReader,
+    MmwcliCaptureMetadata,
     MmwcliRawCaptureContract,
     RangeDopplerPreset,
     open_capture,
+    open_mmwcli_capture_metadata,
 )
 
 _CONFIG_TEXT = """\
@@ -100,6 +104,67 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert first.timestamp == pytest.approx(0.0)
     assert second.timestamp == pytest.approx(0.01)
     assert first.metadata["tx_order"] == [0]
+
+
+def test_open_mmwcli_capture_metadata_reads_contract_without_adc_payload(tmp_path: Path) -> None:
+    root = _write_capture(tmp_path)
+    manifest_bytes = (root / "capture.json").read_bytes()
+    radar_config_bytes = (root / "radar.cfg").read_bytes()
+    (root / "adc.bin").unlink()
+
+    metadata = open_mmwcli_capture_metadata(root)
+
+    assert isinstance(metadata, MmwcliCaptureMetadata)
+    assert public_open_mmwcli_capture_metadata is open_mmwcli_capture_metadata
+    assert mmwcore_io.open_mmwcli_capture_metadata is open_mmwcli_capture_metadata
+    assert metadata.root == root.absolute()
+    assert metadata.manifest_path == root / "capture.json"
+    assert metadata.manifest_size_bytes == len(manifest_bytes)
+    assert metadata.manifest_sha256 == _sha256(manifest_bytes)
+    assert metadata.radar_config_path == root / "radar.cfg"
+    assert metadata.radar_config_size_bytes == len(radar_config_bytes)
+    assert metadata.radar_config_sha256 == _sha256(radar_config_bytes)
+    assert metadata.raw_capture.family == "xwr68xx"
+    assert metadata.radar_capture.expected_size_bytes == len(_ADC_BYTES)
+    assert metadata.adc_size_bytes == len(_ADC_BYTES)
+    assert metadata.adc_sha256 == _sha256(_ADC_BYTES)
+    metadata.revalidate_inputs()
+    with pytest.raises(FrozenInstanceError):
+        metadata.adc_size_bytes = 0  # type: ignore[misc]
+    with pytest.raises(ValueError, match="ADC payload is unavailable"):
+        open_capture(root)
+
+
+@pytest.mark.parametrize("leaf", ["capture.json", "radar.cfg"])
+def test_mmwcli_capture_metadata_revalidate_inputs_rejects_modified_metadata(
+    tmp_path: Path,
+    leaf: str,
+) -> None:
+    root = _write_capture(tmp_path)
+    metadata = open_mmwcli_capture_metadata(root)
+    path = root / leaf
+    path.write_bytes(path.read_bytes() + b"\n")
+
+    with pytest.raises(ValueError, match="changed|digest"):
+        metadata.revalidate_inputs()
+
+
+@pytest.mark.parametrize("leaf", ["capture.json", "radar.cfg"])
+def test_open_mmwcli_capture_metadata_rejects_tampered_contract_files(
+    tmp_path: Path,
+    leaf: str,
+) -> None:
+    root = _write_capture(tmp_path)
+    path = root / leaf
+    if leaf == "capture.json":
+        record = json.loads(path.read_text(encoding="utf-8"))
+        _object(record, "adc")["size_bytes"] = len(_ADC_BYTES) * 2
+        path.write_text(json.dumps(record), encoding="utf-8")
+    else:
+        path.write_bytes(path.read_bytes() + b"\n# tampered\n")
+
+    with pytest.raises(ValueError):
+        open_mmwcli_capture_metadata(root)
 
 
 def test_open_capture_restores_completed_infinite_cfg_from_adc_frames(tmp_path: Path) -> None:
