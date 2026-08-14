@@ -4,6 +4,13 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+## [0.5.1] - 2026-08-14
+
+### Changed
+
+- Write ADC archives with one source pass and structural pre-publication validation; retain
+  per-frame verified reads and explicit `verify_all()` without repeating full replay on write.
+
 ## [0.5.0] - 2026-08-13
 
 ### Changed

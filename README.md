@@ -231,8 +231,10 @@ print(reader.num_frames, raw.samples.shape)
 `read_frame()` verifies the selected frame before returning it. Use `reader.verify_all()` for an
 explicit complete replay before a long processing or training run. `write_capture_adc_archive()`
 creates the corresponding archive and refuses to publish when the source digest does not match the
-caller-provided ADC identity. Use `reader.revalidate_input()` before publishing derived output
-to confirm that the opened archive did not change during processing.
+caller-provided ADC identity. The writer reads the source once, validates the completed archive
+structure, and publishes atomically; it does not repeat a full decode already covered by codec and
+archive acceptance tests. Use `reader.revalidate_input()` before publishing derived output to
+confirm that the opened archive did not change during processing.
 
 ### Assemble archived datagrams
 

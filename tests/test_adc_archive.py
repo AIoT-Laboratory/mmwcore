@@ -246,6 +246,46 @@ def test_write_is_atomic_and_cleans_temporary_file_after_codec_failure(
     assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
+def test_write_reads_source_once_without_full_decode_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _write_source(tmp_path, _raw_frames(count=2))
+    destination = tmp_path / "capture.mmwa"
+    original_open = Path.open
+    source_reads = 0
+
+    def track_open(
+        path: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ):
+        nonlocal source_reads
+        if path == source and mode == "rb":
+            source_reads += 1
+        return original_open(path, mode, buffering, encoding, errors, newline)
+
+    def reject_full_verification(_archive: object) -> None:
+        raise AssertionError("writer must not perform a full archive replay")
+
+    monkeypatch.setattr(Path, "open", track_open)
+    monkeypatch.setattr(adc_archive.ADCArchive, "verify_all", reject_full_verification)
+
+    archive = write_adc_archive(
+        source,
+        destination,
+        frame_bytes=32,
+        capture_contract_sha256=_contract(),
+    )
+
+    assert source_reads == 1
+    assert archive.frame_count == 2
+    assert destination.is_file()
+
+
 def test_atomic_publication_never_overwrites_a_racing_destination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

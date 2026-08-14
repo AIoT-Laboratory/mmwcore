@@ -249,17 +249,17 @@ matching `ADCArchiveFrameReader()` checks all three identities before exposing
 random-access frames. This makes the archive a storage representation of one known ADC source, not a
 replacement contract that infers layout or hardware metadata.
 
-The writer uses a same-directory temporary file, flushes and `fsync`s the complete archive file,
-reopens and fully verifies it, then atomically publishes it with no overwrite. POSIX publication
-also `fsync`s the containing directory; Windows relies on the completed file flush plus atomic
-hard-link publication. Structural open validates the complete header/index/footer chain. Ordinary
-reads verify frame digests; trusted reads are available only after the same reader has completed
-`verify_all()` and are revoked if the opened file identity, size, or modification time changes.
+The writer reads the source once while computing the logical ADC and per-frame digests. It uses a
+same-directory temporary file, flushes and `fsync`s the complete archive, validates the complete
+header/index/footer chain, then atomically publishes with no overwrite. POSIX publication also
+`fsync`s the containing directory; Windows relies on the completed file flush plus atomic hard-link
+publication. Ordinary reads verify frame digests. A deliberate full replay remains available via
+`verify_all()` and authorizes trusted reads on that reader until its file identity changes.
 
 Run the implemented-format acceptance pass only after the codec corpus. Publish throughput covers
-source read, per-frame Rust transform/compression, source and frame hashing, temporary-file
-`fsync`, full pre-publication decode verification, and atomic publication. `full_verify` measures a
-separate reopened full replay. Random windows report verified reads and trusted reads after that
+the single source read, per-frame Rust transform/compression, source and frame hashing,
+temporary-file `fsync`, structural validation, and atomic publication. `full_verify` measures a
+separate explicit full replay. Random windows report verified reads and trusted reads after that
 full verification. Archive ratio includes header, index, footer, and every encoded payload.
 
 ```console
@@ -287,18 +287,18 @@ passed complete replay and 128 direct-source comparisons of randomly selected fo
 | Total archive ratio | 0.6550 |
 | Storage reduction | 4.2457 GiB / 34.50% |
 | Header, index, and footer | 406,336 bytes / 0.00308% |
-| Minimum verified atomic-publication throughput | 72.3 MiB/s |
+| Minimum admission-path atomic-publication throughput | 72.3 MiB/s |
 | Minimum reopened full-verification throughput | 212.2 MiB/s |
 | Worst verified four-frame random-read P95 | 32.93 ms |
 | Worst trusted four-frame random-read P95 after full verification | 30.36 ms |
 | Exact source round trips | 14 / 14 |
 
-Per-source archive ratios remained between `0.6426` and `0.6633`. Verified atomic publication remained
-between `72.3` and `93.1 MiB/s`, and reopened full verification remained between `212.2` and
-`235.1 MiB/s`. No scene or motion class was an outlier. The minimum publication result is `2.41x`
-the established `30 MiB/s` development target and includes source hashing, Rust encoding, payload and
-metadata writes, file `fsync`, source rehashing, complete decode verification, and atomic
-publication.
+Per-source archive ratios remained between `0.6426` and `0.6633`. Admission-path publication
+remained between `72.3` and `93.1 MiB/s`, and reopened full verification remained between `212.2`
+and `235.1 MiB/s`. No scene or motion class was an outlier. These publication measurements belong
+to the admitted revision and include source rehashing plus complete decode verification. Exact
+replay having passed for every source, the maintained writer now removes those two redundant scans;
+the historical throughput is not presented as a measurement of the optimized path.
 
 This result validates ADC archive v1 only as an offline representation of finalized ADC files.
 It does not validate inline acquisition encoding or make claims about capture backpressure, power-loss

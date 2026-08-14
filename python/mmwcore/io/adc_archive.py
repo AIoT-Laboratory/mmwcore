@@ -224,7 +224,7 @@ def write_adc_archive(
     capture_contract_sha256: str,
     expected_adc_sha256: str | None = None,
 ) -> ADCArchive:
-    """Encode a finite ADC file into an atomically committed ADC archive."""
+    """Encode one source pass into a structurally checked, atomic ADC archive."""
 
     source_path = _require_regular_file(source, "source")
     destination_path = _require_new_destination(destination)
@@ -291,8 +291,7 @@ def write_adc_archive(
             archive.flush()
             os.fsync(archive.fileno())
 
-        verified = open_adc_archive(temporary_path)
-        verified.verify_all()
+        open_adc_archive(temporary_path)
         try:
             os.link(temporary_path, destination_path)
         except FileExistsError:
@@ -303,7 +302,7 @@ def write_adc_archive(
             committed = open_adc_archive(destination_path)
             if not os.path.samefile(temporary_path, destination_path):
                 raise ADCArchiveError(
-                    "Published ADC archive no longer identifies the verified temporary file."
+                    "Published ADC archive no longer identifies the prepared temporary file."
                 )
             _fsync_directory(destination_path.parent)
         except Exception:
@@ -312,7 +311,7 @@ def write_adc_archive(
         try:
             temporary_path.unlink()
         except OSError:
-            # The committed hard link is complete and verified; a stale temporary name is harmless.
+            # The committed hard link is structurally valid; a stale temporary name is harmless.
             pass
         return committed
     except Exception:
@@ -468,8 +467,6 @@ def _write_payloads(
     if _fingerprint(source_path) != source_fingerprint:
         raise ADCArchiveError("Source changed while the ADC archive was being written.")
     logical_sha256 = logical_digest.digest()
-    if _sha256_file(source_path) != logical_sha256:
-        raise ADCArchiveError("Source changed while the ADC archive was being written.")
     return tuple(records), logical_sha256, offset
 
 
@@ -612,14 +609,6 @@ def _fingerprint(path: Path) -> _Fingerprint:
 def _fingerprint_stream(stream: BinaryIO) -> _Fingerprint:
     stat = os.fstat(stream.fileno())
     return _Fingerprint(stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
-
-
-def _sha256_file(path: Path) -> bytes:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while block := source.read(1024 * 1024):
-            digest.update(block)
-    return digest.digest()
 
 
 def _fsync_directory(path: Path) -> None:
