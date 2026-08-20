@@ -79,7 +79,7 @@ _FFT_AXIS_FIELDS: tuple[tuple[FFTSpec, str], ...] = (
 
 
 def test_mmwcore_import_is_lightweight() -> None:
-    assert mmwcore.__version__ == "0.5.1"
+    assert mmwcore.__version__ == "0.6.0"
 
 
 def test_raw_adc_frame_normalizes_representable_integers_to_int16() -> None:

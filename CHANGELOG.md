@@ -4,6 +4,14 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Replace ADC Archive v1 with a self-describing v2 container implemented in Rust.
+- Embed and validate the complete `RadarCaptureSpec`; opening an archive no longer requires a
+  sidecar contract.
+- Move archive writing, parsing, indexing, hashing, random reads, and full verification behind the
+  PyO3 boundary.
+
 ## [0.5.1] - 2026-08-14
 
 ### Changed

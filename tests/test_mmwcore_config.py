@@ -12,7 +12,6 @@ from mmwcore.config import (
     RadarCaptureSpec,
     RadarProfile,
     awr1843_aop_antenna_geometry,
-    capture_contract_sha256,
     iwr6843_aop_antenna_geometry,
     iwr6843_isk_3d_cfar_point_cloud_recipe,
     iwr6843_isk_3d_point_cloud_recipe,
@@ -205,30 +204,6 @@ def test_radar_capture_spec_joins_explicit_capture_contract() -> None:
     tampered["expected_size_bytes"] = 1
     with pytest.raises(ValueError, match="expected_size_bytes"):
         RadarCaptureSpec.from_record(tampered)
-
-
-def test_capture_contract_sha256_is_canonical_and_field_sensitive() -> None:
-    capture = RadarCaptureSpec(
-        profile=RadarProfile(
-            num_tx=1,
-            num_rx=1,
-            num_adc_samples=2,
-            num_chirps_per_tx=1,
-        ),
-        adc=ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
-        tx_order=(0,),
-        frame_periodicity_s=0.1,
-        num_frames=3,
-    )
-
-    assert capture_contract_sha256(capture) == capture_contract_sha256(
-        RadarCaptureSpec.from_record(capture.to_record())
-    )
-    assert capture_contract_sha256(capture) != capture_contract_sha256(
-        replace(capture, frame_periodicity_s=0.2)
-    )
-    with pytest.raises(TypeError, match="RadarCaptureSpec"):
-        capture_contract_sha256(capture.to_record())  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

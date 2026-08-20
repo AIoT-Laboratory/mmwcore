@@ -1,57 +1,27 @@
 from __future__ import annotations
 
 import hashlib
-import zlib
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from mmwcore.config import RadarCaptureSpec, RadarProfile, capture_contract_sha256
+from mmwcore.config import RadarCaptureSpec, RadarProfile
 from mmwcore.core import ADCDecodeRecipe, ADCFrameSpec, DopplerFFTSpec, RangeDopplerRecipe
 from mmwcore.dsp import process_adc_to_range_doppler
-from mmwcore.io import (
-    ADCArchiveFrameReader,
-    ADCFileFrameReader,
-    adc_archive,
-    write_capture_adc_archive,
-)
-from mmwcore.io.adc_archive import (
-    ADCArchive,
-    ADCArchiveError,
-    write_adc_archive,
-)
+from mmwcore.io import ADCArchiveFrameReader, ADCFileFrameReader, write_adc_archive
+from mmwcore.io.adc_archive import ADCArchive, ADCArchiveError
 
 
-@pytest.fixture(autouse=True)
-def native_codec(monkeypatch: pytest.MonkeyPatch) -> None:
-    def encode(raw: bytes) -> bytes:
-        return zlib.compress(raw, level=1)
-
-    def decode(encoded: bytes, expected_raw_bytes: int) -> bytes:
-        raw = zlib.decompress(encoded)
-        if len(raw) != expected_raw_bytes:
-            raise ValueError("decoded frame has the wrong size")
-        return raw
-
-    monkeypatch.setattr(
-        adc_archive,
-        "_native",
-        SimpleNamespace(encode_adc_archive_frame=encode, decode_adc_archive_frame=decode),
-    )
-
-
-def _capture(*, num_frames: int = 3) -> RadarCaptureSpec:
-    profile = RadarProfile(
-        num_tx=1,
-        num_rx=1,
-        num_adc_samples=2,
-        num_chirps_per_tx=1,
-    )
+def _capture(*, num_frames: int | None = 3) -> RadarCaptureSpec:
     return RadarCaptureSpec(
-        profile=profile,
+        profile=RadarProfile(
+            num_tx=1,
+            num_rx=1,
+            num_adc_samples=2,
+            num_chirps_per_tx=1,
+        ),
         adc=ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
         tx_order=(0,),
         frame_periodicity_s=0.1,
@@ -59,206 +29,105 @@ def _capture(*, num_frames: int = 3) -> RadarCaptureSpec:
     )
 
 
+def _raw(capture: RadarCaptureSpec, *, frame_count: int = 3) -> bytes:
+    count = capture.num_frames or frame_count
+    return np.arange(capture.adc.raw_values_per_frame * count, dtype=np.int16).tobytes()
+
+
 def _archive(tmp_path: Path) -> tuple[Path, RadarCaptureSpec, bytes]:
     capture = _capture()
-    assert capture.num_frames is not None
-    raw = np.arange(capture.adc.raw_values_per_frame * capture.num_frames, dtype=np.int16).tobytes()
+    raw = _raw(capture)
     source = tmp_path / "adc.bin"
     source.write_bytes(raw)
-    archive = tmp_path / "adc.mmwa"
-    write_adc_archive(
-        source,
-        archive,
-        frame_bytes=capture.adc.raw_values_per_frame * np.dtype(np.int16).itemsize,
-        capture_contract_sha256=capture_contract_sha256(capture),
-    )
-    return archive, capture, raw
+    destination = tmp_path / "adc.mmwa"
+    write_adc_archive(source, destination, capture)
+    return destination, capture, raw
 
 
-def test_archive_reader_binds_capture_and_decodes_verified_raw_frames(tmp_path: Path) -> None:
+def test_reader_recovers_contract_and_decodes_frames_without_external_spec(tmp_path: Path) -> None:
     archive, capture, raw = _archive(tmp_path)
-    adc_sha256 = hashlib.sha256(raw).hexdigest()
-
-    reader = ADCArchiveFrameReader(
-        archive,
-        capture,
-        expected_adc_sha256=adc_sha256,
-        metadata={"session": "fixture"},
-    )
+    reader = ADCArchiveFrameReader(archive, metadata={"session": "fixture"})
     frame = reader.read_frame(2)
 
+    assert reader.capture == capture
     assert reader.spec == capture.adc
     assert reader.num_frames == 3
     assert not isinstance(frame.samples, np.memmap)
     np.testing.assert_array_equal(frame.samples, np.array([8, 9, 10, 11], dtype=np.int16))
     assert frame.timestamp == pytest.approx(0.2)
     assert frame.profile["num_tx"] == 1
-    assert frame.metadata == {
-        "tx_order": [0],
-        "session": "fixture",
-        "frame_index": 2,
-        "num_frames": 3,
-        "adc_sha256": adc_sha256,
-        "capture_contract_sha256": capture_contract_sha256(capture),
-    }
+    assert frame.metadata["tx_order"] == [0]
+    assert frame.metadata["session"] == "fixture"
+    assert frame.metadata["adc_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert len(frame.metadata["capture_sha256"]) == 64
 
 
-@pytest.mark.parametrize(
-    ("keyword", "value", "match"),
-    [
-        ("expected_adc_sha256", "0" * 64, "does not match"),
-        ("expected_adc_sha256", "A" * 64, "lowercase"),
-    ],
-)
-def test_archive_reader_rejects_unbound_or_noncanonical_expected_digests(
-    tmp_path: Path,
-    keyword: str,
-    value: str,
-    match: str,
-) -> None:
-    archive, capture, _ = _archive(tmp_path)
-
-    with pytest.raises(ValueError, match=match):
-        ADCArchiveFrameReader(
-            archive,
-            capture,
-            expected_adc_sha256=value,
-        )
+def test_reader_metadata_cannot_override_embedded_tx_order(tmp_path: Path) -> None:
+    archive, _, _ = _archive(tmp_path)
+    with pytest.raises(ValueError, match="tx_order"):
+        ADCArchiveFrameReader(archive, metadata={"tx_order": [9]})
 
 
-def test_archive_reader_rejects_contract_count_and_frame_integrity_mismatches(
-    tmp_path: Path,
-) -> None:
-    archive, capture, raw = _archive(tmp_path)
-
-    mismatched_capture = replace(capture, frame_periodicity_s=0.2)
-    with pytest.raises(ValueError, match="capture_contract_sha256"):
-        ADCArchiveFrameReader(
-            archive,
-            mismatched_capture,
-            expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
-        )
-
-    wrong_count = replace(capture, num_frames=2)
-    source = tmp_path / "wrong-count.bin"
-    source.write_bytes(np.arange(12, dtype=np.int16).tobytes())
-    wrong_count_archive = tmp_path / "wrong-count.mmwa"
-    write_adc_archive(
-        source,
-        wrong_count_archive,
-        frame_bytes=wrong_count.adc.raw_values_per_frame * np.dtype(np.int16).itemsize,
-        capture_contract_sha256=capture_contract_sha256(wrong_count),
-    )
-    with pytest.raises(ValueError, match="frame count"):
-        ADCArchiveFrameReader(
-            wrong_count_archive,
-            wrong_count,
-            expected_adc_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-        )
-
-    payload = bytearray(archive.read_bytes())
-    payload[64] ^= 0xFF
-    archive.write_bytes(payload)
-    with pytest.raises(ADCArchiveError, match="Native decode_adc_archive_frame"):
-        ADCArchiveFrameReader(
-            archive,
-            capture,
-            expected_adc_sha256=hashlib.sha256(_archive_raw(capture)).hexdigest(),
-        ).read_frame(0)
-
-
-def test_archive_reader_open_does_not_verify_all_frames(
+def test_reader_open_does_not_decode_all_frames(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    archive, capture, raw = _archive(tmp_path)
+    archive, _, _ = _archive(tmp_path)
 
     def reject_eager_verification(self: ADCArchive) -> None:
         raise AssertionError("verify_all must remain explicit")
 
     monkeypatch.setattr(ADCArchive, "verify_all", reject_eager_verification)
+    reader = ADCArchiveFrameReader(archive)
 
-    reader = ADCArchiveFrameReader(
-        archive,
-        capture,
-        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
-    )
-
-    assert reader.num_frames == 3
     np.testing.assert_array_equal(reader.read_frame(0).samples, np.array([0, 1, 2, 3]))
 
 
-def test_archive_reader_revalidates_unchanged_input(tmp_path: Path) -> None:
-    archive, capture, raw = _archive(tmp_path)
-    reader = ADCArchiveFrameReader(
-        archive,
-        capture,
-        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
-    )
-
-    reader.revalidate_input()
+def test_reader_revalidates_unchanged_input(tmp_path: Path) -> None:
+    archive, _, _ = _archive(tmp_path)
+    ADCArchiveFrameReader(archive).revalidate_input()
 
 
-def test_archive_reader_accepts_a_finalized_open_ended_capture(tmp_path: Path) -> None:
-    capture = replace(_capture(), num_frames=None)
-    raw = np.arange(capture.adc.raw_values_per_frame * 3, dtype=np.int16).tobytes()
+def test_open_ended_capture_records_final_frame_count(tmp_path: Path) -> None:
+    capture = _capture(num_frames=None)
+    raw = _raw(capture)
     source = tmp_path / "open-ended.bin"
     source.write_bytes(raw)
-    archive = tmp_path / "open-ended.mmwa"
-    write_capture_adc_archive(
-        source,
-        archive,
-        capture,
-        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
-    )
+    destination = tmp_path / "open-ended.mmwa"
 
-    reader = ADCArchiveFrameReader(
-        archive,
-        capture,
-        expected_adc_sha256=hashlib.sha256(raw).hexdigest(),
-    )
+    write_adc_archive(source, destination, capture)
+    reader = ADCArchiveFrameReader(destination)
 
-    assert reader.num_frames == 3
+    assert reader.capture.num_frames == 3
+    assert reader.capture.expected_size_bytes == len(raw)
 
 
-def test_capture_bound_writer_rejects_wrong_source_identity_before_publication(
-    tmp_path: Path,
-) -> None:
-    capture = _capture()
+def test_writer_rejects_declared_frame_count_mismatch(tmp_path: Path) -> None:
+    capture = replace(_capture(), num_frames=2)
     source = tmp_path / "adc.bin"
-    source.write_bytes(_archive_raw(capture))
+    source.write_bytes(_raw(_capture()))
     destination = tmp_path / "adc.mmwa"
 
-    with pytest.raises(ADCArchiveError, match="expected_adc_sha256"):
-        write_capture_adc_archive(
-            source,
-            destination,
-            capture,
-            expected_adc_sha256="0" * 64,
-        )
-
+    with pytest.raises(ValueError, match="frame count"):
+        write_adc_archive(source, destination, capture)
     assert not destination.exists()
 
 
-def test_capture_bound_writer_and_reader_preserve_the_logical_source(tmp_path: Path) -> None:
+def test_writer_binds_expected_logical_source_identity(tmp_path: Path) -> None:
     capture = _capture()
-    raw = _archive_raw(capture)
+    raw = _raw(capture)
     source = tmp_path / "adc.bin"
     source.write_bytes(raw)
     destination = tmp_path / "adc.mmwa"
     digest = hashlib.sha256(raw).hexdigest()
 
-    written = write_capture_adc_archive(
+    written = write_adc_archive(
         source,
         destination,
         capture,
         expected_adc_sha256=digest,
     )
-    reader = ADCArchiveFrameReader(
-        destination,
-        capture,
-        expected_adc_sha256=digest,
-    )
+    reader = ADCArchiveFrameReader(destination)
 
     assert written.adc_sha256 == digest
     np.testing.assert_array_equal(reader.read_frame(1).samples, np.array([4, 5, 6, 7]))
@@ -266,23 +135,13 @@ def test_capture_bound_writer_and_reader_preserve_the_logical_source(tmp_path: P
 
 def test_raw_and_archive_readers_produce_identical_range_doppler_data(tmp_path: Path) -> None:
     capture = _capture()
-    raw = _archive_raw(capture)
+    raw = _raw(capture)
     source = tmp_path / "adc.bin"
     source.write_bytes(raw)
     archive = tmp_path / "adc.mmwa"
-    digest = hashlib.sha256(raw).hexdigest()
-    write_capture_adc_archive(
-        source,
-        archive,
-        capture,
-        expected_adc_sha256=digest,
-    )
+    write_adc_archive(source, archive, capture)
     raw_reader = ADCFileFrameReader.from_capture(source, capture)
-    archive_reader = ADCArchiveFrameReader(
-        archive,
-        capture,
-        expected_adc_sha256=digest,
-    )
+    archive_reader = ADCArchiveFrameReader(archive)
     recipe = RangeDopplerRecipe(
         decode=ADCDecodeRecipe(capture.adc),
         doppler_fft=DopplerFFTSpec(fftshift=False),
@@ -297,9 +156,10 @@ def test_raw_and_archive_readers_produce_identical_range_doppler_data(tmp_path: 
         assert archive_cube.timestamp == raw_cube.timestamp
 
 
-def _archive_raw(capture: RadarCaptureSpec) -> bytes:
-    assert capture.num_frames is not None
-    return np.arange(
-        capture.adc.raw_values_per_frame * capture.num_frames,
-        dtype=np.int16,
-    ).tobytes()
+def test_changed_archive_is_rejected_after_open(tmp_path: Path) -> None:
+    archive, _, _ = _archive(tmp_path)
+    reader = ADCArchiveFrameReader(archive)
+    archive.write_bytes(archive.read_bytes())
+
+    with pytest.raises(ADCArchiveError, match="changed"):
+        reader.read_frame(0)

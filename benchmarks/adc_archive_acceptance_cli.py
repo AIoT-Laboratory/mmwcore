@@ -13,6 +13,7 @@ from benchmarks.adc_archive_acceptance import (
     DEFAULT_FILENAME,
     run_archive_acceptance,
 )
+from mmwcore.config import RadarCaptureSpec
 
 
 def _positive_integer(value: str) -> int:
@@ -35,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("inputs", nargs="+", type=Path)
     parser.add_argument("--filename", default=DEFAULT_FILENAME)
-    parser.add_argument("--frame-bytes", required=True, type=_positive_integer)
+    parser.add_argument("--capture-spec", required=True, type=Path)
     parser.add_argument("--random-windows", type=_non_negative_integer, default=128)
     parser.add_argument("--window-frames", type=_positive_integer, default=4)
     parser.add_argument("--seed", type=int, default=0)
@@ -46,9 +47,12 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    capture = RadarCaptureSpec.from_record(
+        json.loads(args.capture_spec.read_text(encoding="utf-8"))
+    )
     result = run_archive_acceptance(
         args.inputs,
-        frame_bytes=args.frame_bytes,
+        capture=capture,
         filename=args.filename,
         random_windows=args.random_windows,
         window_frames=args.window_frames,

@@ -1,8 +1,7 @@
-"""Verified ADC archive reader for finite raw ADC frames."""
+"""ADC frame-reader facade for self-describing archives."""
 
 from __future__ import annotations
 
-import hmac
 import operator
 from dataclasses import asdict
 from pathlib import Path
@@ -10,58 +9,36 @@ from typing import Any
 
 import numpy as np
 
-from mmwcore.config import RadarCaptureSpec, capture_contract_sha256
+from mmwcore.config import RadarCaptureSpec
 from mmwcore.core import ADCFrameSpec, RawADCFrame
 
-from .adc_archive import ADCArchive, open_adc_archive, write_adc_archive
+from .adc_archive import ADCArchive, open_adc_archive
 
 
 class ADCArchiveFrameReader:
-    """Random-access ADC reader backed by a verified archive."""
+    """Random-access ADC reader whose contract comes from the archive Header."""
 
     __slots__ = ("_archive", "_capture", "_metadata")
 
     def __init__(
         self,
         path: str | Path,
-        capture: RadarCaptureSpec,
         *,
-        expected_adc_sha256: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        if not isinstance(capture, RadarCaptureSpec):
-            raise TypeError("capture must be a RadarCaptureSpec.")
         if metadata is not None and "tx_order" in metadata:
-            raise ValueError("Archive reader metadata must not override capture tx_order.")
-        archive = open_adc_archive(path)
-        _require_digest_match(
-            capture_contract_sha256(capture),
-            archive.capture_contract_sha256,
-            "ADC archive capture_contract_sha256",
-        )
-        _require_digest_match(
-            expected_adc_sha256,
-            archive.adc_sha256,
-            "expected_adc_sha256",
-        )
-        expected_frame_bytes = capture.adc.raw_values_per_frame * np.dtype(np.int16).itemsize
-        if archive.frame_bytes != expected_frame_bytes:
-            raise ValueError(
-                "ADC archive frame_bytes does not match ADCFrameSpec: "
-                f"{archive.frame_bytes} != {expected_frame_bytes}."
-            )
-        if capture.num_frames is not None and archive.frame_count != capture.num_frames:
-            raise ValueError(
-                "ADC archive frame count does not match RadarCaptureSpec: "
-                f"{archive.frame_count} != {capture.num_frames}."
-            )
-        self._archive = archive
-        self._capture = capture
-        self._metadata = {"tx_order": list(capture.tx_order), **(metadata or {})}
+            raise ValueError("Archive reader metadata must not override embedded tx_order.")
+        self._archive = open_adc_archive(path)
+        self._capture = self._archive.capture
+        self._metadata = {"tx_order": list(self._capture.tx_order), **(metadata or {})}
 
     @property
     def archive(self) -> ADCArchive:
         return self._archive
+
+    @property
+    def capture(self) -> RadarCaptureSpec:
+        return self._capture
 
     @property
     def spec(self) -> ADCFrameSpec:
@@ -80,8 +57,6 @@ class ADCArchiveFrameReader:
         return self._archive.path
 
     def read_frame(self, index: int) -> RawADCFrame:
-        """Decode and verify one frame by zero-based index."""
-
         if isinstance(index, bool):
             raise TypeError("ADC frame index must be an integer, not bool.")
         try:
@@ -105,57 +80,15 @@ class ADCArchiveFrameReader:
                 "frame_index": index,
                 "num_frames": self.num_frames,
                 "adc_sha256": self._archive.adc_sha256,
-                "capture_contract_sha256": self._archive.capture_contract_sha256,
+                "capture_sha256": self._archive.capture_sha256,
             },
         )
 
     def verify_all(self) -> None:
-        """Explicitly verify every frame and the logical ADC digest."""
-
         self._archive.verify_all()
 
     def revalidate_input(self) -> None:
-        """Confirm that the archive input is unchanged since it was opened."""
-
         self._archive.revalidate_input()
 
 
-def write_capture_adc_archive(
-    source: str | Path,
-    destination: str | Path,
-    capture: RadarCaptureSpec,
-    *,
-    expected_adc_sha256: str,
-) -> ADCArchive:
-    """Atomically archive ADC bytes bound to their capture and source identities."""
-
-    if not isinstance(capture, RadarCaptureSpec):
-        raise TypeError("capture must be a RadarCaptureSpec.")
-    source_path = Path(source)
-    if capture.expected_size_bytes is not None and source_path.stat().st_size != (
-        capture.expected_size_bytes
-    ):
-        raise ValueError("ADC source size does not match RadarCaptureSpec.expected_size_bytes.")
-    return write_adc_archive(
-        source_path,
-        destination,
-        frame_bytes=capture.adc.raw_values_per_frame * np.dtype(np.int16).itemsize,
-        capture_contract_sha256=capture_contract_sha256(capture),
-        expected_adc_sha256=expected_adc_sha256,
-    )
-
-
-def _require_digest_match(expected: str, actual: str, name: str) -> None:
-    _require_sha256(expected, name)
-    if not hmac.compare_digest(expected, actual):
-        raise ValueError(f"{name} does not match the verified archive value.")
-
-
-def _require_sha256(value: str, name: str) -> None:
-    if not isinstance(value, str):
-        raise TypeError(f"{name} must be a SHA-256 string.")
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
-        raise ValueError(f"{name} must be 64 lowercase hexadecimal characters.")
-
-
-__all__ = ["ADCArchiveFrameReader", "write_capture_adc_archive"]
+__all__ = ["ADCArchiveFrameReader"]

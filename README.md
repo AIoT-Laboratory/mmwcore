@@ -205,36 +205,22 @@ capture.
 
 ### Read a capture-bound ADC archive
 
-An ADC archive can be opened as the same finite frame-reader contract as a raw ADC file. The
-reader requires both the immutable capture contract and the SHA-256 of the original logical ADC
-bytes; an archive with a different layout, frame count, contract, or source digest is rejected.
+An ADC archive embeds its complete immutable capture contract and logical ADC SHA-256. Opening the
+file reconstructs the frame semantics directly from its header; no sidecar contract is required.
 
 ```python
-import hashlib
-from pathlib import Path
-
-from mmwcore.config import RadarCaptureSpec
 from mmwcore.io import ADCArchiveFrameReader
 
-capture = RadarCaptureSpec.from_record(capture_record)
-with Path("adc.bin").open("rb") as stream:
-    source_digest = hashlib.file_digest(stream, "sha256").hexdigest()
-reader = ADCArchiveFrameReader(
-    "adc.mmwa",
-    capture,
-    expected_adc_sha256=source_digest,
-)
+reader = ADCArchiveFrameReader("adc.mmwa")
 raw = reader.read_frame(100)
-print(reader.num_frames, raw.samples.shape)
+print(reader.capture, reader.num_frames, raw.samples.shape)
 ```
 
 `read_frame()` verifies the selected frame before returning it. Use `reader.verify_all()` for an
-explicit complete replay before a long processing or training run. `write_capture_adc_archive()`
-creates the corresponding archive and refuses to publish when the source digest does not match the
-caller-provided ADC identity. The writer reads the source once, validates the completed archive
-structure, and publishes atomically; it does not repeat a full decode already covered by codec and
-archive acceptance tests. Use `reader.revalidate_input()` before publishing derived output to
-confirm that the opened archive did not change during processing.
+explicit complete replay before a long processing or training run. `write_adc_archive()` accepts a
+`RadarCaptureSpec`, validates it against the source size, embeds its canonical JSON record, and
+publishes atomically without overwriting an existing file. Use `reader.revalidate_input()` before
+publishing derived output to confirm that the opened archive did not change during processing.
 
 ### Assemble archived datagrams
 
@@ -313,30 +299,34 @@ uv run python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ### Archive completed ADC data
 
 The offline ADC archive preserves every source byte in independently compressed and verified
-frames. The capture contract remains caller-owned and is bound by its lowercase SHA-256 digest.
+frames. Its header embeds the complete decoding contract, so reopening requires only the archive.
 
 ```python
+from mmwcore.config import RadarCaptureSpec
 from mmwcore.io import open_adc_archive, write_adc_archive
 
+capture = RadarCaptureSpec.from_record(capture_record)
 archive = write_adc_archive(
     "capture/adc.bin",
     "capture/adc.mmwa",
-    frame_bytes=1_572_864,
-    capture_contract_sha256="0123456789abcdef" * 4,
+    capture,
 )
 archive.verify_all()
 four_frames = archive.read_frames(100, 104, verify=False)
 
 reopened = open_adc_archive("capture/adc.mmwa")
+print(reopened.capture)
 one_verified_frame = reopened.read_frames(100, 101)
 ```
 
-The fixed v1 codec is one-frame little-endian `int16` byte shuffle plus zlib level 1. Writes verify
-the complete temporary archive before an atomic no-overwrite publication. Reads verify each frame
-by default; `verify=False` is accepted only after `verify_all()` succeeds on that same reader.
-See the [ADC archive study](docs/adc-archive-study.md) for corpus results, exact format scope,
-and the acceptance benchmark. The fixed v1 format is supported only for finalized ADC files;
-acquisition still publishes exact raw payloads and conversion remains offline.
+The fixed v2 codec is one-frame little-endian `int16` byte shuffle plus zlib level 1. Rust owns
+header parsing, metadata validation, encoding, decoding, indexing, hashing, and publication; Python
+only adapts the native object to `RadarCaptureSpec` and NumPy frame contracts. Reads verify each
+frame by default; `verify=False` is accepted only after `verify_all()` succeeds on that reader.
+See the [ADC archive v2 binary format](docs/adc-archive-format.md) for the normative fields and the
+[ADC archive study](docs/adc-archive-study.md) for the historical codec evidence. Version 2 is
+supported only for finalized ADC files; acquisition still publishes exact raw payloads before
+offline conversion.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 

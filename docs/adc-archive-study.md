@@ -1,6 +1,8 @@
 # ADC Archive Study
 
-This document records the codec study and acceptance results for the offline v1 ADC archive.
+This document records the codec study, the historical v1 corpus acceptance, and the acceptance
+requirements for the self-describing v2 archive. The v1 measurements remain evidence for the
+unchanged frame codec; they are not relabeled as v2 container evidence.
 
 ## Objective
 
@@ -236,25 +238,21 @@ progressive layer, or compatibility negotiation. The archive is an offline repre
 completed ADC file; it does not replace acquisition publication until durable-write and recovery
 measurements exist.
 
-The implementation exposes `write_adc_archive()` and `open_adc_archive()`. Its fixed
-little-endian layout contains a 64-byte header, one encoded payload per frame, a 48-byte fixed index
-record per frame, and a 160-byte commit footer at physical EOF. The header binds frame dimensions
-and the caller-owned capture-contract SHA-256. Each index record binds its payload offset, encoded
-length, and decoded-frame SHA-256. The self-digested footer binds the header, complete index, and
-concatenated logical ADC SHA-256. Frame size and encoded payload length have explicit bounds.
+The current implementation exposes `write_adc_archive()` and `open_adc_archive()`. Version 2
+contains a 96-byte fixed header, canonical `RadarCaptureSpec` JSON, one encoded payload per frame,
+a 48-byte index record per frame, and a 160-byte commit footer at physical EOF. The embedded
+contract is sufficient to restore ADC dimensions, layout, Tx order, timing, and finalized frame
+count. It does not replace packet-coverage, calibration, antenna-geometry, or provenance records.
 
-For a declared `RadarCaptureSpec`, `write_capture_adc_archive()` derives the frame size and
-capture-contract digest from that contract and requires the SHA-256 of the original ADC file. The
-matching `ADCArchiveFrameReader()` checks all three identities before exposing
-random-access frames. This makes the archive a storage representation of one known ADC source, not a
-replacement contract that infers layout or hardware metadata.
+Rust owns the complete writer, parser, metadata validation, codec, index, digest checks, random
+reads, full replay, and publication. Python only converts between the embedded JSON and
+`RadarCaptureSpec`. The normative offsets and invariants are specified in
+[ADC Archive v2 Binary Format](adc-archive-format.md).
 
-The writer reads the source once while computing the logical ADC and per-frame digests. It uses a
-same-directory temporary file, flushes and `fsync`s the complete archive, validates the complete
-header/index/footer chain, then atomically publishes with no overwrite. POSIX publication also
-`fsync`s the containing directory; Windows relies on the completed file flush plus atomic hard-link
-publication. Ordinary reads verify frame digests. A deliberate full replay remains available via
-`verify_all()` and authorizes trusted reads on that reader until its file identity changes.
+The writer reads the source once while computing logical and per-frame digests. It writes and
+`fsync`s a same-directory temporary file, validates the header/index/footer chain, then publishes
+without overwrite. Ordinary reads verify frame digests. `verify_all()` streams a complete replay
+and authorizes trusted reads on that object until its file identity changes.
 
 Run the implemented-format acceptance pass only after the codec corpus. Publish throughput covers
 the single source read, per-frame Rust transform/compression, source and frame hashing,
@@ -264,15 +262,15 @@ full verification. Archive ratio includes header, index, footer, and every encod
 
 ```console
 uv run --no-sync python -m benchmarks.adc_archive_acceptance_cli CAPTURE_ROOT \
-  --frame-bytes 1572864 --random-windows 128 --window-frames 4 \
-  --scratch-dir D:/Shared --output D:/Shared/mmwcore-adc-archive-v1.json
+  --capture-spec CAPTURE_SPEC.json --random-windows 128 --window-frames 4 \
+  --scratch-dir D:/Shared --output D:/Shared/mmwcore-adc-archive-v2.json
 ```
 
 The command writes only temporary archives under `--scratch-dir`, removes each after its source is
 measured, and leaves the ADC inputs untouched. This is a long I/O task and should be run manually
 on the fixed corpus.
 
-## Implemented Archive Acceptance
+## Historical v1 Archive Acceptance
 
 The fixed offline archive was validated on 2026-08-13 using clean revision
 `9864cca55b9517d3bb80f80f4c3449a46174eee5`. The acceptance run used the same 14 complete sources,
@@ -300,11 +298,11 @@ to the admitted revision and include source rehashing plus complete decode verif
 replay having passed for every source, the maintained writer now removes those two redundant scans;
 the historical throughput is not presented as a measurement of the optimized path.
 
-This result validates ADC archive v1 only as an offline representation of finalized ADC files.
-It does not validate inline acquisition encoding or make claims about capture backpressure, power-loss
-durability, or interrupted-device operation. The external machine-readable report intentionally
-remains outside the public repository because it contains workstation paths; this document records
-the aggregate acceptance results and committed implementation revision.
+This result validates the unchanged one-frame shuffle-zlib codec and the historical v1 container
+only. Version 2 must pass the same 14-source exact-roundtrip and random-window procedure before its
+container-level throughput and overhead are reported. Neither result validates inline acquisition,
+capture backpressure, power-loss durability, or interrupted-device operation. The machine-readable
+report remains outside the repository because it contains workstation paths.
 
 ## Repository Boundary
 

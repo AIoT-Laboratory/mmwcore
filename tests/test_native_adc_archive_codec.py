@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from mmwcore import _native
+from mmwcore.config import RadarCaptureSpec, RadarProfile
+from mmwcore.core import ADCFrameSpec
 from mmwcore.io import write_adc_archive
 
 
@@ -49,8 +51,17 @@ def test_public_archive_round_trip_uses_native_codec(tmp_path: Path) -> None:
     archive = write_adc_archive(
         source,
         tmp_path / "adc.mmwa",
-        frame_bytes=32,
-        capture_contract_sha256="0123456789abcdef" * 4,
+        RadarCaptureSpec(
+            profile=RadarProfile(
+                num_tx=1,
+                num_rx=1,
+                num_adc_samples=8,
+                num_chirps_per_tx=1,
+            ),
+            adc=ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=8),
+            tx_order=(0,),
+            num_frames=2,
+        ),
     )
     archive.verify_all()
 

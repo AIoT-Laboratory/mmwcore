@@ -9,7 +9,7 @@ from .adc_archive import (
     open_adc_archive,
     write_adc_archive,
 )
-from .adc_archive_reader import ADCArchiveFrameReader, write_capture_adc_archive
+from .adc_archive_reader import ADCArchiveFrameReader
 from .adc_file import ADCFileFrameReader, load_adc_cube, load_adc_file
 from .adc_reader import ADCFrameReader
 from .capture_stream import (
@@ -158,5 +158,4 @@ __all__ = [
     "read_dca1000_frame_from_packets",
     "reorder_dca1000_packets",
     "write_adc_archive",
-    "write_capture_adc_archive",
 ]

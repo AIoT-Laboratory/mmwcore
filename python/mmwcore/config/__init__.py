@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .capture import RADAR_CAPTURE_SPEC_SCHEMA, RadarCaptureSpec, capture_contract_sha256
+from .capture import RADAR_CAPTURE_SPEC_SCHEMA, RadarCaptureSpec
 from .parsers import (
     parse_ti_cli_capture_spec,
     parse_ti_cli_capture_spec_file,
@@ -30,7 +30,6 @@ from .profiles import RadarProfile
 __all__ = [
     "RADAR_CAPTURE_SPEC_SCHEMA",
     "RadarCaptureSpec",
-    "capture_contract_sha256",
     "RadarProfile",
     "awr1843_aop_antenna_geometry",
     "iwr6843_aop_antenna_geometry",

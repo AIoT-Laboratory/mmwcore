@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import platform
 import random
@@ -17,9 +16,10 @@ from pathlib import Path
 import numpy as np
 
 from benchmarks.adc_storage_inputs import discover_sources, source_selection
+from mmwcore.config import RadarCaptureSpec
 from mmwcore.io import ADCArchive, open_adc_archive, write_adc_archive
 
-SCHEMA = "mmwcore.adc_archive_acceptance.v1"
+SCHEMA = "mmwcore.adc_archive_acceptance.v2"
 DEFAULT_FILENAME = "adc_data_Raw_0.bin"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,7 +27,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 def run_archive_acceptance(
     inputs: Sequence[Path],
     *,
-    frame_bytes: int,
+    capture: RadarCaptureSpec,
     filename: str = DEFAULT_FILENAME,
     random_windows: int = 128,
     window_frames: int = 4,
@@ -37,23 +37,21 @@ def run_archive_acceptance(
 ) -> dict[str, object]:
     """Pack, reopen, verify, and sample the implemented archive for each source."""
 
+    frame_bytes = capture.adc.raw_values_per_frame * np.dtype(np.int16).itemsize
     _validate_options(
         inputs,
-        frame_bytes=frame_bytes,
         random_windows=random_windows,
         window_frames=window_frames,
         scratch_dir=scratch_dir,
     )
     sources = discover_sources(inputs, filename=filename)
-    contract_sha256 = hashlib.sha256(f"{SCHEMA}\0frame_bytes={frame_bytes}".encode()).hexdigest()
     results = []
     for index, source in enumerate(sources, start=1):
         if progress is not None:
             progress(f"[{index}/{len(sources)}] start {source}")
         result = _measure_source(
             source,
-            frame_bytes=frame_bytes,
-            capture_contract_sha256=contract_sha256,
+            capture=capture,
             random_windows=random_windows,
             window_frames=window_frames,
             seed=seed,
@@ -83,10 +81,10 @@ def run_archive_acceptance(
         "parameters": {
             "filename": filename,
             "frame_bytes": frame_bytes,
+            "capture": capture.to_record(),
             "random_windows": random_windows,
             "window_frames": window_frames,
             "random_seed": seed,
-            "benchmark_capture_contract_sha256": contract_sha256,
         },
         "summary": _summary(results),
         "sources": results,
@@ -96,13 +94,13 @@ def run_archive_acceptance(
 def _measure_source(
     source: Path,
     *,
-    frame_bytes: int,
-    capture_contract_sha256: str,
+    capture: RadarCaptureSpec,
     random_windows: int,
     window_frames: int,
     seed: int,
     scratch_dir: Path | None,
 ) -> dict[str, object]:
+    frame_bytes = capture.adc.raw_values_per_frame * np.dtype(np.int16).itemsize
     total_frames, _ = source_selection(
         source,
         frame_bytes=frame_bytes,
@@ -118,8 +116,7 @@ def _measure_source(
         archive = write_adc_archive(
             source,
             destination,
-            frame_bytes=frame_bytes,
-            capture_contract_sha256=capture_contract_sha256,
+            capture,
         )
         publish_ns = time.perf_counter_ns() - started
 
@@ -159,17 +156,18 @@ def _measure_source(
             "archive_bytes": archive.archive_size,
             "payload_bytes": archive.payload_bytes,
             "index_bytes": archive.index_bytes,
-            "metadata_bytes": archive.metadata_bytes,
+            "capture_metadata_bytes": archive.capture_metadata_bytes,
+            "container_overhead_bytes": archive.container_overhead_bytes,
             "archive_ratio": archive.archive_size / raw_bytes,
-            "metadata_ratio": archive.metadata_bytes / raw_bytes,
+            "container_overhead_ratio": archive.container_overhead_bytes / raw_bytes,
             "publish_mib_per_second": _mib_per_second(raw_bytes, publish_ns),
             "full_verify_mib_per_second": _mib_per_second(raw_bytes, verify_ns),
             "throughput_scope": {
                 "publish": (
-                    "source_read_frame_and_logical_hash_native_encode_payload_write_fsync_"
-                    "source_rehash_full_decode_verify_atomic_publish"
+                    "rust_source_read_frame_logical_hash_encode_payload_write_fsync_"
+                    "structural_verify_atomic_publish"
                 ),
-                "full_verify": "archive_read_native_decode_frame_digest_logical_digest",
+                "full_verify": "rust_archive_read_decode_frame_digest_logical_digest",
             },
             "random_window": {
                 "count": random_windows,
@@ -231,14 +229,14 @@ def _latency(values: Sequence[int], *, scope: str) -> dict[str, str | float]:
 def _summary(sources: Sequence[dict[str, object]]) -> dict[str, object]:
     raw_bytes = sum(_integer_field(source, "raw_bytes") for source in sources)
     archive_bytes = sum(_integer_field(source, "archive_bytes") for source in sources)
-    metadata_bytes = sum(_integer_field(source, "metadata_bytes") for source in sources)
+    overhead_bytes = sum(_integer_field(source, "container_overhead_bytes") for source in sources)
     return {
         "source_count": len(sources),
         "raw_bytes": raw_bytes,
         "archive_bytes": archive_bytes,
-        "metadata_bytes": metadata_bytes,
+        "container_overhead_bytes": overhead_bytes,
         "archive_ratio": archive_bytes / raw_bytes,
-        "metadata_ratio": metadata_bytes / raw_bytes,
+        "container_overhead_ratio": overhead_bytes / raw_bytes,
         "minimum_publish_mib_per_second": min(
             _float_field(source, "publish_mib_per_second") for source in sources
         ),
@@ -295,15 +293,12 @@ def _percentile(values: Sequence[int], percentile: float) -> float:
 def _validate_options(
     inputs: Sequence[Path],
     *,
-    frame_bytes: int,
     random_windows: int,
     window_frames: int,
     scratch_dir: Path | None,
 ) -> None:
     if not inputs:
         raise ValueError("At least one ADC source is required.")
-    if frame_bytes <= 0 or frame_bytes % 2:
-        raise ValueError("Frame bytes must be a positive multiple of two.")
     if random_windows < 0:
         raise ValueError("Random windows must be non-negative.")
     if window_frames <= 0:

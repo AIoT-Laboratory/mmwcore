@@ -4,6 +4,7 @@
 
 pub mod adc;
 pub mod adc_archive;
+pub mod adc_archive_file;
 pub mod angle;
 pub mod assignment;
 pub mod candidate_aoa;
@@ -32,6 +33,10 @@ pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<us
 
 pub use adc::{AdcComplexLayout, AdcCube, AdcDecodeError, AdcFrameSpec, decode_adc_i16};
 pub use adc_archive::{AdcArchiveCodecError, decode_adc_archive_frame, encode_adc_archive_frame};
+pub use adc_archive_file::{
+    AdcArchiveFile, AdcArchiveFileError, open_adc_archive_file, sha256_from_hex, sha256_to_hex,
+    write_adc_archive_file,
+};
 pub use angle::{
     AngleAxis, AngleBinCalibrationConfig, AngleBinCalibrationInput, AngleCalibrationError,
     calibrate_angle_bins,
