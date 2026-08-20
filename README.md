@@ -324,7 +324,7 @@ header parsing, metadata validation, encoding, decoding, indexing, hashing, and 
 only adapts the native object to `RadarCaptureSpec` and NumPy frame contracts. Reads verify each
 frame by default; `verify=False` is accepted only after `verify_all()` succeeds on that reader.
 See the [ADC archive v2 binary format](docs/adc-archive-format.md) for the normative fields and the
-[ADC archive study](docs/adc-archive-study.md) for the historical codec evidence. Version 2 is
+[ADC archive study](docs/adc-archive-study.md) for codec and v2 corpus evidence. Version 2 is
 supported only for finalized ADC files; acquisition still publishes exact raw payloads before
 offline conversion.
 

@@ -2,7 +2,7 @@
 
 All notable changes to mmwcore are documented here.
 
-## Unreleased
+## [0.6.0] - 2026-08-20
 
 ### Changed
 

@@ -1,8 +1,8 @@
 # ADC Archive Study
 
-This document records the codec study, the historical v1 corpus acceptance, and the acceptance
-requirements for the self-describing v2 archive. The v1 measurements remain evidence for the
-unchanged frame codec; they are not relabeled as v2 container evidence.
+This document records the codec study and separate corpus acceptance results for the historical v1
+and self-describing v2 archives. The v1 measurements remain evidence for their admitted revision;
+they are not relabeled as v2 container evidence.
 
 ## Objective
 
@@ -269,6 +269,42 @@ uv run --no-sync python -m benchmarks.adc_archive_acceptance_cli CAPTURE_ROOT \
 The command writes only temporary archives under `--scratch-dir`, removes each after its source is
 measured, and leaves the ADC inputs untouched. This is a long I/O task and should be run manually
 on the fixed corpus.
+
+## ADC Archive v2 Acceptance
+
+The self-describing v2 archive was validated on 2026-08-20 using clean revision
+`fb934d027969b19249d72a827da994dc302b2ab9`. The run used the same 14 complete IWR6843 sources,
+8,400 frames, and 13,212,057,600 logical bytes as the historical archive acceptance. Every source
+passed complete Rust replay and 128 direct-source comparisons of randomly selected four-frame
+windows.
+
+| Measurement | Corpus result |
+|---|---:|
+| Raw ADC data | 12.3047 GiB |
+| Complete v2 archive | 8.0662 GiB |
+| Total archive ratio | 0.65554 |
+| Storage reduction | 4.2385 GiB / 34.45% |
+| Embedded capture metadata | 7,140 bytes total / 510 bytes per source |
+| Total container overhead | 413,924 bytes / 0.00313% |
+| Minimum v2 atomic-publication throughput | 178.1 MiB/s |
+| Minimum reopened full-verification throughput | 260.3 MiB/s |
+| Worst verified four-frame random-read P95 | 26.73 ms |
+| Worst trusted four-frame random-read P95 after full verification | 25.14 ms |
+| Exact source round trips | 14 / 14 |
+
+Per-source archive ratios remained between `0.64614` and `0.66332`. Atomic publication remained
+between `178.1` and `199.8 MiB/s`, and reopened full verification remained between `260.3` and
+`279.6 MiB/s`. Each archive embedded the same 510-byte canonical capture contract. Its per-source
+container overhead was 29,566 bytes: the 96-byte fixed header, capture metadata, 600 48-byte index
+records, and the 160-byte footer.
+
+The v2 publication measurement covers one Rust source pass, logical and frame hashing, encoding,
+payload write, temporary-file `fsync`, structural verification, and atomic publication. The
+historical v1 admission path also repeated source hashing and complete decode verification before
+publication. Their throughput figures therefore have different scopes and are not presented as a
+direct performance comparison. The v2 run establishes its own acceptance result: self-contained
+capture metadata adds negligible storage overhead while preserving exact replay and bounded
+frame-window access on the tested corpus.
 
 ## Historical v1 Archive Acceptance
 
