@@ -5,18 +5,45 @@ from __future__ import annotations
 import hashlib
 import hmac
 import io
-import json
-import re
-import stat
 import struct
 from collections import Counter, deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO, NoReturn, cast
+from typing import BinaryIO, cast
 
 from mmwcore.core import RangeDopplerRecipe
 
+from ._multisensor_files import (
+    _directory_leaf,
+    _read_bounded_regular,
+    _read_exact,
+    _regular_leaf,
+    _require_directory_names,
+    _require_file_size,
+    _revalidate_bounded_regular,
+    _session_root,
+    _sha256_file,
+)
+from ._multisensor_json import (
+    _application_metadata,
+    _array,
+    _boolean,
+    _closed_text,
+    _exact_keys,
+    _json_depth,
+    _leaf_name,
+    _literal,
+    _object,
+    _opaque_id,
+    _payload_format,
+    _session_identifier,
+    _source_identifier,
+    _strict_json_object,
+    _string_array,
+    _uint,
+    _valid_sha256,
+)
 from .mmwcli_capture import ADCFileCapture, RangeDopplerPreset
 from .mmwcli_capture import open_capture as _open_mmwcli_capture
 
@@ -43,13 +70,6 @@ _MAX_ARTIFACTS = 16
 _MAX_CLOCK_OBSERVATIONS = 4096
 _MAX_AFFINE_SEGMENTS = 1024
 _MAX_SYNC_EVENTS = 1 << 20
-_MAX_METADATA_ENTRIES = 32
-_MAX_METADATA_BYTES = 64 << 10
-_MAX_METADATA_DEPTH = 16
-_MAX_METADATA_KEY_BYTES = 128
-
-_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
-_SOURCE_ID = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 _KINDS = frozenset({"radar", "camera"})
 _OUTCOMES = frozenset({"complete", "failed", "omitted"})
 _GRADES = frozenset({"software_barrier"})
@@ -60,10 +80,6 @@ _TIMESTAMP_SEMANTICS = {
 _ARTIFACT_ROLES = frozenset({"payload", "index", "configuration", "manifest", "metadata"})
 _SYNC_EDGES = frozenset({"rising", "falling"})
 _EVIDENCE_KINDS = frozenset({"trigger_generation", "hardware_observation"})
-_OPAQUE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
-_PAYLOAD_FORMAT = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
-_METADATA_KEY = re.compile(r"[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}\Z")
-
 type TrainingKey = tuple[str, str, int] | tuple[str, str, int, int]
 
 
@@ -783,7 +799,7 @@ def open_multisensor_source_timeline(
     )
 
 
-def _parse_multisensor_session(path: str | Path) -> _ParsedMultisensorSession:  # noqa: C901
+def _parse_multisensor_session(path: str | Path) -> _ParsedMultisensorSession:
     """Parse the complete session JSON contract once before any artifact access."""
 
     root = _session_root(path)
@@ -1168,7 +1184,7 @@ def _training_key(
     return (*base, entry.sync_event_id)
 
 
-def _validate_index(  # noqa: C901
+def _validate_index(
     path: Path,
     *,
     contract: _SourceContract,
@@ -1184,7 +1200,7 @@ def _validate_index(  # noqa: C901
     return event_counts
 
 
-def _read_validated_index(  # noqa: C901
+def _read_validated_index(
     file: BinaryIO,
     *,
     contract: _SourceContract,
@@ -1208,32 +1224,20 @@ def _read_validated_index(  # noqa: C901
             expected_index=expected_index,
             max_item_bytes=contract.max_item_bytes,
         )
-        if entry.payload_offset != expected_offset:
-            raise ValueError("Sensor index payload ranges must be ordered and contiguous.")
-        expected_offset += entry.payload_size
-        if expected_offset > contract.payload_bytes:
-            raise ValueError("Sensor index payload range exceeds the declared payload.")
-        unwrapped = _unwrapped_tick(contract.clock, entry.ticks, entry.wrap_count)
-        if contract.clock.timestamp_semantics == "delivery_observed" and entry.duration_ticks:
-            raise ValueError("delivery_observed sensor index duration_ticks must be zero.")
-        if first_tick is None:
-            first_tick = unwrapped
-        if previous_tick is not None and unwrapped < previous_tick:
-            raise ValueError("Sensor index source ticks must be monotonic.")
+        expected_offset, first_tick, unwrapped = _validate_index_item(
+            entry,
+            contract=contract,
+            expected_offset=expected_offset,
+            first_tick=first_tick,
+            previous_tick=previous_tick,
+        )
         previous_tick = unwrapped
-        if unwrapped + entry.duration_ticks > _MAX_U64:
-            raise ValueError("Sensor index duration overflows the unwrapped clock.")
-        _segment_for_tick(contract.segments, unwrapped)
-        _map_item_interval(contract.clock, contract.segments, entry)
-        if entry.sync_event_id is None:
-            if contract.cardinality is not None and contract.cardinality.required:
-                raise ValueError("Sensor index item omits a required synchronization event.")
-        else:
-            if contract.cardinality is None:
-                raise ValueError("Sensor index item declares an event without cardinality.")
-            if entry.sync_event_id not in event_ids:
-                raise ValueError("Sensor index references an unknown synchronization event.")
-            event_counts[entry.sync_event_id] += 1
+        _record_index_event(
+            entry,
+            contract=contract,
+            event_ids=event_ids,
+            event_counts=event_counts,
+        )
         entries.append(entry)
     if expected_offset != contract.payload_bytes:
         raise ValueError("Sensor index does not exactly cover the declared payload.")
@@ -1252,6 +1256,51 @@ def _read_validated_index(  # noqa: C901
                 "last item tick."
             )
     return tuple(entries), event_counts
+
+
+def _validate_index_item(
+    entry: _IndexEntry,
+    *,
+    contract: _SourceContract,
+    expected_offset: int,
+    first_tick: int | None,
+    previous_tick: int | None,
+) -> tuple[int, int, int]:
+    if entry.payload_offset != expected_offset:
+        raise ValueError("Sensor index payload ranges must be ordered and contiguous.")
+    expected_offset += entry.payload_size
+    if expected_offset > contract.payload_bytes:
+        raise ValueError("Sensor index payload range exceeds the declared payload.")
+    unwrapped = _unwrapped_tick(contract.clock, entry.ticks, entry.wrap_count)
+    if contract.clock.timestamp_semantics == "delivery_observed" and entry.duration_ticks:
+        raise ValueError("delivery_observed sensor index duration_ticks must be zero.")
+    if first_tick is None:
+        first_tick = unwrapped
+    if previous_tick is not None and unwrapped < previous_tick:
+        raise ValueError("Sensor index source ticks must be monotonic.")
+    if unwrapped + entry.duration_ticks > _MAX_U64:
+        raise ValueError("Sensor index duration overflows the unwrapped clock.")
+    _segment_for_tick(contract.segments, unwrapped)
+    _map_item_interval(contract.clock, contract.segments, entry)
+    return expected_offset, first_tick, unwrapped
+
+
+def _record_index_event(
+    entry: _IndexEntry,
+    *,
+    contract: _SourceContract,
+    event_ids: frozenset[int],
+    event_counts: Counter[int],
+) -> None:
+    if entry.sync_event_id is None:
+        if contract.cardinality is not None and contract.cardinality.required:
+            raise ValueError("Sensor index item omits a required synchronization event.")
+        return
+    if contract.cardinality is None:
+        raise ValueError("Sensor index item declares an event without cardinality.")
+    if entry.sync_event_id not in event_ids:
+        raise ValueError("Sensor index references an unknown synchronization event.")
+    event_counts[entry.sync_event_id] += 1
 
 
 def _read_index_header(
@@ -1373,7 +1422,7 @@ def _parse_observations(
     return observations
 
 
-def _parse_segments(  # noqa: C901
+def _parse_segments(
     source: dict[str, object],
     *,
     source_id: str,
@@ -1386,75 +1435,12 @@ def _parse_segments(  # noqa: C901
     segments: list[_AffineSegment] = []
     previous: _AffineSegment | None = None
     for value in values:
-        if not isinstance(value, dict):
-            raise ValueError("Affine segments must be JSON objects.")
-        _exact_keys(
+        segment = _parse_affine_segment(
             value,
-            {
-                "start_unwrapped_tick",
-                "end_unwrapped_tick",
-                "source_origin_tick",
-                "host_origin_ns",
-                "scale_num",
-                "scale_den",
-                "observation_ids",
-                "uncertainty_ns",
-            },
-            context=f"source {source_id}.affine_segment",
+            source_id=source_id,
+            clock=clock,
+            observations=observations,
         )
-        observation_values = _string_array(
-            value.get("observation_ids"),
-            f"source {source_id}.affine_segment.observation_ids",
-        )
-        if not observation_values or len(set(observation_values)) != len(observation_values):
-            raise ValueError("Affine segment observation IDs must be nonempty and unique.")
-        if not set(observation_values) <= set(observations):
-            raise ValueError("Affine segment references an unknown clock observation.")
-        segment = _AffineSegment(
-            start_tick=_uint(
-                value,
-                "start_unwrapped_tick",
-                0,
-                _MAX_U64,
-                "affine segment",
-            ),
-            end_tick=_uint(value, "end_unwrapped_tick", 0, _MAX_U64, "affine segment"),
-            source_origin_tick=_uint(
-                value,
-                "source_origin_tick",
-                0,
-                _MAX_U64,
-                "affine segment",
-            ),
-            host_origin_ns=_uint(
-                value,
-                "host_origin_ns",
-                0,
-                _MAX_U64,
-                "affine segment",
-            ),
-            scale_num=_uint(value, "scale_num", 1, _MAX_U64, "affine segment"),
-            scale_den=_uint(value, "scale_den", 1, _MAX_U64, "affine segment"),
-            observation_ids=tuple(observation_values),
-            uncertainty_ns=_uint(
-                value,
-                "uncertainty_ns",
-                0,
-                _MAX_U64,
-                "affine segment",
-            ),
-        )
-        if segment.start_tick >= segment.end_tick:
-            raise ValueError("Affine segment ranges must be nonempty and half-open.")
-        if not segment.start_tick <= segment.source_origin_tick < segment.end_tick:
-            raise ValueError("Affine segment source_origin_tick is outside its range.")
-        for observation_id in observation_values:
-            observation = observations[observation_id]
-            unwrapped = _unwrapped_tick(clock, observation.ticks, observation.wrap_count)
-            if not segment.start_tick <= unwrapped < segment.end_tick:
-                raise ValueError("Affine observation is outside its segment tick range.")
-            if not _observation_interval_covered(segment, observation, unwrapped):
-                raise ValueError("Affine uncertainty does not cover its observation interval.")
         if previous is not None:
             if segment.start_tick < previous.end_tick:
                 raise ValueError("Affine segment ranges must not overlap.")
@@ -1466,6 +1452,61 @@ def _parse_segments(  # noqa: C901
         _validate_segment_domain(segment)
         previous = segment
     return tuple(segments)
+
+
+def _parse_affine_segment(
+    value: object,
+    *,
+    source_id: str,
+    clock: _Clock,
+    observations: dict[str, _ClockObservation],
+) -> _AffineSegment:
+    if not isinstance(value, dict):
+        raise ValueError("Affine segments must be JSON objects.")
+    _exact_keys(
+        value,
+        {
+            "start_unwrapped_tick",
+            "end_unwrapped_tick",
+            "source_origin_tick",
+            "host_origin_ns",
+            "scale_num",
+            "scale_den",
+            "observation_ids",
+            "uncertainty_ns",
+        },
+        context=f"source {source_id}.affine_segment",
+    )
+    observation_values = _string_array(
+        value.get("observation_ids"),
+        f"source {source_id}.affine_segment.observation_ids",
+    )
+    if not observation_values or len(set(observation_values)) != len(observation_values):
+        raise ValueError("Affine segment observation IDs must be nonempty and unique.")
+    if not set(observation_values) <= set(observations):
+        raise ValueError("Affine segment references an unknown clock observation.")
+    segment = _AffineSegment(
+        start_tick=_uint(value, "start_unwrapped_tick", 0, _MAX_U64, "affine segment"),
+        end_tick=_uint(value, "end_unwrapped_tick", 0, _MAX_U64, "affine segment"),
+        source_origin_tick=_uint(value, "source_origin_tick", 0, _MAX_U64, "affine segment"),
+        host_origin_ns=_uint(value, "host_origin_ns", 0, _MAX_U64, "affine segment"),
+        scale_num=_uint(value, "scale_num", 1, _MAX_U64, "affine segment"),
+        scale_den=_uint(value, "scale_den", 1, _MAX_U64, "affine segment"),
+        observation_ids=tuple(observation_values),
+        uncertainty_ns=_uint(value, "uncertainty_ns", 0, _MAX_U64, "affine segment"),
+    )
+    if segment.start_tick >= segment.end_tick:
+        raise ValueError("Affine segment ranges must be nonempty and half-open.")
+    if not segment.start_tick <= segment.source_origin_tick < segment.end_tick:
+        raise ValueError("Affine segment source_origin_tick is outside its range.")
+    for observation_id in observation_values:
+        observation = observations[observation_id]
+        unwrapped = _unwrapped_tick(clock, observation.ticks, observation.wrap_count)
+        if not segment.start_tick <= unwrapped < segment.end_tick:
+            raise ValueError("Affine observation is outside its segment tick range.")
+        if not _observation_interval_covered(segment, observation, unwrapped):
+            raise ValueError("Affine uncertainty does not cover its observation interval.")
+    return segment
 
 
 def _validate_delivery_observed_mapping(
@@ -1817,274 +1858,6 @@ def _checked_index_size(item_count: int) -> int:
     if not 0 <= item_count <= _MAX_ITEMS:
         raise ValueError("Sensor index item count is outside the v1 bound.")
     return _INDEX_HEADER_BYTES + item_count * _INDEX_ENTRY_BYTES
-
-
-def _session_root(path: str | Path) -> Path:
-    try:
-        root = Path(path).resolve(strict=True)
-    except OSError as exc:
-        raise ValueError(f"Multisensor capture directory is unavailable: {path}.") from exc
-    if not root.is_dir() or root.name.endswith(".part"):
-        raise ValueError(f"Multisensor capture path is not a published directory: {root}.")
-    return root
-
-
-def _regular_leaf(root: Path, name: str, label: str) -> Path:
-    path = root / name
-    try:
-        status = path.lstat()
-    except OSError as exc:
-        raise ValueError(f"{label} is unavailable: {path}.") from exc
-    if not stat.S_ISREG(status.st_mode):
-        raise ValueError(f"{label} is not a regular file: {path}.")
-    return path
-
-
-def _directory_leaf(root: Path, name: str, label: str) -> Path:
-    path = root / name
-    try:
-        status = path.lstat()
-    except OSError as exc:
-        raise ValueError(f"{label} is unavailable: {path}.") from exc
-    if not stat.S_ISDIR(status.st_mode):
-        raise ValueError(f"{label} is not a directory: {path}.")
-    return path
-
-
-def _require_directory_names(root: Path, expected: set[str], label: str) -> None:
-    try:
-        actual = {entry.name for entry in root.iterdir()}
-    except OSError as exc:
-        raise ValueError(f"{label} cannot be listed: {root}.") from exc
-    if actual != expected:
-        raise ValueError(f"{label} has undeclared or missing leaves.")
-
-
-def _read_bounded_regular(
-    path: Path,
-    *,
-    maximum_bytes: int,
-    label: str,
-) -> bytes:
-    status = path.lstat()
-    if not stat.S_ISREG(status.st_mode) or status.st_size > maximum_bytes:
-        raise ValueError(f"{label} exceeds its regular-file bound.")
-    payload = path.read_bytes()
-    if len(payload) != status.st_size or len(payload) > maximum_bytes:
-        raise ValueError(f"{label} changed while it was read.")
-    return payload
-
-
-def _revalidate_bounded_regular(
-    path: Path,
-    *,
-    maximum_bytes: int,
-    label: str,
-    expected_size: int,
-    expected_sha256: str,
-) -> None:
-    payload = _read_bounded_regular(path, maximum_bytes=maximum_bytes, label=label)
-    if len(payload) > maximum_bytes or len(payload) != expected_size:
-        raise ValueError(f"{label} changed while it was revalidated.")
-    if not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), expected_sha256):
-        raise ValueError(f"{label} digest changed after open.")
-
-
-def _require_file_size(path: Path, expected: int, label: str) -> None:
-    try:
-        status = path.lstat()
-    except OSError as exc:
-        raise ValueError(f"{label} is unavailable: {path}.") from exc
-    if not stat.S_ISREG(status.st_mode) or status.st_size != expected:
-        raise ValueError(f"{label} size does not match session.json.")
-
-
-def _sha256_file(path: Path, expected_size: int) -> str:
-    _require_file_size(path, expected_size, "source artifact")
-    with path.open("rb") as file:
-        digest = hashlib.file_digest(file, "sha256").hexdigest()
-    _require_file_size(path, expected_size, "source artifact")
-    return digest
-
-
-def _read_exact(file: BinaryIO, size: int, label: str) -> bytes:
-    payload = file.read(size)
-    if type(payload) is not bytes or len(payload) != size:
-        raise ValueError(f"{label} is truncated.")
-    return payload
-
-
-def _strict_json_object(payload: bytes, *, context: str) -> dict[str, object]:
-    try:
-        value = json.loads(
-            payload.decode("utf-8"),
-            object_pairs_hook=_unique_json_object,
-            parse_constant=_reject_json_constant,
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
-        raise ValueError(f"{context} must be strict UTF-8 JSON.") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"{context} must be a JSON object.")
-    return value
-
-
-def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
-def _reject_json_constant(value: str) -> NoReturn:
-    raise ValueError(f"non-standard JSON constant {value!r}")
-
-
-def _exact_keys(
-    record: dict[str, object],
-    required: set[str],
-    *,
-    optional: set[str] | frozenset[str] = frozenset(),
-    context: str,
-) -> None:
-    actual = set(record)
-    if not required <= actual or not actual <= required | set(optional):
-        raise ValueError(f"{context} has an invalid exact key set.")
-
-
-def _object(record: dict[str, object], field: str, context: str) -> dict[str, object]:
-    value = record.get(field)
-    if not isinstance(value, dict):
-        raise ValueError(f"{context}.{field} must be a JSON object.")
-    return value
-
-
-def _array(record: dict[str, object], field: str, context: str) -> list[object]:
-    value = record.get(field)
-    if not isinstance(value, list):
-        raise ValueError(f"{context}.{field} must be a JSON array.")
-    return value
-
-
-def _string_array(value: object, context: str) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        raise ValueError(f"{context} must be a JSON array.")
-    result: list[str] = []
-    for item in value:
-        if not isinstance(item, str) or not item or len(item.encode("utf-8")) > 128:
-            raise ValueError(f"{context} entries must be bounded nonempty strings.")
-        result.append(item)
-    return tuple(result)
-
-
-def _literal(record: dict[str, object], field: str, expected: str, context: str) -> None:
-    if record.get(field) != expected:
-        raise ValueError(f"{context} must be {expected!r}.")
-
-
-def _closed_text(
-    record: dict[str, object],
-    field: str,
-    allowed: frozenset[str],
-    context: str,
-) -> str:
-    value = record.get(field)
-    if not isinstance(value, str) or value not in allowed:
-        raise ValueError(f"{context}.{field} is not a supported value.")
-    return value
-
-
-def _boolean(record: dict[str, object], field: str, context: str) -> bool:
-    value = record.get(field)
-    if type(value) is not bool:
-        raise ValueError(f"{context}.{field} must be a boolean.")
-    return value
-
-
-def _uint(
-    record: dict[str, object],
-    field: str,
-    minimum: int,
-    maximum: int,
-    context: str,
-) -> int:
-    value = record.get(field)
-    if type(value) is not int or not minimum <= value <= maximum:
-        raise ValueError(f"{context}.{field} is outside its unsigned integer bound.")
-    return value
-
-
-def _session_identifier(value: object) -> str:
-    if not isinstance(value, str) or _SESSION_ID.fullmatch(value) is None:
-        raise ValueError("session.session_id must be a lowercase UUIDv4.")
-    return value
-
-
-def _source_identifier(value: object) -> str:
-    if not isinstance(value, str) or _SOURCE_ID.fullmatch(value) is None:
-        raise ValueError("source_id does not match [a-z][a-z0-9-]{0,63}.")
-    return value
-
-
-def _leaf_name(value: object, context: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or value in {".", ".."}
-        or "/" in value
-        or "\\" in value
-        or value.endswith(".part")
-        or len(value.encode("utf-8")) > 128
-    ):
-        raise ValueError(f"{context} must be one safe non-part leaf name.")
-    return value
-
-
-def _application_metadata(value: object, context: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{context} must be a JSON object.")
-    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(encoded) > _MAX_METADATA_BYTES:
-        raise ValueError(f"{context} exceeds the {_MAX_METADATA_BYTES}-byte limit.")
-    if len(value) > _MAX_METADATA_ENTRIES:
-        raise ValueError(f"{context} object has too many entries.")
-    for key, item in value.items():
-        if (
-            len(key.encode("utf-8")) > _MAX_METADATA_KEY_BYTES
-            or _METADATA_KEY.fullmatch(key) is None
-        ):
-            raise ValueError(f"{context} key {key!r} is not namespaced.")
-        if _json_depth(item) > _MAX_METADATA_DEPTH:
-            raise ValueError(f"{context}[{key!r}] exceeds the metadata depth limit.")
-
-
-def _opaque_id(value: object, context: str) -> str:
-    if not isinstance(value, str) or _OPAQUE_ID.fullmatch(value) is None:
-        raise ValueError(f"{context} is not a valid opaque identifier.")
-    return value
-
-
-def _payload_format(value: object, context: str) -> str:
-    if not isinstance(value, str) or _PAYLOAD_FORMAT.fullmatch(value) is None:
-        raise ValueError(f"{context} is not a valid payload format.")
-    return value
-
-
-def _json_depth(value: object) -> int:
-    if isinstance(value, dict):
-        return 1 + max((_json_depth(item) for item in value.values()), default=0)
-    if isinstance(value, list):
-        return 1 + max((_json_depth(item) for item in value), default=0)
-    return 1
-
-
-def _valid_sha256(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
 
 
 def _ceil_div(numerator: int, denominator: int) -> int:

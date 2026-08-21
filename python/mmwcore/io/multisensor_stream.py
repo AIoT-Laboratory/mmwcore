@@ -10,7 +10,7 @@ import struct
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from enum import IntEnum
-from typing import BinaryIO, NoReturn
+from typing import BinaryIO, NoReturn, Protocol
 
 import numpy as np
 
@@ -298,12 +298,35 @@ class _Record:
     payload: bytes
 
 
+@dataclass(frozen=True)
+class _RecordHeader:
+    kind: _RecordType
+    sequence: int
+    metadata_size: int
+    payload_size: int
+    digest: bytes
+
+
+class _PayloadHash(Protocol):
+    def update(self, payload: bytes, /) -> None: ...
+
+    def hexdigest(self) -> str: ...
+
+
+def _valid_record_payload_size(kind: _RecordType, payload_size: int) -> bool:
+    if kind is _RecordType.RADAR_CONFIG:
+        return 1 <= payload_size <= _MAX_RADAR_CONFIG_BYTES
+    if kind is _RecordType.ITEM:
+        return 1 <= payload_size <= _MAX_ITEM_BYTES
+    return payload_size == 0
+
+
 @dataclass
 class _SourceProgress:
     contract: MultisensorStreamSource
     next_item: int = 0
     payload_bytes: int = 0
-    payload_hash: object = field(default_factory=hashlib.sha256)
+    payload_hash: _PayloadHash = field(default_factory=hashlib.sha256)
     end: MultisensorSourceEnd | None = None
     radar_start: MappedTimeInterval | None = None
 
@@ -503,7 +526,7 @@ class MultisensorStreamReader:
             raise ValueError("delivery_observed ITEM.duration_ticks must be zero")
         unwrapped = _unwrap_ticks(tick, wrap_count, source.wrap_ticks, duration)
         mapped_time = _map_live_item(progress, unwrapped, duration)
-        progress.payload_hash.update(record.payload)  # type: ignore[attr-defined]
+        progress.payload_hash.update(record.payload)
         progress.payload_bytes += len(record.payload)
         progress.next_item += 1
         self._records_started = True
@@ -547,7 +570,7 @@ class MultisensorStreamReader:
         count = _uint(record.metadata, "item_count", 0, _MAX_U64, "END")
         payload_bytes = _uint(record.metadata, "payload_bytes", 0, _MAX_U64, "END")
         digest = _digest(record.metadata.get("payload_sha256"), "END.payload_sha256")
-        actual_digest = progress.payload_hash.hexdigest()  # type: ignore[attr-defined]
+        actual_digest = progress.payload_hash.hexdigest()
         if (
             count != progress.next_item
             or payload_bytes != progress.payload_bytes
@@ -651,8 +674,35 @@ class MultisensorStreamReader:
         if trailing:
             self._poison("mmwcli multi-sensor stream has trailing data after EOF")
 
-    def _read_record(self, allowed: frozenset[_RecordType]) -> _Record:  # noqa: C901
+    def _read_record(self, allowed: frozenset[_RecordType]) -> _Record:
         header = self._read_exact(_HEADER_SIZE, label="record header")
+        record_header = self._read_record_header(header, allowed)
+        metadata_bytes = self._read_exact(record_header.metadata_size, label="record metadata")
+        payload = self._read_exact(
+            record_header.payload_size,
+            label=f"{record_header.kind.name} payload",
+        )
+        self._verify_record_digest(header, record_header.digest, metadata_bytes, payload)
+        try:
+            metadata = _strict_json_object(
+                metadata_bytes,
+                context=f"{record_header.kind.name} metadata",
+            )
+        except (TypeError, ValueError, RecursionError) as exc:
+            self._poison("mmwcli multi-sensor record metadata is invalid", exc)
+        self._next_record += 1
+        return _Record(
+            kind=record_header.kind,
+            sequence=record_header.sequence,
+            metadata=metadata,
+            payload=payload,
+        )
+
+    def _read_record_header(
+        self,
+        header: bytes,
+        allowed: frozenset[_RecordType],
+    ) -> _RecordHeader:
         try:
             (
                 magic,
@@ -679,27 +729,28 @@ class MultisensorStreamReader:
             self._poison("mmwcli multi-sensor record sequence is not the next zero-based value")
         if not 1 <= metadata_size <= _MAX_METADATA_BYTES:
             self._poison("mmwcli multi-sensor record metadata size is invalid")
-        if kind is _RecordType.RADAR_CONFIG:
-            valid_payload = 1 <= payload_size <= _MAX_RADAR_CONFIG_BYTES
-        elif kind is _RecordType.ITEM:
-            valid_payload = 1 <= payload_size <= _MAX_ITEM_BYTES
-        else:
-            valid_payload = payload_size == 0
-        if not valid_payload:
+        if not _valid_record_payload_size(kind, payload_size):
             self._poison("mmwcli multi-sensor record payload size is invalid")
-        metadata_bytes = self._read_exact(metadata_size, label="record metadata")
-        payload = self._read_exact(payload_size, label=f"{kind.name} payload")
+        return _RecordHeader(
+            kind=kind,
+            sequence=sequence,
+            metadata_size=metadata_size,
+            payload_size=payload_size,
+            digest=digest,
+        )
+
+    def _verify_record_digest(
+        self,
+        header: bytes,
+        digest: bytes,
+        metadata: bytes,
+        payload: bytes,
+    ) -> None:
         expected = hashlib.sha256(
-            _RECORD_DIGEST_DOMAIN + header[:_HEADER_PREFIX_SIZE] + metadata_bytes + payload
+            _RECORD_DIGEST_DOMAIN + header[:_HEADER_PREFIX_SIZE] + metadata + payload
         ).digest()
         if not hmac.compare_digest(digest, expected):
             self._poison("mmwcli multi-sensor record SHA-256 is invalid")
-        try:
-            metadata = _strict_json_object(metadata_bytes, context=f"{kind.name} metadata")
-        except (TypeError, ValueError, RecursionError) as exc:
-            self._poison("mmwcli multi-sensor record metadata is invalid", exc)
-        self._next_record += 1
-        return _Record(kind=kind, sequence=sequence, metadata=metadata, payload=payload)
 
     def _read_exact(self, size: int, *, label: str) -> bytes:
         payload = bytearray()
