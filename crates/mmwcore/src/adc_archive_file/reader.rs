@@ -4,16 +4,18 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::decode_adc_archive_frame;
+use crate::decode_adc_archive_chunk;
 
 use super::contract::{canonical_capture_json, validate_capture_json};
-use super::wire::{decode_fixed_header, decode_footer, parse_index, validate_header_capture};
+use super::wire::{
+    archive_chunk_count, decode_fixed_header, decode_footer, parse_index, validate_header_capture,
+};
 use super::{
-    AdcArchiveFileError, FIXED_HEADER_BYTES, FOOTER_BYTES, FileIdentity, FrameRecord,
+    AdcArchiveFileError, ChunkRecord, FIXED_HEADER_BYTES, FOOTER_BYTES, FileIdentity,
     INDEX_RECORD_BYTES, error, file_identity, io_error, read_exact_array, read_exact_vec, sha256,
 };
 
-/// One opened, structurally verified ADC Archive v2 file.
+/// One opened, structurally verified ADC Archive v3 file.
 #[derive(Debug)]
 pub struct AdcArchiveFile {
     path: PathBuf,
@@ -25,8 +27,10 @@ pub struct AdcArchiveFile {
     adc_sha256: [u8; 32],
     frame_bytes: u64,
     frame_count: u64,
+    block_samples: u32,
+    restart_frames: u32,
     index_offset: u64,
-    records: Vec<FrameRecord>,
+    records: Vec<ChunkRecord>,
     identity: FileIdentity,
     verified_all: bool,
 }
@@ -42,6 +46,14 @@ impl AdcArchiveFile {
 
     pub const fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+
+    pub const fn block_samples(&self) -> u32 {
+        self.block_samples
+    }
+
+    pub const fn restart_frames(&self) -> u32 {
+        self.restart_frames
     }
 
     pub const fn adc_sha256(&self) -> [u8; 32] {
@@ -109,21 +121,13 @@ impl AdcArchiveFile {
         if file_identity(&self.path)? != self.identity {
             return Err(error("ADC archive changed after it was opened."));
         }
-        let raw_length = usize::try_from(self.frame_bytes)
-            .map_err(|_| error("ADC frame length does not fit memory."))?;
         let mut logical = Sha256::new();
         let mut file = File::open(&self.path).map_err(|value| io_error("open archive", value))?;
         for record in &self.records {
-            file.seek(SeekFrom::Start(record.offset))
-                .map_err(|value| io_error("seek encoded frame", value))?;
-            let encoded_length = usize::try_from(record.stored_bytes)
-                .map_err(|_| error("Encoded frame length does not fit memory."))?;
-            let encoded = read_exact_vec(&mut file, encoded_length, "encoded frame")?;
-            let raw = decode_adc_archive_frame(&encoded, raw_length)
-                .map_err(|value| error(value.to_string()))?;
+            let raw = self.read_chunk(&mut file, record)?;
             if sha256(&raw) != record.raw_sha256 {
                 return Err(error(
-                    "Decoded frame SHA-256 does not match the archive index.",
+                    "Decoded chunk SHA-256 does not match the archive index.",
                 ));
             }
             logical.update(&raw);
@@ -179,44 +183,69 @@ impl AdcArchiveFile {
             .checked_mul(self.frame_bytes)
             .and_then(|value| usize::try_from(value).ok())
             .ok_or_else(|| error("Requested ADC frame interval is too large."))?;
+        if output_bytes == 0 {
+            return Ok(Vec::new());
+        }
         let mut decoded = Vec::new();
         decoded
             .try_reserve_exact(output_bytes)
             .map_err(|_| error("Cannot allocate decoded ADC frame interval."))?;
+        let restart = u64::from(self.restart_frames);
+        let first_chunk = usize::try_from(start / restart)
+            .map_err(|_| error("Chunk index does not fit memory."))?;
+        let last_chunk = usize::try_from((stop - 1) / restart)
+            .map_err(|_| error("Chunk index does not fit memory."))?;
+        let frame_bytes = usize::try_from(self.frame_bytes)
+            .map_err(|_| error("ADC frame length does not fit memory."))?;
         let mut file = File::open(&self.path).map_err(|value| io_error("open archive", value))?;
-        let start =
-            usize::try_from(start).map_err(|_| error("Frame index does not fit memory."))?;
-        let stop = usize::try_from(stop).map_err(|_| error("Frame index does not fit memory."))?;
-        for record in &self.records[start..stop] {
-            file.seek(SeekFrom::Start(record.offset))
-                .map_err(|value| io_error("seek encoded frame", value))?;
-            let encoded_length = usize::try_from(record.stored_bytes)
-                .map_err(|_| error("Encoded frame length does not fit memory."))?;
-            let encoded = read_exact_vec(&mut file, encoded_length, "encoded frame")?;
-            let raw_length = usize::try_from(self.frame_bytes)
-                .map_err(|_| error("ADC frame length does not fit memory."))?;
-            let raw = decode_adc_archive_frame(&encoded, raw_length)
-                .map_err(|value| error(value.to_string()))?;
+        for chunk_index in first_chunk..=last_chunk {
+            let record = &self.records[chunk_index];
+            let raw = self.read_chunk(&mut file, record)?;
             if verify && sha256(&raw) != record.raw_sha256 {
                 return Err(error(
-                    "Decoded frame SHA-256 does not match the archive index.",
+                    "Decoded chunk SHA-256 does not match the archive index.",
                 ));
             }
-            decoded.extend_from_slice(&raw);
+            let chunk_first_frame = chunk_index as u64 * restart;
+            let local_start = start.saturating_sub(chunk_first_frame) as usize;
+            let local_stop = (stop - chunk_first_frame).min(u64::from(record.frame_count)) as usize;
+            decoded.extend_from_slice(&raw[local_start * frame_bytes..local_stop * frame_bytes]);
         }
         if file_identity(&self.path)? != self.identity {
             return Err(error("ADC archive changed while frames were being read."));
         }
+        debug_assert_eq!(decoded.len(), output_bytes);
         Ok(decoded)
+    }
+
+    fn read_chunk(
+        &self,
+        file: &mut File,
+        record: &ChunkRecord,
+    ) -> Result<Vec<u8>, AdcArchiveFileError> {
+        file.seek(SeekFrom::Start(record.offset))
+            .map_err(|value| io_error("seek encoded chunk", value))?;
+        let encoded_length = usize::try_from(record.stored_bytes)
+            .map_err(|_| error("Encoded chunk length does not fit memory."))?;
+        let encoded = read_exact_vec(file, encoded_length, "encoded chunk")?;
+        let frame_bytes = usize::try_from(self.frame_bytes)
+            .map_err(|_| error("ADC frame length does not fit memory."))?;
+        decode_adc_archive_chunk(
+            &encoded,
+            frame_bytes,
+            record.frame_count as usize,
+            self.block_samples as usize,
+        )
+        .map_err(|value| error(value.to_string()))
     }
 }
 
-/// Open a completely committed ADC Archive v2 file.
+/// Open a completely committed ADC Archive v3 file.
 pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFileError> {
     let identity = file_identity(path)?;
     if identity.size < (FIXED_HEADER_BYTES + FOOTER_BYTES) as u64 {
         return Err(error(
-            "ADC archive is too small for a v2 header and footer.",
+            "ADC archive is too small for a v3 header and footer.",
         ));
     }
     let mut file = File::open(path).map_err(|value| io_error("open ADC archive", value))?;
@@ -233,7 +262,7 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
     let capture = validate_capture_json(&metadata)?;
     if canonical_capture_json(&capture)? != metadata {
         return Err(error(
-            "ADC archive capture metadata is not canonical v2 JSON.",
+            "ADC archive capture metadata is not canonical v3 JSON.",
         ));
     }
     validate_header_capture(&decoded, &capture)?;
@@ -245,8 +274,8 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
         .map_err(|value| io_error("seek commit footer", value))?;
     let footer = read_exact_array::<FOOTER_BYTES>(&mut file, "commit footer")?;
     let decoded_footer = decode_footer(&footer, &header)?;
-    let expected_index_bytes = decoded
-        .frame_count
+    let chunk_count = archive_chunk_count(decoded.frame_count, decoded.restart_frames)?;
+    let expected_index_bytes = (chunk_count as u64)
         .checked_mul(INDEX_RECORD_BYTES as u64)
         .ok_or_else(|| error("ADC archive index length overflows u64."))?;
     if decoded_footer.index_bytes != expected_index_bytes
@@ -255,25 +284,20 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
         || decoded_footer.index_offset < decoded.header_bytes
     {
         return Err(error(
-            "ADC archive index bounds do not match the v2 layout.",
+            "ADC archive index bounds do not match the v3 layout.",
         ));
     }
     file.seek(SeekFrom::Start(decoded_footer.index_offset))
-        .map_err(|value| io_error("seek frame index", value))?;
+        .map_err(|value| io_error("seek chunk index", value))?;
     let index_length = usize::try_from(decoded_footer.index_bytes)
         .map_err(|_| error("ADC archive index length does not fit memory."))?;
-    let index = read_exact_vec(&mut file, index_length, "frame index")?;
+    let index = read_exact_vec(&mut file, index_length, "chunk index")?;
     if sha256(&index) != decoded_footer.index_sha256 {
         return Err(error(
             "ADC archive index SHA-256 does not match the footer.",
         ));
     }
-    let records = parse_index(
-        &index,
-        decoded.header_bytes,
-        decoded_footer.index_offset,
-        decoded.frame_bytes,
-    )?;
+    let records = parse_index(&index, &decoded, decoded_footer.index_offset)?;
     let capture_json = String::from_utf8(metadata)
         .map_err(|_| error("ADC archive capture metadata is not UTF-8 JSON."))?;
     if file_identity(path)? != identity {
@@ -289,6 +313,8 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
         adc_sha256: decoded_footer.adc_sha256,
         frame_bytes: decoded.frame_bytes,
         frame_count: decoded.frame_count,
+        block_samples: decoded.block_samples,
+        restart_frames: decoded.restart_frames,
         index_offset: decoded_footer.index_offset,
         records,
         identity,

@@ -1,8 +1,8 @@
 # ADC Archive Study
 
-This document records the codec study and separate corpus acceptance results for the historical v1
-and self-describing v2 archives. The v1 measurements remain evidence for their admitted revision;
-they are not relabeled as v2 container evidence.
+This document records the codec study, corpus acceptance for historical v1 and published v2, and
+the unreleased v3 Rice candidate. Historical measurements remain evidence for their admitted
+revisions; they are not relabeled as v3 evidence.
 
 ## Objective
 
@@ -67,6 +67,8 @@ dependency on caller-owned ADC files:
   frames, then byte-plane shuffle and compression
 - `adaptive-shuffle-zlib`: encode both shuffle candidates per chunk, retain the shorter one, and
   store a one-byte reversible transform tag
+- `frame-delta-rice`: call the Rust v3 codec for a bounded frame group, using homologous-coordinate
+  prediction, ZigZag, adaptive Rice blocks, and exact raw-block fallback
 
 The zlib controls use level 1 by default. The selected level and the compile/runtime zlib versions
 are recorded in the report; change the level explicitly rather than relying on environment state.
@@ -197,6 +199,128 @@ Top-level case summaries use total-byte-weighted storage ratio, the minimum thro
 sources, separate maximum trusted and verified random-read P95 values, and an all-source
 verification flag. They deliberately do not average away a bad capture.
 
+## V3 Rice Candidate
+
+The v3 development candidate replaces zlib with a Rust-owned integer codec. Each independent
+four-frame group uses the exact ADC schedule to align equal flattened `int16` coordinates across
+frames. Its first frame is absolute; later frames are `i32` differences from the previous frame.
+ZigZag residuals are divided into 512-sample blocks. Each block selects the minimum-bit Rice
+parameter in `0..16` and falls back to its exact raw `int16` bytes unless Rice is strictly shorter.
+
+The design has unit, small-artifact, and real-ADC corpus round-trip coverage. The codec is accepted
+for v3 development; the complete v3 container remains unreleased until the implemented-format
+acceptance pass covers its metadata overhead, durable publication, full verification, and random
+reads.
+
+The first Rust pilot used the first 16 frames from one empty-scene take, one standing take, and one
+waving take. It compared the v3 codec with identical raw and historical zlib controls, replayed
+every chunk, and compared eight random four-frame windows per source with direct source reads.
+This was a dirty development revision and is evidence for direction only.
+
+| Case | Payload ratio | Minimum pack | Minimum decode | Worst verified random P95 |
+|---|---:|---:|---:|---:|
+| `raw:1` | 1.0000 | 551.50 MiB/s | n/a | 13.71 ms |
+| `shuffle-zlib:1` | 0.7125 | 120.24 MiB/s | 255.95 MiB/s | 35.40 ms |
+| `adaptive-shuffle-zlib:4` | 0.6945 | 60.45 MiB/s | 182.67 MiB/s | 87.22 ms |
+| `frame-delta-rice:4` | 0.4540 | 46.46 MiB/s | 174.92 MiB/s | 80.76 ms |
+
+Rice retained `39.10%` for the empty scene, `45.11%` for standing, and `51.98%` for waving. Across
+the selected 72 MiB, it used `34.63%` fewer payload bytes than adaptive zlib while retaining exact
+round trips. Its minimum pack throughput remained above the current 30 MiB/s development gate.
+The motion-dependent spread and limited frame range required the complete 14-source run below.
+
+### Full codec corpus
+
+The 2026-08-20 run used 14 complete sources, 600 frames per source, and `1,572,864` bytes per
+frame. It covered empty scenes, sitting, standing, walking, and waving across both retained capture
+layouts. The logical corpus contained 8,400 frames and 13,212,057,600 bytes. Every case replayed
+every source exactly and matched 128 random four-frame windows per source, 1,792 in total, against
+direct reads.
+
+| Case | Payload ratio | Payload bytes | Minimum pack | Minimum decode | Minimum replay | Worst verified random P95 |
+|---|---:|---:|---:|---:|---:|---:|
+| `raw:1` | 1.0000 | 13,212,057,600 | 541.57 MiB/s | n/a | 664.85 MiB/s | 16.54 ms |
+| `shuffle-zlib:1` | 0.7136 | 9,427,971,951 | 122.36 MiB/s | 271.43 MiB/s | 199.96 MiB/s | 37.07 ms |
+| `adaptive-shuffle-zlib:4` | 0.6890 | 9,103,254,370 | 62.55 MiB/s | 207.69 MiB/s | 167.44 MiB/s | 81.93 ms |
+| `frame-delta-rice:4` | 0.4792 | 6,331,864,426 | 46.80 MiB/s | 186.24 MiB/s | 150.61 MiB/s | 87.23 ms |
+
+Rice removed 52.08% of the raw payload and used 2,771,389,944 fewer bytes, or 30.44% less, than
+adaptive zlib. Its per-source ratio ranged from 0.3811 to 0.5610. It beat adaptive zlib on every
+source; the relative saving ranged from 18.16% to 46.24%, so the aggregate result is not an
+empty-scene artifact. Minimum encode throughput was 49.25 MiB/s and minimum end-to-end pack
+throughput was 46.80 MiB/s, both above the 30 MiB/s development gate. The cost is a 10.0% lower
+minimum sequential replay rate and a 5.30 ms higher worst verified random-window P95 than adaptive
+zlib. This is an acceptable trade for 2.58 GiB less payload on the fixed corpus.
+
+Random-window timing used a warm cache after sequential replay and a fixed four-frame request. It
+does not establish cold-cache or concurrent training-loader performance. The corpus also uses one
+IWR6843 ADC frame geometry, one device, and one person. Other chirp schedules, sampling rates,
+devices, interference conditions, and long captures may change compression ratio; they must never
+change exact reconstruction.
+
+The report records base revision `d7012c2737baed24a5d6eb710de68ac88ff887a1` and a dirty
+worktree. That limits publication provenance but does not reverse the engineering result: all 14
+sources were exact, every source improved, and the throughput gate passed. Release evidence must
+bind the unchanged implementation to a clean revision through the following container-level run.
+
+Screen it on the fixed corpus against the admitted zlib controls with:
+
+```console
+uv run --no-sync python -m benchmarks.adc_storage_benchmark_cli CAPTURE_ROOT \
+  --frame-bytes 1572864 \
+  --case raw:1 --case shuffle-zlib:1 \
+  --case adaptive-shuffle-zlib:4 --case frame-delta-rice:4 \
+  --random-windows 128 --window-frames 4 \
+  --scratch-dir D:/Shared --output D:/Shared/mmwcore-adc-rice-corpus.json
+```
+
+This is a long corpus task and must be run manually. Preserve it as the reproducibility command;
+the completed development result above establishes the codec decision.
+
+### Scalar hot-path optimization
+
+The first post-corpus optimization preserved the v3 byte stream while replacing per-bit unary and
+remainder loops with byte-batched operations, calculating all exact Rice parameter costs during
+one residual traversal, and reusing residual and encoded-block buffers. Golden streams cover all
+supported block sizes. A four-frame real-ADC anchor remained 3,267,266 bytes with SHA-256
+`d69ddf71ce7ecbcc3a96995d57472d411fefa42eef80ddc481974550e8884cfe` before and after the change.
+
+A same-process 64-frame development run improved codec-only encode throughput from 47.90 to
+133.07 MiB/s and end-to-end pack throughput from 44.35 to 113.53 MiB/s. Decode improved from
+192.45 to 216.25 MiB/s and sequential replay from 144.22 to 168.08 MiB/s. Payload ratio remained
+exactly 0.543804 and every replay check passed. This short warm-cache result establishes the local
+optimization direction; it does not replace the fixed-corpus or complete-container acceptance
+runs.
+
+The optimized implementation then repeated the complete 14-source codec corpus with identical
+source paths, logical SHA-256 values, benchmark parameters, Python environment, and base revision.
+Every source retained the same Rice payload bytes and passed exact sequential and random-window
+replay. Total Rice payload remained 6,331,864,426 bytes with ratio 0.479249.
+
+| Measurement | Before | Optimized | Change |
+|---|---:|---:|---:|
+| Minimum encode | 49.25 MiB/s | 129.92 MiB/s | +163.79% |
+| Minimum pack | 46.80 MiB/s | 111.61 MiB/s | +138.46% |
+| Minimum decode | 186.24 MiB/s | 213.75 MiB/s | +14.77% |
+| Minimum sequential replay | 150.61 MiB/s | 167.81 MiB/s | +11.42% |
+| Worst verified random P95 | 87.23 ms | 89.55 ms | +2.65% latency |
+
+All 14 sources improved in encode, pack, and decode throughput. Paired encode improvement ranged
+from 88.75% to 166.30%, and paired pack improvement ranged from 73.71% to 138.95%. Sequential
+replay improved on 12 of 14 sources with a paired median gain of 4.78%. Random-window latency was
+mixed and is classified as unchanged: these warm-cache measurements do not support a random-read
+speedup claim.
+
+Both corpus reports record `revision_dirty=true` at base revision
+`d7012c2737baed24a5d6eb710de68ac88ff887a1`. They establish the engineering decision but do not
+uniquely identify the native binary. A release result must be regenerated from the committed
+candidate.
+
+The crate forbids unsafe Rust, so the development implementation has no explicit AVX2/NEON
+intrinsics. Compiler auto-vectorization is incidental and is not claimed as SIMD evidence. Add an
+explicit SIMD path only through a maintainable safe abstraction with a scalar fallback and
+separate throughput evidence; do not weaken the crate-wide unsafe prohibition for this codec.
+
 ## Required Measurements
 
 Every candidate must report:
@@ -231,31 +355,33 @@ Reject a candidate if it changes any ADC byte, hides missing data, requires deco
 capture for a random frame, only works in one scene, or adds complexity without consistently
 beating the simple controls.
 
-The first format candidate is deliberately fixed: one complete frame per independently decodable
+The published v2 format was deliberately fixed: one complete frame per independently decodable
 chunk, little-endian `int16` byte-plane shuffle, zlib-wrapped DEFLATE level 1, and a digest of each
 decoded frame. There is no codec selector, adaptive transform, frame delta, learned decoder,
 progressive layer, or compatibility negotiation. The archive is an offline representation of a
 completed ADC file; it does not replace acquisition publication until durable-write and recovery
 measurements exist.
 
-The current implementation exposes `write_adc_archive()` and `open_adc_archive()`. Version 2
-contains a 96-byte fixed header, canonical `RadarCaptureSpec` JSON, one encoded payload per frame,
-a 48-byte index record per frame, and a 160-byte commit footer at physical EOF. The embedded
-contract is sufficient to restore ADC dimensions, layout, Tx order, timing, and finalized frame
-count. It does not replace packet-coverage, calibration, antenna-geometry, or provenance records.
+The current development implementation exposes the same narrow `write_adc_archive()` and
+`open_adc_archive()` surface with an intentionally incompatible v3 file contract. Version 3 has a
+112-byte fixed header, canonical `RadarCaptureSpec` JSON, at most four frames per independently
+decodable chunk, 512-sample adaptive Rice blocks, a 56-byte record per chunk, and a 160-byte commit
+footer. The Header records every codec parameter needed for decoding. It does not replace packet
+coverage, calibration, antenna geometry, or provenance records.
 
 Rust owns the complete writer, parser, metadata validation, codec, index, digest checks, random
 reads, full replay, and publication. Python only converts between the embedded JSON and
 `RadarCaptureSpec`. The normative offsets and invariants are specified in
-[ADC Archive v2 Binary Format](adc-archive-format.md).
+[ADC Archive v3 Binary Format](adc-archive-format.md). The published contract remains in
+[Historical ADC Archive v2 Binary Format](adc-archive-format-v2.md).
 
-The writer reads the source once while computing logical and per-frame digests. It writes and
+The writer reads the source once while computing logical and per-chunk digests. It writes and
 `fsync`s a same-directory temporary file, validates the header/index/footer chain, then publishes
-without overwrite. Ordinary reads verify frame digests. `verify_all()` streams a complete replay
+without overwrite. Ordinary reads verify chunk digests. `verify_all()` streams a complete replay
 and authorizes trusted reads on that object until its file identity changes.
 
 Run the implemented-format acceptance pass only after the codec corpus. Publish throughput covers
-the single source read, per-frame Rust transform/compression, source and frame hashing,
+the single source read, Rust transform/compression, source and chunk hashing,
 temporary-file `fsync`, structural validation, and atomic publication. `full_verify` measures a
 separate explicit full replay. Random windows report verified reads and trusted reads after that
 full verification. Archive ratio includes header, index, footer, and every encoded payload.
@@ -263,7 +389,7 @@ full verification. Archive ratio includes header, index, footer, and every encod
 ```console
 uv run --no-sync python -m benchmarks.adc_archive_acceptance_cli CAPTURE_ROOT \
   --capture-spec CAPTURE_SPEC.json --random-windows 128 --window-frames 4 \
-  --scratch-dir D:/Shared --output D:/Shared/mmwcore-adc-archive-v2.json
+  --scratch-dir D:/Shared --output D:/Shared/mmwcore-adc-archive-v3.json
 ```
 
 The command writes only temporary archives under `--scratch-dir`, removes each after its source is

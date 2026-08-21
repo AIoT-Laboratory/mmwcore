@@ -37,16 +37,18 @@ assert_eq!(result.indices, [3]);
 ## ADC archive codec
 
 ~~~rust
-use mmwcore::{decode_adc_archive_frame, encode_adc_archive_frame};
+use mmwcore::{decode_adc_archive_chunk, encode_adc_archive_chunk};
 
-let raw = [1_u8, 0, 2, 0];
-let encoded = encode_adc_archive_frame(&raw).expect("valid little-endian int16 bytes");
-let decoded = decode_adc_archive_frame(&encoded, raw.len()).expect("valid ADC archive frame");
+let raw = vec![0_u8; 4 * 1024];
+let encoded = encode_adc_archive_chunk(&raw, 1024, 512)
+    .expect("complete little-endian int16 ADC frames");
+let decoded = decode_adc_archive_chunk(&encoded, 1024, 4, 512)
+    .expect("valid ADC archive frame group");
 assert_eq!(decoded, raw);
 ~~~
 
-The codec is lossless and frame-local. Archive structure, capture identity, and publication rules
-remain explicit higher-level contracts.
+The codec is lossless. It predicts homologous `int16` sample coordinates across a bounded frame
+group, then applies adaptive block Rice coding with exact raw-block fallback.
 
 See the [repository README](https://github.com/AIoT-Laboratory/mmwcore) for Python pipelines,
 capture examples, project scope, and development commands. Python bindings and higher-level

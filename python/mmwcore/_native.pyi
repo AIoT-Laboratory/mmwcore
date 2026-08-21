@@ -5,8 +5,17 @@ from numpy.typing import NDArray
 
 type DCA1000PacketResult = tuple[int, int, NDArray[np.int16]]
 
-def encode_adc_archive_frame(data: bytes) -> bytes: ...
-def decode_adc_archive_frame(data: bytes, expected_raw_bytes: int) -> bytes: ...
+def encode_adc_archive_chunk(
+    data: bytes,
+    frame_bytes: int,
+    block_samples: int = 512,
+) -> bytes: ...
+def decode_adc_archive_chunk(
+    data: bytes,
+    frame_bytes: int,
+    frame_count: int,
+    block_samples: int = 512,
+) -> bytes: ...
 
 class ADCArchiveFile:
     @property
@@ -15,6 +24,10 @@ class ADCArchiveFile:
     def frame_bytes(self) -> int: ...
     @property
     def frame_count(self) -> int: ...
+    @property
+    def block_samples(self) -> int: ...
+    @property
+    def restart_frames(self) -> int: ...
     @property
     def capture_json(self) -> str: ...
     @property

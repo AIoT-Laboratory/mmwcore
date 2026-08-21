@@ -28,7 +28,7 @@ def _frames(frame_bytes: int, count: int) -> bytes:
     frame_words = frame_bytes // 2
     data = np.empty((count, frame_words), dtype=np.uint16)
     for index in range(count):
-        data[index] = words[:frame_words] + np.uint16(index * 17)
+        data[index] = np.resize(words, frame_words) + np.uint16(index * 17)
     return data.tobytes()
 
 
@@ -41,6 +41,7 @@ def test_all_codecs_roundtrip_signed_word_boundaries(codec: str) -> None:
             encode(payload, codec=codec, frame_bytes=16, zlib_level=1),
             codec=codec,
             frame_bytes=16,
+            frame_count=4,
         )
         == payload
     )
@@ -59,7 +60,38 @@ def test_adaptive_codec_reports_its_selected_reversible_transform() -> None:
         "shuffle-zlib",
         "frame-delta-shuffle-zlib",
     }
-    assert decode(encoded, codec="adaptive-shuffle-zlib", frame_bytes=16) == payload
+    assert (
+        decode(
+            encoded,
+            codec="adaptive-shuffle-zlib",
+            frame_bytes=16,
+            frame_count=4,
+        )
+        == payload
+    )
+
+
+def test_rice_codec_uses_bounded_four_frame_chunks(tmp_path: Path) -> None:
+    source = tmp_path / "adc_data_Raw_0.bin"
+    source.write_bytes(_frames(frame_bytes=1024, count=9))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+
+    result = run_benchmark(
+        [source],
+        frame_bytes=1024,
+        cases=(StorageCase(codec="frame-delta-rice", chunk_frames=4),),
+        random_windows=4,
+        window_frames=3,
+        scratch_dir=scratch,
+    )
+
+    source_result = cast(list[dict[str, object]], result["sources"])[0]
+    cases = cast(list[dict[str, object]], source_result["cases"])
+    case = cases[0]
+    assert case["chunk_count"] == 3
+    assert case["roundtrip_verified"] is True
+    assert case["selected_transform_counts"] == {"frame-delta-rice": 3}
 
 
 def test_trusted_read_skips_only_repeated_chunk_digest_verification() -> None:

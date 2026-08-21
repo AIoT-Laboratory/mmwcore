@@ -12,8 +12,8 @@ from mmwcore.config import RadarCaptureSpec, RadarProfile
 from mmwcore.core import ADCFrameSpec
 from mmwcore.io import ADCArchiveError, open_adc_archive, write_adc_archive
 
-_FIXED_HEADER_BYTES = 96
-_INDEX_RECORD_BYTES = 48
+_FIXED_HEADER_BYTES = 112
+_INDEX_RECORD_BYTES = 56
 _FOOTER_BYTES = 160
 
 
@@ -48,18 +48,20 @@ def _archive(tmp_path: Path) -> tuple[Path, RadarCaptureSpec, bytes]:
     return destination, capture, raw
 
 
-def test_v2_roundtrip_is_self_describing_and_random_accessible(tmp_path: Path) -> None:
+def test_v3_roundtrip_is_self_describing_and_random_accessible(tmp_path: Path) -> None:
     destination, capture, raw = _archive(tmp_path)
     archive = open_adc_archive(destination)
 
-    assert destination.read_bytes()[:8] == b"MMWADCA2"
+    assert destination.read_bytes()[:8] == b"MMWADCA3"
     assert archive.capture == capture
     assert archive.capture.num_frames == 6
     assert archive.frame_bytes == 16
     assert archive.frame_count == 6
+    assert archive.block_samples == 512
+    assert archive.restart_frames == 4
     assert archive.adc_sha256 == hashlib.sha256(raw).hexdigest()
     assert archive.read_frames(1, 4) == raw[16:64]
-    assert archive.index_bytes == 6 * _INDEX_RECORD_BYTES
+    assert archive.index_bytes == 2 * _INDEX_RECORD_BYTES
     assert archive.archive_size == archive.payload_bytes + archive.container_overhead_bytes
     assert archive.capture_metadata_bytes == archive.header_bytes - _FIXED_HEADER_BYTES
     assert archive.container_overhead_bytes == (
@@ -167,10 +169,10 @@ def test_writer_rejects_wrong_source_identity_and_never_overwrites(tmp_path: Pat
     assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
-def test_v1_magic_is_rejected_without_compatibility_path(tmp_path: Path) -> None:
+def test_v2_magic_is_rejected_without_compatibility_path(tmp_path: Path) -> None:
     destination, _, _ = _archive(tmp_path)
     payload = bytearray(destination.read_bytes())
-    payload[:8] = b"MMWADCA1"
+    payload[:8] = b"MMWADCA2"
     destination.write_bytes(payload)
-    with pytest.raises(ADCArchiveError, match="v2"):
+    with pytest.raises(ADCArchiveError, match="v3"):
         open_adc_archive(destination)

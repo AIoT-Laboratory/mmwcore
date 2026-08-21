@@ -2,6 +2,25 @@
 
 All notable changes to mmwcore are documented here.
 
+## Unreleased
+
+### Changed
+
+- Replace the development archive writer and reader with the incompatible
+  `mmwcore.adc_archive.v3` format.
+- Encode independently decodable four-frame groups with homologous-coordinate `int16` prediction,
+  ZigZag mapping, adaptive 512-sample Rice blocks, and exact raw-block fallback.
+- Index and verify frame groups so random reads retain a bounded temporal dependency.
+- Validate the Rice codec on 14 complete real-ADC sources with exact sequential and random-window
+  replay, retaining 47.92% of the raw payload and 30.44% fewer bytes than adaptive zlib.
+- Batch Rice bitstream reads and writes, compute exact parameter costs in one residual pass, and
+  reuse block buffers while preserving the v3 byte stream. On the fixed 14-source corpus, minimum
+  encode and pack throughput improve by 163.79% and 138.46%, respectively.
+
+### Removed
+
+- Remove the single-frame byte-shuffle/zlib codec API and the Rust `flate2` dependency.
+
 ## [0.6.0] - 2026-08-20
 
 ### Changed

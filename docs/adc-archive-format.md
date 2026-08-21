@@ -1,100 +1,143 @@
-# ADC Archive v2 Binary Format
+# ADC Archive v3 Binary Format
 
-This document specifies `mmwcore.adc_archive.v2`, normally stored as `.mmwa`. Rust writes,
-opens, validates, and reads this format. Python does not reconstruct the container with a second
-parser.
+This document specifies the unreleased `mmwcore.adc_archive.v3` development format, normally
+stored as `.mmwa`. Rust writes, opens, validates, and reads the complete container. Version 3
+replaces byte-shuffle zlib with bounded homologous-frame prediction and adaptive Rice coding.
 
 All integers are unsigned little-endian. SHA-256 values occupy 32 raw bytes. Offsets are absolute
-from the start of the file. No padding or trailing bytes are allowed.
+from the start of the file. No padding or trailing bytes are allowed outside the zero bit padding
+defined for a Rice block.
 
 ## Layout
 
 ```text
-0                                                                         EOF
-+----------------+----------------+------------------------+-----------+--------+
-| fixed header   | capture JSON   | encoded frame payloads | index     | footer |
-| 96 bytes       | M bytes        | variable               | 48*N      | 160    |
-+----------------+----------------+------------------------+-----------+--------+
-                 ^                ^                        ^           ^
-                 96               header_bytes             index_offset EOF-160
+0                                                                            EOF
++----------------+----------------+------------------------+-------------+--------+
+| fixed header   | capture JSON   | encoded chunk payloads | chunk index | footer |
+| 112 bytes      | M bytes        | variable               | 56*K        | 160    |
++----------------+----------------+------------------------+-------------+--------+
+                 ^                ^                        ^             ^
+                 112              header_bytes             index_offset  EOF-160
 ```
 
-The header is the 96-byte preamble followed immediately by the embedded metadata. Payloads and
-index records appear in frame order.
+One chunk contains at most four radar frames. Chunks and index records appear in frame order.
 
 ## Fixed Header
 
 | Offset | Size | Type | Field | Required value or meaning |
 |---:|---:|---|---|---|
-| 0 | 8 | bytes | `magic` | ASCII `MMWADCA2` |
-| 8 | 4 | `u32` | `version` | `2` |
-| 12 | 4 | `u32` | `fixed_header_bytes` | `96` |
-| 16 | 8 | `u64` | `header_bytes` | `96 + metadata_bytes` |
+| 0 | 8 | bytes | `magic` | ASCII `MMWADCA3` |
+| 8 | 4 | `u32` | `version` | `3` |
+| 12 | 4 | `u32` | `fixed_header_bytes` | `112` |
+| 16 | 8 | `u64` | `header_bytes` | `112 + metadata_bytes` |
 | 24 | 8 | `u64` | `metadata_bytes` | UTF-8 JSON length, in `[1, 1 MiB]` |
 | 32 | 8 | `u64` | `frame_bytes` | Raw bytes per frame, positive, even, at most 64 MiB |
 | 40 | 8 | `u64` | `frame_count` | Positive finalized frame count |
-| 48 | 4 | `u32` | `index_record_bytes` | `48` |
-| 52 | 4 | `u32` | `codec_id` | `1`: int16 byte shuffle plus zlib level 1 |
+| 48 | 4 | `u32` | `index_record_bytes` | `56` |
+| 52 | 4 | `u32` | `codec_id` | `2`: homologous-frame delta plus adaptive Rice |
 | 56 | 4 | `u32` | `metadata_format_id` | `1`: RadarCaptureSpec JSON |
 | 60 | 4 | `u32` | `flags` | `0` |
-| 64 | 32 | bytes | `capture_sha256` | SHA-256 of the exact embedded JSON bytes |
+| 64 | 4 | `u32` | `block_samples` | `512` in the current writer; decoder accepts powers of two in `[256, 1024]` |
+| 68 | 4 | `u32` | `restart_frames` | `4` in the current writer; decoder accepts `[1, 64]` |
+| 72 | 8 | `u64` | `reserved` | `0` |
+| 80 | 32 | bytes | `capture_sha256` | SHA-256 of the exact embedded JSON bytes |
 
-Unknown versions, sizes, codecs, metadata formats, flags, or magic values are rejected.
+Unknown versions, sizes, codecs, metadata formats, flags, or nonzero reserved values are rejected.
 
 ## Embedded Capture Metadata
 
-Bytes `[96, header_bytes)` are one UTF-8 JSON object with schema
-`mmwcore.radar_capture_spec.v1`. The object contains:
+Bytes `[112, header_bytes)` are one canonical UTF-8 JSON object with schema
+`mmwcore.radar_capture_spec.v1`. It records the waveform, ADC dimensions and layout, physical Tx
+order, frame periodicity, finalized frame count, and expected logical byte count. Header dimensions
+must agree exactly with this object. Packet coverage, antenna geometry, mounting, calibration,
+labels, and provenance remain outside this decoding contract.
 
-- the radar waveform profile and physical constants;
-- ADC chirp, receiver, sample, and complex-layout dimensions;
-- physical Tx order;
-- frame periodicity;
-- finalized frame count and expected logical byte count.
+## Homologous-Frame Transform
 
-The Rust parser rejects missing and unknown fields, non-finite or invalid dimensions, duplicate Tx
-identifiers, inconsistent profile/ADC dimensions, inconsistent frame counts, and an
-`expected_size_bytes` value different from `frame_bytes * frame_count`. The header repeats the
-minimal dimensions needed to bound parsing and requires exact agreement with the JSON.
-
-This metadata is sufficient to reconstruct `RadarCaptureSpec` without a sidecar. It intentionally
-does not claim packet coverage, antenna geometry, board orientation, calibration, labels, or data
-provenance.
-
-## Encoded Frames
-
-For each raw little-endian `int16` frame:
-
-1. rearrange `lo[0], hi[0], ...` into `lo[0..n] || hi[0..n]`;
-2. encode the shuffled bytes as one zlib-wrapped DEFLATE stream at level 1;
-3. append that stream without a per-frame header.
-
-The index supplies each payload offset and stored length. Decoding must consume one complete zlib
-stream, produce exactly `frame_bytes`, reject trailing compressed bytes, reverse the shuffle, and
-optionally verify the decoded-frame digest. A stored payload is non-empty and no larger than:
+The exact ADC layout and capture schedule induce a stable flattened coordinate for every `int16`
+word in a radar frame. In physical notation:
 
 ```text
-frame_bytes + floor(frame_bytes / 16) + 1024
+x[f, c, r, q, n]
+
+  f = radar-frame index inside the independently decodable chunk
+  c = chirp / TDM transmit position
+  r = receive channel
+  q = I or Q component
+  n = fast-time ADC sample
 ```
 
-Payload 0 starts at `header_bytes`; every later payload begins where its predecessor ends.
+The first frame of each chunk is an absolute restart. Later frames use the previous frame at the
+same capture coordinate:
 
-## Frame Index
+```text
+d[0, c, r, q, n] = x[0, c, r, q, n]
+d[f, c, r, q, n] = x[f, c, r, q, n] - x[f-1, c, r, q, n]  (f >= 1)
+```
 
-The index contains `frame_count` records, each equivalent to `<QQ32s>`.
+The subtraction is evaluated in `i32`, so the complete `int16` difference domain
+`[-65535, 65535]` is represented without modulo ambiguity. Decoding uses:
+
+```text
+x[0, ...] = d[0, ...]
+x[f, ...] = d[f, ...] + x[f-1, ...]
+```
+
+Only one previous raw frame is required. Restarting every four frames bounds random-read work and
+corruption propagation; it intentionally differs from an unbounded dependency chain beginning at
+archive frame zero.
+
+## Adaptive Rice Blocks
+
+Each frame is partitioned independently into consecutive blocks of `block_samples` flattened
+`int16` coordinates. The final block may be shorter. A block never spans two frames.
+
+Residuals use ZigZag mapping:
+
+```text
+0 -> 0, -1 -> 1, +1 -> 2, -2 -> 3, +2 -> 4, ...
+```
+
+For each block, the encoder evaluates Rice parameters `k = 0..16` and minimizes:
+
+```text
+sum((value >> k) + 1 + k)
+```
+
+The block starts on a byte boundary with one tag byte:
+
+| Tag | Payload |
+|---:|---|
+| `0..16` | Rice parameter `k`, followed by coded ZigZag residuals |
+| `255` | Exact raw little-endian `int16` samples for this block |
+
+For Rice values, quotient `q = value >> k` is encoded as `q` zero bits followed by one bit. The
+`k`-bit remainder follows most-significant bit first. The block ends at the next byte boundary;
+padding bits must be zero. The raw representation is selected unless the Rice payload is strictly
+shorter than the raw block. Consequently, a chunk is bounded by:
+
+```text
+raw_chunk_bytes + number_of_blocks
+```
+
+The decoder rejects unknown tags, truncated unary/remainder codes, quotients outside the full
+`int16` delta domain, nonzero padding, reconstructed values outside `int16`, and trailing bytes.
+
+## Chunk Index
+
+The index contains `K = ceil(frame_count / restart_frames)` records. Each record is equivalent to
+`<QQII32s>` and occupies 56 bytes.
 
 | Record offset | Size | Type | Field | Meaning |
 |---:|---:|---|---|---|
-| 0 | 8 | `u64` | `payload_offset` | Absolute encoded-payload offset |
+| 0 | 8 | `u64` | `payload_offset` | Absolute encoded-chunk offset |
 | 8 | 8 | `u64` | `stored_bytes` | Exact encoded length |
-| 16 | 32 | bytes | `raw_frame_sha256` | SHA-256 of the decoded raw frame |
+| 16 | 4 | `u32` | `frame_count` | Frames in this chunk; normally 4, shorter only for the final chunk |
+| 20 | 4 | `u32` | `reserved` | `0` |
+| 24 | 32 | bytes | `raw_chunk_sha256` | SHA-256 of all decoded raw frames in this chunk |
 
-```text
-index_bytes = frame_count * 48
-index[0].payload_offset = header_bytes
-index[i + 1].payload_offset = index[i].payload_offset + index[i].stored_bytes
-index[last].payload_offset + index[last].stored_bytes = index_offset
-```
+Payload zero starts at `header_bytes`; payloads are contiguous; the final payload ends at
+`index_offset`. Frame ranges decode only intersecting chunks.
 
 ## Commit Footer
 
@@ -102,33 +145,25 @@ The final 160 bytes are equivalent to `<8sIIQQ32s32s32s32s>`.
 
 | Offset | Size | Type | Field | Required value or meaning |
 |---:|---:|---|---|---|
-| 0 | 8 | bytes | `magic` | ASCII `MMWACMT2` |
-| 8 | 4 | `u32` | `version` | `2` |
+| 0 | 8 | bytes | `magic` | ASCII `MMWACMT3` |
+| 8 | 4 | `u32` | `version` | `3` |
 | 12 | 4 | `u32` | `footer_bytes` | `160` |
 | 16 | 8 | `u64` | `index_offset` | Absolute index start |
-| 24 | 8 | `u64` | `index_bytes` | `frame_count * 48` |
+| 24 | 8 | `u64` | `index_bytes` | `K * 56` |
 | 32 | 32 | bytes | `header_sha256` | SHA-256 of fixed header plus capture JSON |
-| 64 | 32 | bytes | `index_sha256` | SHA-256 of the complete index |
+| 64 | 32 | bytes | `index_sha256` | SHA-256 of the complete chunk index |
 | 96 | 32 | bytes | `adc_sha256` | SHA-256 of all decoded frames concatenated |
 | 128 | 32 | bytes | `footer_sha256` | SHA-256 of footer bytes `[0, 128)` |
 
-`index_offset + index_bytes` must equal `file_size - 160`. The footer is the commit marker;
-missing, displaced, truncated, or non-terminal footers are invalid.
+The footer is the terminal commit marker. Structural open verifies format fields, metadata,
+digests, index bounds, contiguous chunk offsets, frame coverage, and codec size bounds. Verified
+reads additionally validate each decoded chunk digest. `verify_all()` replays every chunk and
+validates the logical ADC digest before trusted reads are enabled on that object.
 
-## Verification
+These hashes detect corruption and mismatched artifacts; they do not authenticate origin.
 
-Structural open verifies fixed fields, metadata syntax and semantics, capture digest, header
-digest, footer digest, index bounds and digest, contiguous payload offsets, and encoded-size
-bounds. A normal frame read verifies each decoded frame digest. `verify_all()` streams through all
-frames, verifies every frame digest and the logical ADC digest, then enables unverified reads on
-that opened object until file identity changes.
+## Versioning
 
-These hashes provide corruption and mismatch detection, not origin authentication. Authenticity
-requires a separately authenticated manifest or signature.
-
-## Publication and Versioning
-
-The writer validates the source size against the finalized embedded contract, reads the source once,
-writes and flushes a same-directory temporary archive, structurally reopens it, and publishes with
-atomic no-overwrite semantics. Version 2 has no extension negotiation. Readers reject v1 and unknown
-formats; no compatibility parser is retained.
+Version 3 is intentionally incompatible with the published v2 byte-shuffle/zlib format. The v3
+reader rejects v2 rather than carrying a compatibility decoder. The normative historical v2
+layout remains documented in [ADC Archive v2 Binary Format](adc-archive-format-v2.md).

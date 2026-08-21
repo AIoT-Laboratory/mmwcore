@@ -46,7 +46,7 @@ pub(super) struct AdcRecord {
 pub(super) fn validate_capture_json(bytes: &[u8]) -> Result<CaptureRecord, AdcArchiveFileError> {
     if bytes.is_empty() || bytes.len() as u64 > MAX_METADATA_BYTES {
         return Err(error(
-            "ADC archive capture metadata size is outside v2 bounds.",
+            "ADC archive capture metadata size is outside v3 bounds.",
         ));
     }
     let capture: CaptureRecord = serde_json::from_slice(bytes)

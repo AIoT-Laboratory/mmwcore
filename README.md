@@ -299,7 +299,8 @@ uv run python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ### Archive completed ADC data
 
 The offline ADC archive preserves every source byte in independently compressed and verified
-frames. Its header embeds the complete decoding contract, so reopening requires only the archive.
+frame groups. Its header embeds the complete decoding contract, so reopening requires only the
+archive.
 
 ```python
 from mmwcore.config import RadarCaptureSpec
@@ -319,14 +320,15 @@ print(reopened.capture)
 one_verified_frame = reopened.read_frames(100, 101)
 ```
 
-The fixed v2 codec is one-frame little-endian `int16` byte shuffle plus zlib level 1. Rust owns
-header parsing, metadata validation, encoding, decoding, indexing, hashing, and publication; Python
-only adapts the native object to `RadarCaptureSpec` and NumPy frame contracts. Reads verify each
-frame by default; `verify=False` is accepted only after `verify_all()` succeeds on that reader.
-See the [ADC archive v2 binary format](docs/adc-archive-format.md) for the normative fields and the
-[ADC archive study](docs/adc-archive-study.md) for codec and v2 corpus evidence. Version 2 is
-supported only for finalized ADC files; acquisition still publishes exact raw payloads before
-offline conversion.
+The development v3 codec predicts equal `int16` capture coordinates across groups of at most four
+frames, ZigZag maps exact `i32` residuals, and uses adaptive 512-sample Rice blocks with raw-block
+fallback. Rust owns the format and codec; Python adapts the native object to `RadarCaptureSpec` and
+NumPy frame contracts. Reads verify each decoded chunk by default; `verify=False` is accepted only
+after `verify_all()` succeeds on that reader. See the [ADC archive v3 binary
+format](docs/adc-archive-format.md), the [historical v2 format](docs/adc-archive-format-v2.md), and
+the [ADC archive study](docs/adc-archive-study.md). The fixed 14-source real-ADC corpus accepts the
+Rice codec for v3 development. V3 remains unreleased until the complete container passes its
+implemented-format acceptance run.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 

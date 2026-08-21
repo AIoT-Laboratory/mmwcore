@@ -1,4 +1,4 @@
-"""Self-describing ADC Archive v2 access backed by the Rust core."""
+"""Self-describing ADC Archive v3 access backed by the Rust core."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class ADCArchiveError(ValueError):
 
 
 class ADCArchive:
-    """Read-only access to one self-describing ADC Archive v2 file."""
+    """Read-only access to one self-describing ADC Archive v3 file."""
 
     __slots__ = ("_capture", "_native")
 
@@ -64,6 +64,18 @@ class ADCArchive:
     @property
     def frame_count(self) -> int:
         return self._native.frame_count
+
+    @property
+    def block_samples(self) -> int:
+        """Number of int16 residuals in each adaptive Rice block."""
+
+        return self._native.block_samples
+
+    @property
+    def restart_frames(self) -> int:
+        """Maximum temporal dependency length in radar frames."""
+
+        return self._native.restart_frames
 
     @property
     def archive_size(self) -> int:
@@ -121,7 +133,7 @@ def write_adc_archive(
     *,
     expected_adc_sha256: str | None = None,
 ) -> ADCArchive:
-    """Write one self-describing v2 archive through the Rust implementation."""
+    """Write one self-describing v3 archive through the Rust implementation."""
 
     if not isinstance(capture, RadarCaptureSpec):
         raise TypeError("capture must be a RadarCaptureSpec.")
@@ -156,7 +168,7 @@ def write_adc_archive(
 
 
 def open_adc_archive(path: str | Path) -> ADCArchive:
-    """Open one complete v2 archive without an external decoding contract."""
+    """Open one complete v3 archive without an external decoding contract."""
 
     archive_path = _path(path, "archive")
     try:

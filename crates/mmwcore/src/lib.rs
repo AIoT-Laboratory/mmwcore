@@ -32,7 +32,10 @@ pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<us
 }
 
 pub use adc::{AdcComplexLayout, AdcCube, AdcDecodeError, AdcFrameSpec, decode_adc_i16};
-pub use adc_archive::{AdcArchiveCodecError, decode_adc_archive_frame, encode_adc_archive_frame};
+pub use adc_archive::{
+    ADC_RICE_BLOCK_SAMPLES, ADC_RICE_RESTART_FRAMES, AdcArchiveCodecError,
+    decode_adc_archive_chunk, encode_adc_archive_chunk, maximum_adc_archive_chunk_bytes,
+};
 pub use adc_archive_file::{
     AdcArchiveFile, AdcArchiveFileError, open_adc_archive_file, sha256_from_hex, sha256_to_hex,
     write_adc_archive_file,

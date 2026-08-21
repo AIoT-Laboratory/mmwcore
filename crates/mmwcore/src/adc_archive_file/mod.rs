@@ -16,21 +16,23 @@ use sha2::{Digest, Sha256};
 pub use reader::{AdcArchiveFile, open_adc_archive_file};
 pub use writer::write_adc_archive_file;
 
-const HEADER_MAGIC: &[u8; 8] = b"MMWADCA2";
-const FOOTER_MAGIC: &[u8; 8] = b"MMWACMT2";
-const VERSION: u32 = 2;
-const FIXED_HEADER_BYTES: usize = 96;
-const INDEX_RECORD_BYTES: usize = 48;
+const HEADER_MAGIC: &[u8; 8] = b"MMWADCA3";
+const FOOTER_MAGIC: &[u8; 8] = b"MMWACMT3";
+const VERSION: u32 = 3;
+const FIXED_HEADER_BYTES: usize = 112;
+const INDEX_RECORD_BYTES: usize = 56;
 const FOOTER_BYTES: usize = 160;
-const CODEC_I16_SHUFFLE_ZLIB_1: u32 = 1;
+const CODEC_I16_FRAME_DELTA_RICE: u32 = 2;
 const METADATA_RADAR_CAPTURE_JSON: u32 = 1;
 const MAX_FRAME_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_METADATA_BYTES: u64 = 1024 * 1024;
+const MAX_RESTART_FRAMES: u32 = 64;
 
 #[derive(Clone, Debug)]
-struct FrameRecord {
+struct ChunkRecord {
     offset: u64,
     stored_bytes: u64,
+    frame_count: u32,
     raw_sha256: [u8; 32],
 }
 

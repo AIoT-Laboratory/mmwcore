@@ -52,13 +52,15 @@ ADC files require an explicit shape, complex layout, and timing when used by tem
 The listed TI-family layout decoders and board geometries remain caller-selected capabilities;
 firmware profiles do not prove lane layout, board geometry, orientation, or provenance.
 
-Completed fixed-frame ADC files may be converted offline into `mmwcore.adc_archive.v2`. Rust owns
-the container writer, parser, index, integrity checks, random reads, and complete replay. The header
-embeds the canonical `RadarCaptureSpec` JSON needed to decode the logical ADC stream without a
-sidecar. Packet coverage, calibration, and board geometry remain outside this ADC representation.
-Each frame is independently decoded and verified, and a valid commit footer must terminate at
-physical EOF. The normative layout is specified in
-[ADC Archive v2 Binary Format](adc-archive-format.md).
+Completed fixed-frame ADC files may be converted offline into the development
+`mmwcore.adc_archive.v3`. Rust owns the container writer, parser, index, integrity checks, random
+reads, and complete replay. The header embeds the canonical `RadarCaptureSpec` JSON and the Rice
+block/restart parameters needed to decode the logical stream without a sidecar. Packet coverage,
+calibration, and board geometry remain outside this ADC representation. Independently verified
+frame groups bound temporal dependency and random-read work; a valid commit footer must terminate
+at physical EOF. The normative layout is specified in [ADC Archive v3 Binary
+Format](adc-archive-format.md); the published v2 layout is retained in
+[Historical ADC Archive v2 Binary Format](adc-archive-format-v2.md).
 
 Versioned mmwcli directory and stream v1 readers additionally require one closed family tuple:
 `ti`, `xwr16xx|xwr18xx|xwr68xx`, empty model/revision, `route_declaration`,

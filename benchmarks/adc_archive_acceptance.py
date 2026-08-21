@@ -19,7 +19,7 @@ from benchmarks.adc_storage_inputs import discover_sources, source_selection
 from mmwcore.config import RadarCaptureSpec
 from mmwcore.io import ADCArchive, open_adc_archive, write_adc_archive
 
-SCHEMA = "mmwcore.adc_archive_acceptance.v2"
+SCHEMA = "mmwcore.adc_archive_acceptance.v3"
 DEFAULT_FILENAME = "adc_data_Raw_0.bin"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 

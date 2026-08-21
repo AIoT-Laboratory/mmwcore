@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import zlib
 from pathlib import Path
 
 import pytest
@@ -11,36 +10,30 @@ from mmwcore.core import ADCFrameSpec
 from mmwcore.io import write_adc_archive
 
 
-def _shuffle_i16_bytes(raw: bytes) -> bytes:
-    return raw[::2] + raw[1::2]
+def test_native_adc_archive_codec_round_trip_uses_homologous_frame_delta() -> None:
+    first = bytes((index * 37) % 256 for index in range(1024))
+    second = bytes((value + 1) % 256 for value in first)
+    raw = first + second
 
-
-def test_native_adc_archive_codec_round_trip_and_python_zlib_golden() -> None:
-    raw = bytes((index * 37) % 256 for index in range(2048))
-
-    encoded = _native.encode_adc_archive_frame(raw)
-    assert zlib.decompress(encoded) == _shuffle_i16_bytes(raw)
-    assert _native.decode_adc_archive_frame(encoded, len(raw)) == raw
-
-    python_zlib_golden = zlib.compress(_shuffle_i16_bytes(raw), level=1)
-    assert _native.decode_adc_archive_frame(python_zlib_golden, len(raw)) == raw
+    encoded = _native.encode_adc_archive_chunk(raw, 1024)
+    assert len(encoded) < len(raw)
+    assert _native.decode_adc_archive_chunk(encoded, 1024, 2) == raw
 
 
 def test_native_adc_archive_codec_rejects_invalid_and_ambiguous_inputs() -> None:
     with pytest.raises(ValueError, match="non-empty"):
-        _native.encode_adc_archive_frame(b"")
-    with pytest.raises(ValueError, match="even"):
-        _native.encode_adc_archive_frame(b"x")
-
-    encoded = _native.encode_adc_archive_frame(b"\x01\x00\x02\x00")
-    with pytest.raises(ValueError, match="expected raw byte count"):
-        _native.decode_adc_archive_frame(encoded, 3)
-    with pytest.raises(ValueError, match="beyond expected"):
-        _native.decode_adc_archive_frame(encoded, 2)
+        _native.encode_adc_archive_chunk(b"", 1024)
+    with pytest.raises(ValueError, match="positive multiple of two"):
+        _native.encode_adc_archive_chunk(b"abc", 3)
+    with pytest.raises(ValueError, match="not a multiple"):
+        _native.encode_adc_archive_chunk(b"abcdef", 4)
+    with pytest.raises(ValueError, match="power of two"):
+        _native.encode_adc_archive_chunk(bytes(1024), 1024, 128)
+    with pytest.raises(ValueError, match="unsupported"):
+        _native.decode_adc_archive_chunk(b"\x11", 1024, 1)
+    encoded = _native.encode_adc_archive_chunk(bytes(1024), 1024)
     with pytest.raises(ValueError, match="trailing"):
-        _native.decode_adc_archive_frame(encoded + b"tail", 4)
-    with pytest.raises(ValueError, match="valid zlib"):
-        _native.decode_adc_archive_frame(b"not a zlib frame", 4)
+        _native.decode_adc_archive_chunk(encoded + b"tail", 1024, 1)
 
 
 def test_public_archive_round_trip_uses_native_codec(tmp_path: Path) -> None:
@@ -65,4 +58,6 @@ def test_public_archive_round_trip_uses_native_codec(tmp_path: Path) -> None:
     )
     archive.verify_all()
 
+    assert archive.block_samples == 512
+    assert archive.restart_frames == 4
     assert archive.read_frames(0, 2, verify=False) == raw

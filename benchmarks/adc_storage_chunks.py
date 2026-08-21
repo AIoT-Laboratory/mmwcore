@@ -180,7 +180,12 @@ def decode_record(
     if len(encoded) != record.stored_bytes:
         raise RuntimeError("Temporary ADC storage payload was truncated.")
     started = time.perf_counter_ns()
-    raw = decode(encoded, codec=codec, frame_bytes=frame_bytes)
+    raw = decode(
+        encoded,
+        codec=codec,
+        frame_bytes=frame_bytes,
+        frame_count=record.frame_count,
+    )
     decode_ns = time.perf_counter_ns() - started
     if len(raw) != record.raw_bytes:
         raise RuntimeError("ADC storage codec produced an unexpected raw chunk size.")

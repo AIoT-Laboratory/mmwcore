@@ -6,12 +6,15 @@ import zlib
 
 import numpy as np
 
+from mmwcore import _native
+
 SUPPORTED_CODECS = (
     "raw",
     "zlib",
     "shuffle-zlib",
     "frame-delta-shuffle-zlib",
     "adaptive-shuffle-zlib",
+    "frame-delta-rice",
 )
 DEFAULT_ZLIB_LEVEL = 1
 _SHUFFLE_TAG = 0
@@ -41,10 +44,18 @@ def encode(payload: bytes, *, codec: str, frame_bytes: int, zlib_level: int) -> 
         if len(delta_shuffled) < len(shuffled):
             return bytes((_FRAME_DELTA_TAG,)) + delta_shuffled
         return bytes((_SHUFFLE_TAG,)) + shuffled
+    if codec == "frame-delta-rice":
+        return _native.encode_adc_archive_chunk(payload, frame_bytes)
     raise ValueError(f"Unsupported ADC storage codec: {codec!r}.")
 
 
-def decode(payload: bytes, *, codec: str, frame_bytes: int) -> bytes:
+def decode(
+    payload: bytes,
+    *,
+    codec: str,
+    frame_bytes: int,
+    frame_count: int | None = None,
+) -> bytes:
     """Decode one chunk to its byte-exact little-endian ADC representation."""
 
     if codec == "raw":
@@ -57,15 +68,23 @@ def decode(payload: bytes, *, codec: str, frame_bytes: int) -> bytes:
         deltas = _unshuffle_words(zlib.decompress(payload))
         return _restore_frame_delta(deltas, frame_bytes=frame_bytes)
     if codec == "adaptive-shuffle-zlib":
-        if not payload:
-            raise ValueError("Adaptive ADC storage payload is missing its transform tag.")
-        transformed = _unshuffle_words(zlib.decompress(payload[1:]))
-        if payload[0] == _SHUFFLE_TAG:
-            return transformed
-        if payload[0] == _FRAME_DELTA_TAG:
-            return _restore_frame_delta(transformed, frame_bytes=frame_bytes)
-        raise ValueError(f"Unsupported adaptive ADC storage transform tag: {payload[0]}.")
+        return _decode_adaptive(payload, frame_bytes=frame_bytes)
+    if codec == "frame-delta-rice":
+        if frame_count is None:
+            raise ValueError("Rice ADC storage decode requires frame_count.")
+        return _native.decode_adc_archive_chunk(payload, frame_bytes, frame_count)
     raise ValueError(f"Unsupported ADC storage codec: {codec!r}.")
+
+
+def _decode_adaptive(payload: bytes, *, frame_bytes: int) -> bytes:
+    if not payload:
+        raise ValueError("Adaptive ADC storage payload is missing its transform tag.")
+    transformed = _unshuffle_words(zlib.decompress(payload[1:]))
+    if payload[0] == _SHUFFLE_TAG:
+        return transformed
+    if payload[0] == _FRAME_DELTA_TAG:
+        return _restore_frame_delta(transformed, frame_bytes=frame_bytes)
+    raise ValueError(f"Unsupported adaptive ADC storage transform tag: {payload[0]}.")
 
 
 def selected_transform(codec: str, payload: bytes) -> str:

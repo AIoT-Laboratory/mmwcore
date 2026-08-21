@@ -14,7 +14,7 @@ impl TestDirectory {
             .expect("current time")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "mmwcore-adc-archive-v2-{}-{unique}",
+            "mmwcore-adc-archive-v3-{}-{unique}",
             std::process::id()
         ));
         fs::create_dir(&path).expect("create test directory");
@@ -51,7 +51,7 @@ fn capture_json(frame_count: usize) -> String {
 }
 
 #[test]
-fn v2_round_trip_is_self_describing_and_random_accessible() {
+fn v3_round_trip_is_self_describing_and_random_accessible() {
     let directory = TestDirectory::new();
     let source = directory.path().join("adc.bin");
     let destination = directory.path().join("adc.mmwa");
@@ -67,7 +67,7 @@ fn v2_round_trip_is_self_describing_and_random_accessible() {
 
     assert_eq!(
         &fs::read(&destination).expect("read archive")[..8],
-        b"MMWADCA2"
+        b"MMWADCA3"
     );
     assert_ne!(archive.capture_json(), supplied_metadata);
     assert_eq!(
@@ -77,6 +77,8 @@ fn v2_round_trip_is_self_describing_and_random_accessible() {
     let stored_metadata = archive.capture_json().to_owned();
     assert_eq!(archive.frame_bytes(), 16);
     assert_eq!(archive.frame_count(), 3);
+    assert_eq!(archive.block_samples(), 512);
+    assert_eq!(archive.restart_frames(), 4);
     assert_eq!(archive.read_frames(1, 3, true).unwrap(), raw[16..]);
     archive.verify_all().unwrap();
     assert_eq!(archive.read_frames(0, 1, false).unwrap(), raw[..16]);
@@ -87,7 +89,7 @@ fn v2_round_trip_is_self_describing_and_random_accessible() {
 }
 
 #[test]
-fn v2_writer_rejects_incomplete_or_inconsistent_capture_metadata() {
+fn v3_writer_rejects_incomplete_or_inconsistent_capture_metadata() {
     let directory = TestDirectory::new();
     let source = directory.path().join("adc.bin");
     fs::write(&source, vec![0_u8; 32]).expect("write source");
@@ -113,7 +115,7 @@ fn v2_writer_rejects_incomplete_or_inconsistent_capture_metadata() {
 }
 
 #[test]
-fn v2_rejects_metadata_tampering_truncation_and_overwrite() {
+fn v3_rejects_metadata_tampering_truncation_and_overwrite() {
     let directory = TestDirectory::new();
     let source = directory.path().join("adc.bin");
     let destination = directory.path().join("adc.mmwa");
@@ -124,7 +126,7 @@ fn v2_rejects_metadata_tampering_truncation_and_overwrite() {
 
     let original = fs::read(&destination).expect("read archive");
     let mut tampered = original.clone();
-    tampered[96] ^= 1;
+    tampered[112] ^= 1;
     let metadata_path = directory.path().join("metadata.mmwa");
     fs::write(&metadata_path, tampered).expect("write tampered archive");
     assert!(open_adc_archive_file(&metadata_path).is_err());
