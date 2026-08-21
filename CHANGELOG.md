@@ -16,10 +16,18 @@ All notable changes to mmwcore are documented here.
 - Batch Rice bitstream reads and writes, compute exact parameter costs in one residual pass, and
   reuse block buffers while preserving the v3 byte stream. On the fixed 14-source corpus, minimum
   encode and pack throughput improve by 163.79% and 138.46%, respectively.
+- Accept the complete v3 container on clean revision `a3c272b` after exact replay of 14 sources,
+  durable publication, full verification, and verified and trusted random-window reads.
+- Preserve archive file I/O categories and sources across PyO3 so callers receive standard
+  `FileNotFoundError`, `PermissionError`, or `OSError` separately from invalid archive data.
+- Isolate the private Rice bitstream machinery and remove complexity and typing suppressions from
+  the multi-sensor readers without changing their protocol validation.
 
 ### Removed
 
 - Remove the single-frame byte-shuffle/zlib codec API and the Rust `flate2` dependency.
+- Remove the public `ADC_RICE_RESTART_FRAMES` constant; restart grouping is an archive-writer
+  policy rather than part of the standalone chunk codec API.
 
 ## [0.6.0] - 2026-08-20
 

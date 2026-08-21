@@ -320,15 +320,14 @@ print(reopened.capture)
 one_verified_frame = reopened.read_frames(100, 101)
 ```
 
-The development v3 codec predicts equal `int16` capture coordinates across groups of at most four
+The accepted v3 codec predicts equal `int16` capture coordinates across groups of at most four
 frames, ZigZag maps exact `i32` residuals, and uses adaptive 512-sample Rice blocks with raw-block
 fallback. Rust owns the format and codec; Python adapts the native object to `RadarCaptureSpec` and
 NumPy frame contracts. Reads verify each decoded chunk by default; `verify=False` is accepted only
 after `verify_all()` succeeds on that reader. See the [ADC archive v3 binary
 format](docs/adc-archive-format.md), the [historical v2 format](docs/adc-archive-format-v2.md), and
-the [ADC archive study](docs/adc-archive-study.md). The fixed 14-source real-ADC corpus accepts the
-Rice codec for v3 development. V3 remains unreleased until the complete container passes its
-implemented-format acceptance run.
+the [ADC archive study](docs/adc-archive-study.md). The fixed 14-source real-ADC corpus accepts both
+the Rice codec and complete v3 container. V3 is scheduled for the next release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 

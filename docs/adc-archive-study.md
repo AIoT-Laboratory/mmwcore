@@ -1,8 +1,8 @@
 # ADC Archive Study
 
 This document records the codec study, corpus acceptance for historical v1 and published v2, and
-the unreleased v3 Rice candidate. Historical measurements remain evidence for their admitted
-revisions; they are not relabeled as v3 evidence.
+the accepted v3 Rice format scheduled for the next release. Historical measurements remain
+evidence for their admitted revisions; they are not relabeled as v3 evidence.
 
 ## Objective
 
@@ -199,18 +199,17 @@ Top-level case summaries use total-byte-weighted storage ratio, the minimum thro
 sources, separate maximum trusted and verified random-read P95 values, and an all-source
 verification flag. They deliberately do not average away a bad capture.
 
-## V3 Rice Candidate
+## V3 Rice Format
 
-The v3 development candidate replaces zlib with a Rust-owned integer codec. Each independent
+The v3 format replaces zlib with a Rust-owned integer codec. Each independent
 four-frame group uses the exact ADC schedule to align equal flattened `int16` coordinates across
 frames. Its first frame is absolute; later frames are `i32` differences from the previous frame.
 ZigZag residuals are divided into 512-sample blocks. Each block selects the minimum-bit Rice
 parameter in `0..16` and falls back to its exact raw `int16` bytes unless Rice is strictly shorter.
 
-The design has unit, small-artifact, and real-ADC corpus round-trip coverage. The codec is accepted
-for v3 development; the complete v3 container remains unreleased until the implemented-format
-acceptance pass covers its metadata overhead, durable publication, full verification, and random
-reads.
+The design has unit, small-artifact, and real-ADC corpus round-trip coverage. Both the codec and
+complete container passed their fixed-corpus acceptance runs. Version 3 remains unpublished until
+the next release is prepared.
 
 The first Rust pilot used the first 16 frames from one empty-scene take, one standing take, and one
 waving take. It compared the v3 codec with identical raw and historical zlib controls, replayed
@@ -395,6 +394,39 @@ uv run --no-sync python -m benchmarks.adc_archive_acceptance_cli CAPTURE_ROOT \
 The command writes only temporary archives under `--scratch-dir`, removes each after its source is
 measured, and leaves the ADC inputs untouched. This is a long I/O task and should be run manually
 on the fixed corpus.
+
+## ADC Archive v3 Acceptance
+
+The complete v3 container was validated on 2026-08-21 using clean revision
+`a3c272b91174b2d5970d70fe30b34635a5ad63e2`. The run used the same 14 complete IWR6843 sources,
+8,400 frames, and 13,212,057,600 logical bytes as the codec corpus. Every source passed complete
+Rust replay and 128 direct-source comparisons of randomly selected four-frame windows.
+
+| Measurement | Corpus result |
+|---|---:|
+| Raw ADC data | 12.3047 GiB |
+| Complete v3 archive | 5.8971 GiB |
+| Complete archive ratio | 0.479259 |
+| Storage reduction | 6.4076 GiB / 52.07% |
+| Rice payload | 6,331,864,426 bytes |
+| Embedded capture metadata | 7,140 bytes total / 510 bytes per source |
+| Index | 117,600 bytes total / 8,400 bytes per source |
+| Total container overhead | 128,548 bytes / 0.000973% |
+| Minimum atomic-publication throughput | 114.14 MiB/s |
+| Minimum reopened full-verification throughput | 193.42 MiB/s |
+| Worst verified four-frame random-read P95 | 74.08 ms |
+| Worst trusted four-frame random-read P95 after full verification | 67.32 ms |
+| Exact source round trips | 14 / 14 |
+
+Per-source archive ratios ranged from 0.38113 to 0.56103. Atomic publication remained between
+114.14 and 124.67 MiB/s, reopened full verification remained between 193.42 and 210.77 MiB/s, and
+every source added exactly 9,182 container bytes. The report is bound to a clean revision and all
+source logical SHA-256 values match the optimized codec corpus.
+
+This result admits v3 as the next published ADC Archive format. Different ADC geometries,
+cold-cache behavior, and concurrent training readers remain useful expansion measurements rather
+than release blockers. The machine-readable report remains outside the repository because it
+contains workstation paths.
 
 ## ADC Archive v2 Acceptance
 
