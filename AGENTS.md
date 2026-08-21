@@ -10,6 +10,13 @@ examples/, and docs/.
 - Python and Rust packages share one workspace version. Keep Cargo.toml, Cargo.lock, the
   mmwcore-python exact dependency, version tests, and the dated changelog section aligned.
 
+## Agent roles
+
+- Use Sol with the installed `grill-me` (`grilling`) skill for protocol or algorithm design,
+  theoretical analysis, quality assessment, code audits, and release acceptance.
+- Use Terra for implementation, documentation updates, and command generation.
+- Use Luna for document or artifact cleanup and routine test execution.
+
 ## Project boundary
 
 - Start from caller-owned capture directories, files, archived packet bytes, or BinaryIO streams.
