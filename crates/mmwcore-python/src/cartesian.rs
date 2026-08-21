@@ -1,6 +1,21 @@
 //! PyO3 boundary for native Cartesian RT/RPC and point-cloud projection.
 
-use super::*;
+use numpy::ndarray::Array2;
+use numpy::{
+    Complex32, IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, PyUntypedArrayMethods,
+};
+use pyo3::{exceptions::PyValueError, prelude::*};
+
+use super::{
+    CartesianSparsificationInput, DetectionPointCloudColumns, DetectionPointCloudInput,
+    NativeCartesianAxes, NativeCartesianSparsificationConfig, NativeCartesianSparsificationResult,
+    NativeDetectionPointCloudColumns, NativeDetectionPointCloudConfig, NativePlanarCartesianConfig,
+    NativePlanarCartesianResult, PlanarCartesianProjectionPlan, bool_cube_input, cartesian_axes,
+    cartesian_error, cartesian_sparsification_config, complex_cube_input,
+    detection_point_cloud_config, detection_point_cloud_error, dzyx_shape,
+    native_project_detection_point_cloud, native_sparsify_cartesian_volume,
+    planar_cartesian_config, real_cube_array, real_cube_input, sparsification_error,
+};
 
 #[pyclass]
 struct NativePlanarCartesianProjector {

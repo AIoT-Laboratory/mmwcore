@@ -179,7 +179,7 @@ pub(super) fn parse_index(
     let mut records = Vec::with_capacity(expected_records);
     let mut expected_offset = header.header_bytes;
     let mut remaining_frames = header.frame_count;
-    for record in index.chunks_exact(INDEX_RECORD_BYTES) {
+    for record in index.as_chunks::<INDEX_RECORD_BYTES>().0 {
         let offset = read_u64(record, 0)?;
         let stored_bytes = read_u64(record, 8)?;
         let frame_count = read_u32(record, 16)?;

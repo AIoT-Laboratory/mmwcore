@@ -69,10 +69,10 @@ use mmwcore::{
     DetectionPointCloudInput,
     project_detection_point_cloud as native_project_detection_point_cloud,
 };
-use numpy::ndarray::{Array1, Array2, Array4, ArrayD, IxDyn};
+use numpy::ndarray::{Array1, Array2, ArrayD, IxDyn};
 use numpy::{
-    Complex32, IntoPyArray, PyArray1, PyArray2, PyArray4, PyArrayDyn, PyReadonlyArray1,
-    PyReadonlyArray2, PyReadonlyArrayDyn, PyUntypedArrayMethods,
+    Complex32, IntoPyArray, PyArray1, PyArray2, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2,
+    PyReadonlyArrayDyn, PyUntypedArrayMethods,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

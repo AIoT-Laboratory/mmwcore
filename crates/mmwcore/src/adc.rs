@@ -208,7 +208,7 @@ pub fn decode_adc_i16(
 
     match spec.layout {
         AdcComplexLayout::IqInterleaved => {
-            for (output_index, pair) in complete_samples.chunks_exact(2).enumerate() {
+            for (output_index, pair) in complete_samples.as_chunks::<2>().0.iter().enumerate() {
                 data[output_index] = Complex32::new(f32::from(pair[0]), f32::from(pair[1]));
             }
         }

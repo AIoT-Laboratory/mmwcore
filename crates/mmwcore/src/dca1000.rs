@@ -232,7 +232,9 @@ pub fn parse_dca1000_packet(data: &[u8]) -> Result<Dca1000Packet, Dca1000Error> 
         .map_err(|_| Dca1000Error::FrameBufferOverflow)?;
     payload.extend(
         payload_bytes
-            .chunks_exact(size_of::<i16>())
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| i16::from_le_bytes([pair[0], pair[1]])),
     );
 
