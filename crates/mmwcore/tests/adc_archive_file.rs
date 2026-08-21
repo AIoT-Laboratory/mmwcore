@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -134,4 +135,13 @@ fn v3_rejects_metadata_tampering_truncation_and_overwrite() {
     let truncated_path = directory.path().join("truncated.mmwa");
     fs::write(&truncated_path, &original[..original.len() - 1]).expect("write truncated archive");
     assert!(open_adc_archive_file(&truncated_path).is_err());
+}
+
+#[test]
+fn missing_archive_preserves_io_error_kind_and_source() {
+    let directory = TestDirectory::new();
+    let error = open_adc_archive_file(&directory.path().join("missing.mmwa")).unwrap_err();
+
+    assert_eq!(error.io_kind(), Some(ErrorKind::NotFound));
+    assert!(std::error::Error::source(&error).is_some());
 }

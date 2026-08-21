@@ -1,6 +1,5 @@
 //! PyO3 boundary for exact ADC archive chunk compression.
 
-use super::*;
 use mmwcore::{
     ADC_RICE_BLOCK_SAMPLES, AdcArchiveCodecError, AdcArchiveFile, AdcArchiveFileError,
     decode_adc_archive_chunk as decode_native_adc_archive_chunk,
@@ -8,7 +7,10 @@ use mmwcore::{
     open_adc_archive_file as open_native_adc_archive_file, sha256_from_hex, sha256_to_hex,
     write_adc_archive_file as write_native_adc_archive_file,
 };
+use pyo3::exceptions::{PyFileNotFoundError, PyOSError, PyPermissionError, PyValueError};
+use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use std::io::ErrorKind;
 use std::path::Path;
 
 #[pyclass(module = "mmwcore._native", name = "ADCArchiveFile")]
@@ -193,5 +195,11 @@ fn adc_archive_codec_error(error: AdcArchiveCodecError) -> PyErr {
 }
 
 fn adc_archive_file_error(error: AdcArchiveFileError) -> PyErr {
-    PyValueError::new_err(error.to_string())
+    let message = error.to_string();
+    match error.io_kind() {
+        Some(ErrorKind::NotFound) => PyFileNotFoundError::new_err(message),
+        Some(ErrorKind::PermissionDenied) => PyPermissionError::new_err(message),
+        Some(_) => PyOSError::new_err(message),
+        None => PyValueError::new_err(message),
+    }
 }

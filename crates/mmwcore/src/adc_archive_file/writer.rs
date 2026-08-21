@@ -5,13 +5,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use crate::{ADC_RICE_BLOCK_SAMPLES, ADC_RICE_RESTART_FRAMES, encode_adc_archive_chunk};
+use crate::{ADC_RICE_BLOCK_SAMPLES, encode_adc_archive_chunk};
 
 use super::contract::{canonical_capture_json, capture_frame_bytes, validate_capture_json};
 use super::reader::{AdcArchiveFile, open_adc_archive_file};
 use super::wire::{archive_chunk_count, encode_footer, encode_header, encode_index};
 use super::{
-    AdcArchiveFileError, ChunkRecord, FileIdentity, error, file_identity, io_error, sha256,
+    AdcArchiveFileError, ChunkRecord, DEFAULT_RESTART_FRAMES, FileIdentity, error, file_identity,
+    io_error, sha256,
 };
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -46,7 +47,7 @@ pub fn write_adc_archive_file(
         frame_bytes,
         frame_count,
         ADC_RICE_BLOCK_SAMPLES as u32,
-        ADC_RICE_RESTART_FRAMES as u32,
+        DEFAULT_RESTART_FRAMES as u32,
         capture_sha256,
     )?;
     let temporary = temporary_path(destination)?;
@@ -123,7 +124,7 @@ fn write_temporary_archive(
         .map_err(|value| io_error("write ADC archive header", value))?;
     let frame_length =
         usize::try_from(frame_bytes).map_err(|_| error("ADC frame size does not fit memory."))?;
-    let restart_frames = ADC_RICE_RESTART_FRAMES;
+    let restart_frames = DEFAULT_RESTART_FRAMES;
     let maximum_chunk_bytes = frame_length
         .checked_mul(restart_frames)
         .ok_or_else(|| error("ADC chunk size does not fit memory."))?;
