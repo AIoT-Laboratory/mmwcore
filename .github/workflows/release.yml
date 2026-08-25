@@ -133,8 +133,8 @@ jobs:
           assert decoded.dtype == np.dtype(np.complex64);
           np.testing.assert_array_equal(decoded, expected);
           adc_frame = bytes([1, 0, 2, 0]);
-          encoded = _native.encode_adc_archive_frame(adc_frame);
-          assert _native.decode_adc_archive_frame(encoded, len(adc_frame)) == adc_frame;
+          encoded = _native.encode_adc_archive_chunk(adc_frame, len(adc_frame));
+          assert _native.decode_adc_archive_chunk(encoded, len(adc_frame), 1) == adc_frame;
           assert callable(mmwcore.open_mmwcli_capture_metadata);
           assert callable(mmwcore.open_multisensor_capture_metadata);
           assert callable(mmwcore.open_multisensor_source_timeline);
@@ -164,8 +164,8 @@ jobs:
         run: >-
           python -c "import mmwcore; from mmwcore import _native;
           adc_frame = bytes([1, 0, 2, 0]);
-          encoded = _native.encode_adc_archive_frame(adc_frame);
-          assert _native.decode_adc_archive_frame(encoded, len(adc_frame)) == adc_frame;
+          encoded = _native.encode_adc_archive_chunk(adc_frame, len(adc_frame));
+          assert _native.decode_adc_archive_chunk(encoded, len(adc_frame), 1) == adc_frame;
           assert callable(mmwcore.open_mmwcli_capture_metadata);
           assert callable(mmwcore.open_multisensor_capture_metadata);
           assert callable(mmwcore.open_multisensor_source_timeline);
