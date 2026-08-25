@@ -4,6 +4,8 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+## [0.7.0] - 2026-08-25
+
 ### Changed
 
 - Replace the development archive writer and reader with the incompatible

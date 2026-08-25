@@ -338,7 +338,7 @@ opening the archive once and decoding every chunk touched by that batch at most 
 [ADC archive v3 binary
 format](docs/adc-archive-format.md), the [historical v2 format](docs/adc-archive-format-v2.md), and
 the [ADC archive study](docs/adc-archive-study.md). The fixed 14-source real-ADC corpus accepts both
-the Rice codec and complete v3 container. V3 is scheduled for the next release.
+the Rice codec and complete v3 container. V3 is introduced in mmwcore 0.7.0.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md).
 
