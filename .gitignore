@@ -10,6 +10,7 @@ wheels/
 *.egg-info/
 .venv/
 .vscode/
+private/
 python/mmwcore/_native*.pyd
 python/mmwcore/_native*.so
 python/mmwcore/_native*.dylib
