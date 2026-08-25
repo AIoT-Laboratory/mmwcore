@@ -177,9 +177,7 @@ fn validate_chunk(
     if raw.is_empty() {
         return Err(AdcArchiveCodecError::EmptyChunk { name: "raw chunk" });
     }
-    if frame_bytes == 0 || !frame_bytes.is_multiple_of(2) {
-        return Err(AdcArchiveCodecError::InvalidFrameBytes { frame_bytes });
-    }
+    validate_frame_bytes(frame_bytes)?;
     if !raw.len().is_multiple_of(frame_bytes) {
         return Err(AdcArchiveCodecError::IncompleteFrameChunk {
             chunk_bytes: raw.len(),
@@ -187,7 +185,7 @@ fn validate_chunk(
         });
     }
     let frame_count = raw.len() / frame_bytes;
-    validate_dimensions(frame_bytes, frame_count, block_samples)?;
+    validate_group_dimensions(frame_count, block_samples)?;
     Ok(frame_count)
 }
 
@@ -196,9 +194,21 @@ fn validate_dimensions(
     frame_count: usize,
     block_samples: usize,
 ) -> Result<(), AdcArchiveCodecError> {
+    validate_frame_bytes(frame_bytes)?;
+    validate_group_dimensions(frame_count, block_samples)
+}
+
+fn validate_frame_bytes(frame_bytes: usize) -> Result<(), AdcArchiveCodecError> {
     if frame_bytes == 0 || !frame_bytes.is_multiple_of(2) {
         return Err(AdcArchiveCodecError::InvalidFrameBytes { frame_bytes });
     }
+    Ok(())
+}
+
+fn validate_group_dimensions(
+    frame_count: usize,
+    block_samples: usize,
+) -> Result<(), AdcArchiveCodecError> {
     if frame_count == 0 {
         return Err(AdcArchiveCodecError::EmptyChunk {
             name: "frame group",

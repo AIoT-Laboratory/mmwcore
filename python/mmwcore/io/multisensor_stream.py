@@ -17,6 +17,7 @@ import numpy as np
 from mmwcore.config import RadarCaptureSpec
 from mmwcore.core import RadarCube, RangeDopplerRecipe, RawADCFrame
 
+from ._mmwcli_contract import _sha256_digest_parts
 from ._range_doppler import (
     RangeDopplerPreset,
     _resolve_range_doppler_recipe,
@@ -746,9 +747,12 @@ class MultisensorStreamReader:
         metadata: bytes,
         payload: bytes,
     ) -> None:
-        expected = hashlib.sha256(
-            _RECORD_DIGEST_DOMAIN + header[:_HEADER_PREFIX_SIZE] + metadata + payload
-        ).digest()
+        expected = _sha256_digest_parts(
+            _RECORD_DIGEST_DOMAIN,
+            header[:_HEADER_PREFIX_SIZE],
+            metadata,
+            payload,
+        )
         if not hmac.compare_digest(digest, expected):
             self._poison("mmwcli multi-sensor record SHA-256 is invalid")
 

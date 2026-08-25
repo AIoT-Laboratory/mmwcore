@@ -24,6 +24,7 @@ from ._mmwcli_contract import (
     MmwcliRawCaptureContract,
     _parse_mmwcli_radar_config,
     _parse_mmwcli_raw_capture_contract,
+    _sha256_digest_parts,
     _valid_lower_sha256,
 )
 from ._range_doppler import (
@@ -384,7 +385,7 @@ class CaptureStreamReader:
         ):
             self._poison("mmwcli capture-stream FRAME size does not match SESSION")
         payload = self._read_exact(decoded.payload_size, label=f"{decoded.kind.name} payload")
-        expected_digest = hashlib.sha256(_RECORD_DIGEST_DOMAIN + decoded.prefix + payload).digest()
+        expected_digest = _sha256_digest_parts(_RECORD_DIGEST_DOMAIN, decoded.prefix, payload)
         if not hmac.compare_digest(decoded.digest, expected_digest):
             self._poison("mmwcli capture-stream record SHA-256 is invalid")
         return _Record(

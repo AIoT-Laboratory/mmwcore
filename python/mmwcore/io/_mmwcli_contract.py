@@ -148,6 +148,13 @@ def _valid_lower_sha256(value: object) -> bool:
     )
 
 
+def _sha256_digest_parts(*parts: bytes) -> bytes:
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update(part)
+    return digest.digest()
+
+
 def _parse_mmwcli_radar_config(
     payload: bytes,
     *,
