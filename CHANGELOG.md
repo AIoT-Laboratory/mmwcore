@@ -18,6 +18,8 @@ All notable changes to mmwcore are documented here.
   encode and pack throughput improve by 163.79% and 138.46%, respectively.
 - Accept the complete v3 container on clean revision `a3c272b` after exact replay of 14 sources,
   durable publication, full verification, and verified and trusted random-window reads.
+- Add ordered fixed-length batch reads that open the archive once and decode each distinct touched
+  chunk once per call, with low-level byte windows and high-level `RawADCFrame` access.
 - Preserve archive file I/O categories and sources across PyO3 so callers receive standard
   `FileNotFoundError`, `PermissionError`, or `OSError` separately from invalid archive data.
 - Isolate the private Rice bitstream machinery and remove complexity and typing suppressions from

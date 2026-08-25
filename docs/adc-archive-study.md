@@ -428,6 +428,47 @@ cold-cache behavior, and concurrent training readers remain useful expansion mea
 than release blockers. The machine-readable report remains outside the repository because it
 contains workstation paths.
 
+### Batched artifact-build reads
+
+The v3 reader now accepts fixed-length windows in caller order and plans their physical reads by
+chunk. One batch opens the archive once, decodes and verifies every distinct touched chunk once,
+then scatters slices into one contiguous output buffer. This changes no v3 bytes or verification
+rules. `ADCArchiveFrameReader.read_frames()` exposes the same path as ordered `RawADCFrame`
+objects for downstream DSP.
+
+A 2026-08-25 development run rebuilt one 600-frame capture as v3 from a 943,718,400-byte source.
+The source used 1,572,864 bytes per frame and logical SHA-256
+`166aa06ff279a0d5e8d5105cb14d3f35ca3a49b10e21c08aeb4a47bec7402cfa`. The temporary archive
+contained 490,118,751 bytes, or 51.93% of raw. After one complete verification warmed the same
+reader, the run compared 128 one-frame calls with groups of 16 calls over identical outputs.
+
+| Workload | Integrity mode | Individual frames/s | Batch-16 frames/s | Speedup |
+|---|---|---:|---:|---:|
+| sequential first 128 frames | verified | 32.90 | 106.69 | 3.24x |
+| sequential first 128 frames | trusted after full verify | 34.01 | 120.41 | 3.54x |
+| 128 seeded random frames | verified | 31.57 | 32.10 | 1.02x |
+| 128 seeded random frames | trusted after full verify | 33.54 | 34.41 | 1.03x |
+
+The sequential case reduced the planned chunk decodes from 128 to 32 and matches the current RPC
+and RT artifact builders, which process archive frames in order. The random case had little
+within-batch chunk overlap, so batching alone did not improve it materially. That result rejects a
+default cross-batch LRU or locality sampler for the current pipeline: OpenMMW trains from retained
+RPC/RT memmaps, not directly from MMWA, while MMWA is on the sequential artifact-build path.
+
+The same development build then processed 16 real frames through the OpenMMW artifact hot loops.
+Replacing 16 verified one-frame reads with one verified ordered batch reduced complete RPC export
+from 2.790 s to 2.240 s (1.25x) and dense RT source-array construction from 1.733 s to 1.458 s
+(1.19x). All RPC artifact files were byte-identical, and both RT arrays had SHA-256
+`bda13a29b6f3f2a34c053d90690ebb91a41b9f48424fec0d2645ac1800feac13`. This passes the
+preselected 15% end-to-end threshold. DSP now dominates both loops, so the current implementation
+stops at batch reads rather than adding a cross-call cache or changing training sample order.
+
+This short run used dirty worktree base revision
+`8d399cfa75995a0250cd8928fa1c2c6b2b72184b`; it establishes the implementation decision, not
+release evidence. The maintained acceptance report now records individual and batch timing plus
+planned repeated chunk decodes avoided. A clean release run must repeat those measurements on the
+fixed corpus.
+
 ## ADC Archive v2 Acceptance
 
 The self-describing v2 archive was validated on 2026-08-20 using clean revision

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -33,6 +34,17 @@ pub struct AdcArchiveFile {
     records: Vec<ChunkRecord>,
     identity: FileIdentity,
     verified_all: bool,
+}
+
+#[derive(Debug)]
+struct WindowCopy {
+    raw_start: usize,
+    raw_stop: usize,
+    output_start: usize,
+}
+
+fn frame_byte_offset(frame_count: u64, frame_bytes: usize) -> Option<usize> {
+    usize::try_from(frame_count).ok()?.checked_mul(frame_bytes)
 }
 
 impl AdcArchiveFile {
@@ -109,7 +121,40 @@ impl AdcArchiveFile {
                 "Trusted reads require verify_all() on this archive object.",
             ));
         }
-        let result = self.read_frame_range(start, stop, verify);
+        let result = self.read_window_batch(&[start], stop - start, verify);
+        if result.is_err() {
+            self.verified_all = false;
+        }
+        result
+    }
+
+    /// Read fixed-length frame windows in caller order while decoding each touched chunk once.
+    pub fn read_windows(
+        &mut self,
+        starts: &[u64],
+        window_frames: u64,
+        verify: bool,
+    ) -> Result<Vec<u8>, AdcArchiveFileError> {
+        if window_frames == 0 {
+            return Err(error("ADC window length must be greater than zero."));
+        }
+        for (index, &start) in starts.iter().enumerate() {
+            let stop = start
+                .checked_add(window_frames)
+                .ok_or_else(|| error(format!("ADC window at index {index} overflows u64.")))?;
+            if stop > self.frame_count {
+                return Err(error(format!(
+                    "ADC window at index {index} [{start}, {stop}) is outside [0, {}).",
+                    self.frame_count
+                )));
+            }
+        }
+        if !verify && !self.verified_all {
+            return Err(error(
+                "Trusted reads require verify_all() on this archive object.",
+            ));
+        }
+        let result = self.read_window_batch(starts, window_frames, verify);
         if result.is_err() {
             self.verified_all = false;
         }
@@ -170,35 +215,74 @@ impl AdcArchiveFile {
         Ok(())
     }
 
-    fn read_frame_range(
+    fn read_window_batch(
         &self,
-        start: u64,
-        stop: u64,
+        starts: &[u64],
+        window_frames: u64,
         verify: bool,
     ) -> Result<Vec<u8>, AdcArchiveFileError> {
         if file_identity(&self.path)? != self.identity {
             return Err(error("ADC archive changed after it was opened."));
         }
-        let output_bytes = (stop - start)
-            .checked_mul(self.frame_bytes)
-            .and_then(|value| usize::try_from(value).ok())
-            .ok_or_else(|| error("Requested ADC frame interval is too large."))?;
+        let frame_bytes = usize::try_from(self.frame_bytes)
+            .map_err(|_| error("ADC frame length does not fit memory."))?;
+        let window_frames_usize = usize::try_from(window_frames)
+            .map_err(|_| error("ADC window length does not fit memory."))?;
+        let window_bytes = window_frames_usize
+            .checked_mul(frame_bytes)
+            .ok_or_else(|| error("Requested ADC window is too large."))?;
+        let output_bytes = starts
+            .len()
+            .checked_mul(window_bytes)
+            .ok_or_else(|| error("Requested ADC window batch is too large."))?;
         if output_bytes == 0 {
             return Ok(Vec::new());
         }
         let mut decoded = Vec::new();
         decoded
             .try_reserve_exact(output_bytes)
-            .map_err(|_| error("Cannot allocate decoded ADC frame interval."))?;
+            .map_err(|_| error("Cannot allocate decoded ADC window batch."))?;
+        decoded.resize(output_bytes, 0);
+
         let restart = u64::from(self.restart_frames);
-        let first_chunk = usize::try_from(start / restart)
-            .map_err(|_| error("Chunk index does not fit memory."))?;
-        let last_chunk = usize::try_from((stop - 1) / restart)
-            .map_err(|_| error("Chunk index does not fit memory."))?;
-        let frame_bytes = usize::try_from(self.frame_bytes)
-            .map_err(|_| error("ADC frame length does not fit memory."))?;
+        let mut chunk_copies: BTreeMap<usize, Vec<WindowCopy>> = BTreeMap::new();
+        for (window_index, &start) in starts.iter().enumerate() {
+            let stop = start
+                .checked_add(window_frames)
+                .ok_or_else(|| error("ADC window end overflows u64."))?;
+            let first_chunk = usize::try_from(start / restart)
+                .map_err(|_| error("Chunk index does not fit memory."))?;
+            let last_chunk = usize::try_from((stop - 1) / restart)
+                .map_err(|_| error("Chunk index does not fit memory."))?;
+            let output_base = window_index
+                .checked_mul(window_bytes)
+                .ok_or_else(|| error("ADC window output offset overflows memory."))?;
+            for chunk_index in first_chunk..=last_chunk {
+                let record = &self.records[chunk_index];
+                let chunk_first_frame = chunk_index as u64 * restart;
+                let copy_start_frame = start.max(chunk_first_frame);
+                let copy_stop_frame = stop.min(chunk_first_frame + u64::from(record.frame_count));
+                let raw_start =
+                    frame_byte_offset(copy_start_frame - chunk_first_frame, frame_bytes)
+                        .ok_or_else(|| error("ADC chunk byte offset overflows memory."))?;
+                let raw_stop = frame_byte_offset(copy_stop_frame - chunk_first_frame, frame_bytes)
+                    .ok_or_else(|| error("ADC chunk byte offset overflows memory."))?;
+                let output_start = frame_byte_offset(copy_start_frame - start, frame_bytes)
+                    .and_then(|value| output_base.checked_add(value))
+                    .ok_or_else(|| error("ADC window output offset overflows memory."))?;
+                chunk_copies
+                    .entry(chunk_index)
+                    .or_default()
+                    .push(WindowCopy {
+                        raw_start,
+                        raw_stop,
+                        output_start,
+                    });
+            }
+        }
+
         let mut file = File::open(&self.path).map_err(|value| io_error("open archive", value))?;
-        for chunk_index in first_chunk..=last_chunk {
+        for (chunk_index, copies) in chunk_copies {
             let record = &self.records[chunk_index];
             let raw = self.read_chunk(&mut file, record)?;
             if verify && sha256(&raw) != record.raw_sha256 {
@@ -206,10 +290,14 @@ impl AdcArchiveFile {
                     "Decoded chunk SHA-256 does not match the archive index.",
                 ));
             }
-            let chunk_first_frame = chunk_index as u64 * restart;
-            let local_start = start.saturating_sub(chunk_first_frame) as usize;
-            let local_stop = (stop - chunk_first_frame).min(u64::from(record.frame_count)) as usize;
-            decoded.extend_from_slice(&raw[local_start * frame_bytes..local_stop * frame_bytes]);
+            for copy in copies {
+                let output_stop = copy
+                    .output_start
+                    .checked_add(copy.raw_stop - copy.raw_start)
+                    .ok_or_else(|| error("ADC window output offset overflows memory."))?;
+                decoded[copy.output_start..output_stop]
+                    .copy_from_slice(&raw[copy.raw_start..copy.raw_stop]);
+            }
         }
         if file_identity(&self.path)? != self.identity {
             return Err(error("ADC archive changed while frames were being read."));

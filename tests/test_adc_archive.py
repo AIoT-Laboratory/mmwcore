@@ -91,6 +91,45 @@ def test_trusted_read_requires_full_verification(tmp_path: Path) -> None:
     assert archive.read_frames(2, 5, verify=False) == raw[32:80]
 
 
+def test_batch_windows_preserve_order_for_shared_chunks(tmp_path: Path) -> None:
+    destination, _, raw = _archive(tmp_path)
+    archive = open_adc_archive(destination)
+    starts = [4, 0, 2, 0, 3]
+    window_frames = 2
+    expected = b"".join(
+        raw[start * archive.frame_bytes : (start + window_frames) * archive.frame_bytes]
+        for start in starts
+    )
+
+    assert archive.read_windows(starts, window_frames) == expected
+    assert archive.read_windows([], window_frames) == b""
+    with pytest.raises(ADCArchiveError, match="verify_all"):
+        archive.read_windows(starts, window_frames, verify=False)
+
+    archive.verify_all()
+    assert archive.read_windows(starts, window_frames, verify=False) == expected
+
+
+def test_batch_windows_validate_the_complete_request_before_reading(tmp_path: Path) -> None:
+    destination, _, _ = _archive(tmp_path)
+    archive = open_adc_archive(destination)
+
+    with pytest.raises(TypeError, match="starts"):
+        archive.read_windows("0", 1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"starts\[0\]"):
+        archive.read_windows([True], 1)
+    with pytest.raises(ValueError, match=r"starts\[0\]"):
+        archive.read_windows([-1], 1)
+    with pytest.raises(TypeError, match="window_frames"):
+        archive.read_windows([0], True)
+    with pytest.raises(ValueError, match="greater than zero"):
+        archive.read_windows([0], 0)
+    with pytest.raises(ADCArchiveError, match="index 1"):
+        archive.read_windows([0, archive.frame_count], 1)
+    with pytest.raises(ADCArchiveError, match="too big|overflow"):
+        archive.read_windows([2**64], 1)
+
+
 @pytest.mark.parametrize("area", ["header", "metadata", "index", "footer"])
 def test_structural_regions_are_digest_bound(tmp_path: Path, area: str) -> None:
     destination, _, _ = _archive(tmp_path)

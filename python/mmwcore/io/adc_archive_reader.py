@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import operator
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,28 @@ class ADCArchiveFrameReader:
         return self._archive.path
 
     def read_frame(self, index: int) -> RawADCFrame:
+        index = self._frame_index(index)
+        samples = np.frombuffer(self._archive.read_frames(index, index + 1), dtype=np.dtype("<i2"))
+        return self._raw_frame(index, samples)
+
+    def read_frames(self, indices: Sequence[int]) -> tuple[RawADCFrame, ...]:
+        """Read frames in caller order while sharing archive chunk decoding."""
+
+        if isinstance(indices, str | bytes) or not isinstance(indices, Sequence):
+            raise TypeError("ADC frame indices must be a sequence of integers.")
+        normalized = tuple(self._frame_index(index) for index in indices)
+        if not normalized:
+            return ()
+        samples = np.frombuffer(
+            self._archive.read_windows(normalized, 1),
+            dtype=np.dtype("<i2"),
+        ).reshape(len(normalized), self.spec.raw_values_per_frame)
+        return tuple(
+            self._raw_frame(index, frame_samples)
+            for index, frame_samples in zip(normalized, samples, strict=True)
+        )
+
+    def _frame_index(self, index: int) -> int:
         if isinstance(index, bool):
             raise TypeError("ADC frame index must be an integer, not bool.")
         try:
@@ -65,7 +88,9 @@ class ADCArchiveFrameReader:
             raise TypeError("ADC frame index must be an integer.") from exc
         if not 0 <= index < self.num_frames:
             raise IndexError(f"ADC frame index {index} is outside [0, {self.num_frames}).")
-        samples = np.frombuffer(self._archive.read_frames(index, index + 1), dtype=np.dtype("<i2"))
+        return index
+
+    def _raw_frame(self, index: int, samples: np.ndarray) -> RawADCFrame:
         timestamp = (
             index * self.frame_periodicity_s if self.frame_periodicity_s is not None else None
         )

@@ -104,6 +104,20 @@ impl PyAdcArchiveFile {
         Ok(PyBytes::new(py, &decoded))
     }
 
+    #[pyo3(signature = (starts, window_frames, *, verify = true))]
+    fn read_windows<'py>(
+        &mut self,
+        py: Python<'py>,
+        starts: Vec<u64>,
+        window_frames: u64,
+        verify: bool,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let decoded = py
+            .detach(|| self.archive.read_windows(&starts, window_frames, verify))
+            .map_err(adc_archive_file_error)?;
+        Ok(PyBytes::new(py, &decoded))
+    }
+
     fn verify_all(&mut self, py: Python<'_>) -> PyResult<()> {
         py.detach(|| self.archive.verify_all())
             .map_err(adc_archive_file_error)

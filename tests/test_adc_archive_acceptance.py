@@ -67,7 +67,19 @@ def test_archive_acceptance_measures_implemented_container(tmp_path: Path) -> No
         + cast(int, source_report["container_overhead_bytes"])
     )
     random_window = cast(dict[str, object], source_report["random_window"])
-    assert random_window["mode_order"] == ["verified", "trusted_after_full_verify"]
+    assert random_window["mode_order"] == [
+        "verified",
+        "trusted_after_full_verify",
+        "verified_batch",
+        "trusted_after_full_verify_batch",
+    ]
+    assert cast(int, random_window["batch_chunk_decodes"]) <= cast(
+        int, random_window["individual_chunk_decodes"]
+    )
+    assert random_window["batch_repeated_chunk_decodes_avoided"] == (
+        cast(int, random_window["individual_chunk_decodes"])
+        - cast(int, random_window["batch_chunk_decodes"])
+    )
     assert not list(scratch.iterdir())
 
 

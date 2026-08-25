@@ -62,6 +62,21 @@ def test_reader_recovers_contract_and_decodes_frames_without_external_spec(tmp_p
     assert len(frame.metadata["capture_sha256"]) == 64
 
 
+def test_reader_batches_frames_in_caller_order(tmp_path: Path) -> None:
+    archive, _, _ = _archive(tmp_path)
+    reader = ADCArchiveFrameReader(archive)
+
+    frames = reader.read_frames([2, 0, 2, 1])
+
+    assert [frame.frame_id for frame in frames] == [2, 0, 2, 1]
+    assert [frame.timestamp for frame in frames] == pytest.approx([0.2, 0.0, 0.2, 0.1])
+    np.testing.assert_array_equal(frames[0].samples, np.array([8, 9, 10, 11]))
+    np.testing.assert_array_equal(frames[1].samples, np.array([0, 1, 2, 3]))
+    np.testing.assert_array_equal(frames[2].samples, frames[0].samples)
+    np.testing.assert_array_equal(frames[3].samples, np.array([4, 5, 6, 7]))
+    assert reader.read_frames([]) == ()
+
+
 def test_reader_metadata_cannot_override_embedded_tx_order(tmp_path: Path) -> None:
     archive, _, _ = _archive(tmp_path)
     with pytest.raises(ValueError, match="tx_order"):

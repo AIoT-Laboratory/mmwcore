@@ -303,8 +303,10 @@ frame groups. Its header embeds the complete decoding contract, so reopening req
 archive.
 
 ```python
+import numpy as np
+
 from mmwcore.config import RadarCaptureSpec
-from mmwcore.io import open_adc_archive, write_adc_archive
+from mmwcore.io import ADCArchiveFrameReader, open_adc_archive, write_adc_archive
 
 capture = RadarCaptureSpec.from_record(capture_record)
 archive = write_adc_archive(
@@ -314,17 +316,26 @@ archive = write_adc_archive(
 )
 archive.verify_all()
 four_frames = archive.read_frames(100, 104, verify=False)
+batch_bytes = archive.read_windows([100, 104, 100], 4, verify=False)
+batch = np.frombuffer(batch_bytes, dtype="<i2").reshape(
+    3,
+    4,
+    archive.frame_bytes // 2,
+)
 
 reopened = open_adc_archive("capture/adc.mmwa")
 print(reopened.capture)
 one_verified_frame = reopened.read_frames(100, 101)
+frames = ADCArchiveFrameReader("capture/adc.mmwa").read_frames([5, 0, 5])
 ```
 
 The accepted v3 codec predicts equal `int16` capture coordinates across groups of at most four
 frames, ZigZag maps exact `i32` residuals, and uses adaptive 512-sample Rice blocks with raw-block
 fallback. Rust owns the format and codec; Python adapts the native object to `RadarCaptureSpec` and
 NumPy frame contracts. Reads verify each decoded chunk by default; `verify=False` is accepted only
-after `verify_all()` succeeds on that reader. See the [ADC archive v3 binary
+after `verify_all()` succeeds on that reader. `read_windows()` preserves caller order while
+opening the archive once and decoding every chunk touched by that batch at most once. See the
+[ADC archive v3 binary
 format](docs/adc-archive-format.md), the [historical v2 format](docs/adc-archive-format-v2.md), and
 the [ADC archive study](docs/adc-archive-study.md). The fixed 14-source real-ADC corpus accepts both
 the Rice codec and complete v3 container. V3 is scheduled for the next release.

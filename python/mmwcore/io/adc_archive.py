@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -111,6 +112,37 @@ class ADCArchive:
         try:
             return self._native.read_frames(start, stop, verify=verify)
         except (TypeError, ValueError) as exc:
+            raise ADCArchiveError(str(exc)) from exc
+
+    def read_windows(
+        self,
+        starts: Sequence[int],
+        window_frames: int,
+        *,
+        verify: bool = True,
+    ) -> bytes:
+        """Read equal-length windows in caller order, decoding shared chunks once."""
+
+        if isinstance(starts, str | bytes) or not isinstance(starts, Sequence):
+            raise TypeError("starts must be a sequence of integers.")
+        if isinstance(window_frames, bool) or not isinstance(window_frames, int):
+            raise TypeError("window_frames must be an integer.")
+        if window_frames <= 0:
+            raise ValueError("window_frames must be greater than zero.")
+        normalized_starts = []
+        for index, start in enumerate(starts):
+            if isinstance(start, bool) or not isinstance(start, int):
+                raise TypeError(f"starts[{index}] must be an integer.")
+            if start < 0:
+                raise ValueError(f"starts[{index}] must be non-negative.")
+            normalized_starts.append(start)
+        try:
+            return self._native.read_windows(
+                normalized_starts,
+                window_frames,
+                verify=verify,
+            )
+        except (OverflowError, TypeError, ValueError) as exc:
             raise ADCArchiveError(str(exc)) from exc
 
     def verify_all(self) -> None:

@@ -90,6 +90,36 @@ fn v3_round_trip_is_self_describing_and_random_accessible() {
 }
 
 #[test]
+fn v3_batch_windows_preserve_order_across_shared_chunks() {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("adc.bin");
+    let destination = directory.path().join("adc.mmwa");
+    let frame_bytes = 16;
+    let frame_count = 12;
+    let raw: Vec<u8> = (0..frame_bytes * frame_count)
+        .map(|value| (value * 17) as u8)
+        .collect();
+    fs::write(&source, &raw).expect("write source");
+    let mut archive =
+        write_adc_archive_file(&source, &destination, &capture_json(frame_count), None)
+            .expect("write archive");
+    let starts = [5_u64, 0, 5, 3, 8];
+    let mut expected = Vec::new();
+    for start in starts {
+        let start = usize::try_from(start).unwrap();
+        expected.extend_from_slice(&raw[start * frame_bytes..(start + 4) * frame_bytes]);
+    }
+
+    assert_eq!(archive.read_windows(&starts, 4, true).unwrap(), expected);
+    assert!(archive.read_windows(&[], 4, true).unwrap().is_empty());
+    assert!(archive.read_windows(&[0], 0, true).is_err());
+    assert!(archive.read_windows(&[9], 4, true).is_err());
+
+    archive.verify_all().unwrap();
+    assert_eq!(archive.read_windows(&starts, 4, false).unwrap(), expected);
+}
+
+#[test]
 fn v3_writer_rejects_incomplete_or_inconsistent_capture_metadata() {
     let directory = TestDirectory::new();
     let source = directory.path().join("adc.bin");

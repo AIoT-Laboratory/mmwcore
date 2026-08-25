@@ -11,6 +11,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
+from itertools import batched
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,7 @@ from mmwcore.io import ADCArchive, open_adc_archive, write_adc_archive
 
 SCHEMA = "mmwcore.adc_archive_acceptance.v3"
 DEFAULT_FILENAME = "adc_data_Raw_0.bin"
+DEFAULT_BATCH_WINDOWS = 16
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -147,6 +149,35 @@ def _measure_source(
             frame_bytes=frame_bytes,
             verify=False,
         )
+        verified_batch_ns = _measure_window_batches(
+            archive,
+            source=source,
+            starts=window_starts,
+            window_frames=window_frames,
+            frame_bytes=frame_bytes,
+            verify=True,
+            batch_windows=DEFAULT_BATCH_WINDOWS,
+        )
+        trusted_batch_ns = _measure_window_batches(
+            archive,
+            source=source,
+            starts=window_starts,
+            window_frames=window_frames,
+            frame_bytes=frame_bytes,
+            verify=False,
+            batch_windows=DEFAULT_BATCH_WINDOWS,
+        )
+        individual_chunks = _individual_chunk_count(
+            window_starts,
+            window_frames=window_frames,
+            restart_frames=archive.restart_frames,
+        )
+        batch_chunks = _batch_chunk_count(
+            window_starts,
+            window_frames=window_frames,
+            restart_frames=archive.restart_frames,
+            batch_windows=DEFAULT_BATCH_WINDOWS,
+        )
         return {
             "path": str(source),
             "frame_count": total_frames,
@@ -172,7 +203,16 @@ def _measure_source(
             "random_window": {
                 "count": random_windows,
                 "frames": window_frames,
-                "mode_order": ["verified", "trusted_after_full_verify"],
+                "batch_windows": DEFAULT_BATCH_WINDOWS,
+                "individual_chunk_decodes": individual_chunks,
+                "batch_chunk_decodes": batch_chunks,
+                "batch_repeated_chunk_decodes_avoided": individual_chunks - batch_chunks,
+                "mode_order": [
+                    "verified",
+                    "trusted_after_full_verify",
+                    "verified_batch",
+                    "trusted_after_full_verify_batch",
+                ],
                 "verified": _latency(
                     verified_ns,
                     scope="archive_seek_read_native_decode_frame_digest",
@@ -180,6 +220,16 @@ def _measure_source(
                 "trusted_after_full_verify": _latency(
                     trusted_ns,
                     scope="archive_seek_read_native_decode_after_same_reader_verify_all",
+                ),
+                "verified_batch": _batch_latency(
+                    verified_batch_ns,
+                    window_count=random_windows,
+                    scope="batch_archive_seek_read_unique_chunk_decode_chunk_digest",
+                ),
+                "trusted_after_full_verify_batch": _batch_latency(
+                    trusted_batch_ns,
+                    window_count=random_windows,
+                    scope="batch_archive_seek_read_unique_chunk_decode_after_verify_all",
                 ),
             },
             "roundtrip_verified": True,
@@ -208,6 +258,73 @@ def _measure_windows(
     return durations
 
 
+def _measure_window_batches(
+    archive: ADCArchive,
+    *,
+    source: Path,
+    starts: Sequence[int],
+    window_frames: int,
+    frame_bytes: int,
+    verify: bool,
+    batch_windows: int,
+) -> list[int]:
+    durations = []
+    window_bytes = window_frames * frame_bytes
+    with source.open("rb") as stream:
+        for start_batch in batched(starts, batch_windows):
+            began = time.perf_counter_ns()
+            actual = archive.read_windows(start_batch, window_frames, verify=verify)
+            durations.append(time.perf_counter_ns() - began)
+            for output_index, start in enumerate(start_batch):
+                stream.seek(start * frame_bytes)
+                expected = stream.read(window_bytes)
+                output_start = output_index * window_bytes
+                if actual[output_start : output_start + window_bytes] != expected:
+                    raise RuntimeError("ADC archive batched window differs from source bytes.")
+    return durations
+
+
+def _individual_chunk_count(
+    starts: Sequence[int],
+    *,
+    window_frames: int,
+    restart_frames: int,
+) -> int:
+    return sum(
+        len(_window_chunks(start, window_frames=window_frames, restart_frames=restart_frames))
+        for start in starts
+    )
+
+
+def _batch_chunk_count(
+    starts: Sequence[int],
+    *,
+    window_frames: int,
+    restart_frames: int,
+    batch_windows: int,
+) -> int:
+    count = 0
+    for start_batch in batched(starts, batch_windows):
+        chunks = {
+            chunk
+            for start in start_batch
+            for chunk in _window_chunks(
+                start,
+                window_frames=window_frames,
+                restart_frames=restart_frames,
+            )
+        }
+        count += len(chunks)
+    return count
+
+
+def _window_chunks(start: int, *, window_frames: int, restart_frames: int) -> range:
+    return range(
+        start // restart_frames,
+        (start + window_frames - 1) // restart_frames + 1,
+    )
+
+
 def _window_starts(
     *, frame_count: int, window_frames: int, count: int, seed: int
 ) -> tuple[int, ...]:
@@ -223,6 +340,21 @@ def _latency(values: Sequence[int], *, scope: str) -> dict[str, str | float]:
         "p50_ns": _percentile(values, 50.0),
         "p95_ns": _percentile(values, 95.0),
         "windows_per_second": len(values) * 1_000_000_000.0 / total if total else 0.0,
+    }
+
+
+def _batch_latency(
+    values: Sequence[int],
+    *,
+    window_count: int,
+    scope: str,
+) -> dict[str, str | float]:
+    total = sum(values)
+    return {
+        "scope": scope,
+        "p50_batch_ns": _percentile(values, 50.0),
+        "p95_batch_ns": _percentile(values, 95.0),
+        "windows_per_second": window_count * 1_000_000_000.0 / total if total else 0.0,
     }
 
 

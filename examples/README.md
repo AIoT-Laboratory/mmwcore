@@ -8,6 +8,7 @@ mmwcli, or restore mmwcore.session.
 | Strict capture directory | python examples/capture_or_raw.py capture CAPTURE |
 | Headerless ADC frames | python examples/capture_or_raw.py raw adc.bin --chirps 32 --rx 4 --samples 256 --layout group2_i_then_q |
 | Archive completed ADC | python examples/adc_archive.py adc.bin adc.mmwa --capture-spec capture.json |
+| Read ordered archive windows | python examples/adc_archive_windows.py adc.mmwa 100 104 100 --window-frames 4 |
 | Self-describing archive reader | use `ADCArchiveFrameReader("adc.mmwa")` |
 | Explicit XWR1843 EVM recipe | python examples/xwr18_range_doppler.py XWR18_CAPTURE |
 | Radar live stream | mmwcli ... capture ... --stream \| python examples/radar_live_stream.py |
