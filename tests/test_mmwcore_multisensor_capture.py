@@ -120,23 +120,10 @@ def test_open_multisensor_capture_metadata_reads_only_session_manifest(tmp_path:
         ("payload", "adc.bin"),
         ("index", "index.bin"),
     ]
-    metadata.revalidate_inputs()
     with pytest.raises(FrozenInstanceError):
         metadata.session_id = "changed"  # type: ignore[misc]
     with pytest.raises(ValueError, match="sensor directory is unavailable"):
         open_multisensor_capture(root)
-
-
-def test_multisensor_capture_metadata_revalidate_inputs_rejects_modified_session(
-    tmp_path: Path,
-) -> None:
-    root, _record = _write_fixture(tmp_path)
-    metadata = open_multisensor_capture_metadata(root)
-    session_path = root / "session.json"
-    session_path.write_bytes(session_path.read_bytes() + b"\n")
-
-    with pytest.raises(ValueError, match="changed|digest"):
-        metadata.revalidate_inputs()
 
 
 def test_source_timeline_reads_radar_and_camera_after_payload_removal(tmp_path: Path) -> None:
@@ -172,8 +159,6 @@ def test_source_timeline_reads_radar_and_camera_after_payload_removal(tmp_path: 
             sync_event_id=_EVENT_ID,
         ),
     )
-    radar.revalidate_inputs()
-    camera.revalidate_inputs()
 
 
 @pytest.mark.parametrize("mutation", ["index", "session", "declared_digest"])
@@ -195,21 +180,6 @@ def test_source_timeline_rejects_tampered_index_or_session(
 
     with pytest.raises(ValueError):
         open_multisensor_source_timeline(root, "radar-0")
-
-
-@pytest.mark.parametrize("replacement", ["session", "index"])
-def test_source_timeline_revalidate_accepts_identical_replacement(
-    tmp_path: Path,
-    replacement: str,
-) -> None:
-    root, _record = _write_fixture(tmp_path)
-    timeline = open_multisensor_source_timeline(root, "radar-0")
-    original = root / ("session.json" if replacement == "session" else "sensors/radar-0/index.bin")
-    replacement_path = tmp_path / f"replacement-{replacement}"
-    shutil.copyfile(original, replacement_path)
-    replacement_path.replace(original)
-
-    timeline.revalidate_inputs()
 
 
 @pytest.mark.parametrize("mutation", ["strict_json", "totals"])
@@ -406,7 +376,7 @@ def test_causal_pairs_requires_distinct_existing_complete_sources(
         capture.causal_pairs("missing", "later", lag_min_ns=0, lag_max_ns=10)
 
 
-def test_rejects_non_exact_schema_hashes_and_undeclared_leaves(tmp_path: Path) -> None:
+def test_rejects_non_exact_schema_and_verifies_hashes_on_request(tmp_path: Path) -> None:
     root, record = _write_fixture(tmp_path)
     record["unknown"] = True
     _write_session(root, record)
@@ -417,12 +387,14 @@ def test_rejects_non_exact_schema_hashes_and_undeclared_leaves(tmp_path: Path) -
     payload = root / "sensors" / "radar-0" / "adc.bin"
     payload.write_bytes(b"radar")
     with pytest.raises(ValueError, match="SHA-256"):
-        open_multisensor_capture(root)
+        open_multisensor_capture(root, verify_artifacts=True)
 
+
+def test_ignores_unrelated_session_files(tmp_path: Path) -> None:
     root, _record = _write_fixture(tmp_path, name="extra-leaf")
     (root / "sensors" / "camera-0" / "notes.txt").write_text("extra", encoding="utf-8")
-    with pytest.raises(ValueError, match="undeclared"):
-        open_multisensor_capture(root)
+
+    assert open_multisensor_capture(root).source("camera-0").item_count == 1
 
 
 def test_sensor_index_header_bounds_are_checked_before_entries(tmp_path: Path) -> None:

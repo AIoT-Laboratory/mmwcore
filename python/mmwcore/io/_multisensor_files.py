@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import stat
 from pathlib import Path
 from typing import BinaryIO
@@ -63,21 +62,6 @@ def _read_bounded_regular(
     if len(payload) != status.st_size or len(payload) > maximum_bytes:
         raise ValueError(f"{label} changed while it was read.")
     return payload
-
-
-def _revalidate_bounded_regular(
-    path: Path,
-    *,
-    maximum_bytes: int,
-    label: str,
-    expected_size: int,
-    expected_sha256: str,
-) -> None:
-    payload = _read_bounded_regular(path, maximum_bytes=maximum_bytes, label=label)
-    if len(payload) > maximum_bytes or len(payload) != expected_size:
-        raise ValueError(f"{label} changed while it was revalidated.")
-    if not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), expected_sha256):
-        raise ValueError(f"{label} digest changed after open.")
 
 
 def _require_file_size(path: Path, expected: int, label: str) -> None:

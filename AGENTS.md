@@ -19,6 +19,10 @@ examples/, and docs/.
 
 ## Project boundary
 
+- mmwcore is a research compute library, not a hostile-input service. Do not add authentication,
+  adversarial path handling, arbitrary research-scale quotas, repeated input revalidation, or
+  crash-durability work without an observed failure and explicit user approval. Binary bounds,
+  lossless round trips, physical contracts, and scientific provenance remain strict.
 - Start from caller-owned capture directories, files, archived packet bytes, or BinaryIO streams.
 - mmwcore reads completed radar and multi-sensor captures and finite live radar/multi-sensor
   streams. It does not configure hardware or own acquisition.
@@ -33,7 +37,7 @@ examples/, and docs/.
 
 - crates/mmwcore owns deterministic parsing and compute kernels.
 - crates/mmwcore-python owns the checked PyO3/NumPy boundary.
-- python/mmwcore owns immutable contracts, caller-owned IO readers, composition, metrics, and
+- python/mmwcore owns explicit contracts, caller-owned IO readers, composition, metrics, and
   optional plotting.
 - Do not add Python fallbacks for Rust-owned computation or hide lossy casts, truncation,
   non-finite values, or ambiguous axes at the binding boundary.

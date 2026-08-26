@@ -11,7 +11,7 @@ from mmwcore.config import RadarCaptureSpec, RadarProfile
 from mmwcore.core import ADCDecodeRecipe, ADCFrameSpec, DopplerFFTSpec, RangeDopplerRecipe
 from mmwcore.dsp import process_adc_to_range_doppler
 from mmwcore.io import ADCArchiveFrameReader, ADCFileFrameReader, write_adc_archive
-from mmwcore.io.adc_archive import ADCArchive, ADCArchiveError
+from mmwcore.io.adc_archive import ADCArchive
 
 
 def _capture(*, num_frames: int | None = 3) -> RadarCaptureSpec:
@@ -98,11 +98,6 @@ def test_reader_open_does_not_decode_all_frames(
     np.testing.assert_array_equal(reader.read_frame(0).samples, np.array([0, 1, 2, 3]))
 
 
-def test_reader_revalidates_unchanged_input(tmp_path: Path) -> None:
-    archive, _, _ = _archive(tmp_path)
-    ADCArchiveFrameReader(archive).revalidate_input()
-
-
 def test_open_ended_capture_records_final_frame_count(tmp_path: Path) -> None:
     capture = _capture(num_frames=None)
     raw = _raw(capture)
@@ -169,12 +164,3 @@ def test_raw_and_archive_readers_produce_identical_range_doppler_data(tmp_path: 
         assert archive_cube.axes == raw_cube.axes
         assert archive_cube.frame_id == raw_cube.frame_id
         assert archive_cube.timestamp == raw_cube.timestamp
-
-
-def test_changed_archive_is_rejected_after_open(tmp_path: Path) -> None:
-    archive, _, _ = _archive(tmp_path)
-    reader = ADCArchiveFrameReader(archive)
-    archive.write_bytes(archive.read_bytes())
-
-    with pytest.raises(ADCArchiveError, match="changed"):
-        reader.read_frame(0)

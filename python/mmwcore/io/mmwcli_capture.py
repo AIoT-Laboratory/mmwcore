@@ -39,13 +39,7 @@ _MAX_MANIFEST_BYTES = 64 << 10
 
 @dataclass(frozen=True)
 class ADCFileCapture:
-    """Validated mmwcli capture paths, physical contract, and frame reader.
-
-    The directory must remain unchanged from entry into :func:`open_capture`
-    through the final frame or reader use. SHA-256 verifies bundle
-    self-consistency, not authenticity against a writer that can replace the
-    complete bundle.
-    """
+    """Validated mmwcli capture paths, physical contract, and frame reader."""
 
     root: Path
     manifest_path: Path
@@ -119,7 +113,8 @@ class MmwcliCaptureMetadata:
 
     This verifies the retained manifest and radar configuration contract.  It
     deliberately does not establish that the raw ADC payload is present or
-    matches its declared digest; use :func:`open_capture` for that operation.
+    matches its declared digest; use ``open_capture(..., verify_payload=True)``
+    for that operation.
     """
 
     root: Path
@@ -133,28 +128,6 @@ class MmwcliCaptureMetadata:
     radar_capture: RadarCaptureSpec
     adc_size_bytes: int
     adc_sha256: str
-
-    def revalidate_inputs(self) -> None:
-        """Confirm that retained metadata still has the opened content.
-
-        This intentionally does not inspect ``adc.bin``.  It is a cheap
-        pre-publication guard for consumers that process archive-backed ADC.
-        """
-
-        _revalidate_regular_input(
-            self.manifest_path,
-            label="capture manifest",
-            maximum_bytes=_MAX_MANIFEST_BYTES,
-            expected_size=self.manifest_size_bytes,
-            expected_sha256=self.manifest_sha256,
-        )
-        _revalidate_regular_input(
-            self.radar_config_path,
-            label="radar configuration",
-            maximum_bytes=_MAX_RADAR_CONFIG_BYTES,
-            expected_size=self.radar_config_size_bytes,
-            expected_sha256=self.radar_config_sha256,
-        )
 
 
 @dataclass(frozen=True)
@@ -236,8 +209,12 @@ def open_capture(
     path: str | Path,
     *,
     range_doppler: RangeDopplerRecipe | RangeDopplerPreset | None = None,
+    verify_payload: bool = False,
 ) -> ADCFileCapture:
-    """Validate a capture-session v1 directory and optionally bind a DSP recipe."""
+    """Open a capture-session v1 directory and optionally hash the full ADC file."""
+
+    if type(verify_payload) is not bool:
+        raise TypeError("verify_payload must be a boolean.")
 
     if sys.byteorder != "little":
         raise RuntimeError("mmwcli capture sessions require a little-endian host.")
@@ -251,9 +228,10 @@ def open_capture(
             f"{adc_status.st_size} != {metadata.adc_size_bytes}."
         )
 
-    adc_digest = _sha256_regular_file(adc_path, expected_size=metadata.adc_size_bytes)
-    if not hmac.compare_digest(adc_digest, metadata.adc_sha256):
-        raise ValueError("mmwcli capture adc.bin SHA-256 does not match capture.json.")
+    if verify_payload:
+        adc_digest = _sha256_regular_file(adc_path, expected_size=metadata.adc_size_bytes)
+        if not hmac.compare_digest(adc_digest, metadata.adc_sha256):
+            raise ValueError("mmwcli capture adc.bin SHA-256 does not match capture.json.")
 
     reader = ADCFileFrameReader.from_capture(adc_path, metadata.radar_capture)
     capture = ADCFileCapture(
@@ -360,21 +338,6 @@ def _read_regular_bytes(
     if len(payload) > maximum_bytes or len(payload) != status.st_size:
         raise ValueError(f"mmwcli capture {label} changed while it was read.")
     return payload
-
-
-def _revalidate_regular_input(
-    path: Path,
-    *,
-    label: str,
-    maximum_bytes: int,
-    expected_size: int,
-    expected_sha256: str,
-) -> None:
-    payload = _read_regular_bytes(path, label=label, maximum_bytes=maximum_bytes)
-    if len(payload) > maximum_bytes or len(payload) != expected_size:
-        raise ValueError(f"mmwcli capture {label} changed while it was revalidated.")
-    if not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), expected_sha256):
-        raise ValueError(f"mmwcli capture {label} digest changed after open.")
 
 
 def _sha256_regular_file(path: Path, *, expected_size: int) -> str:

@@ -9,7 +9,6 @@ use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
 use sha2::{Digest, Sha256};
 
@@ -37,13 +36,7 @@ struct ChunkRecord {
     raw_sha256: [u8; 32],
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FileIdentity {
-    size: u64,
-    modified_ns: u128,
-}
-
-fn file_identity(path: &Path) -> Result<FileIdentity, AdcArchiveFileError> {
+fn regular_file_size(path: &Path) -> Result<u64, AdcArchiveFileError> {
     let metadata = fs::metadata(path).map_err(|value| io_error("stat file", value))?;
     if !metadata.is_file() {
         return Err(error(format!(
@@ -51,16 +44,7 @@ fn file_identity(path: &Path) -> Result<FileIdentity, AdcArchiveFileError> {
             path.display()
         )));
     }
-    let modified_ns = metadata
-        .modified()
-        .map_err(|value| io_error("read file modification time", value))?
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| error("File modification time precedes the Unix epoch."))?
-        .as_nanos();
-    Ok(FileIdentity {
-        size: metadata.len(),
-        modified_ns,
-    })
+    Ok(metadata.len())
 }
 
 fn sha256(bytes: &[u8]) -> [u8; 32] {

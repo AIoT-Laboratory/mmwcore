@@ -81,13 +81,10 @@ def test_open_ended_capture_is_finalized_inside_header(tmp_path: Path) -> None:
     assert reopened.capture.expected_size_bytes == source.stat().st_size
 
 
-def test_trusted_read_requires_full_verification(tmp_path: Path) -> None:
+def test_unverified_read_is_an_explicit_fast_path(tmp_path: Path) -> None:
     destination, _, raw = _archive(tmp_path)
     archive = open_adc_archive(destination)
 
-    with pytest.raises(ADCArchiveError, match="verify_all"):
-        archive.read_frames(0, 1, verify=False)
-    archive.verify_all()
     assert archive.read_frames(2, 5, verify=False) == raw[32:80]
 
 
@@ -103,10 +100,6 @@ def test_batch_windows_preserve_order_for_shared_chunks(tmp_path: Path) -> None:
 
     assert archive.read_windows(starts, window_frames) == expected
     assert archive.read_windows([], window_frames) == b""
-    with pytest.raises(ADCArchiveError, match="verify_all"):
-        archive.read_windows(starts, window_frames, verify=False)
-
-    archive.verify_all()
     assert archive.read_windows(starts, window_frames, verify=False) == expected
 
 
@@ -220,12 +213,3 @@ def test_v2_magic_is_rejected_without_compatibility_path(tmp_path: Path) -> None
 def test_missing_archive_preserves_file_not_found_error(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="stat file"):
         open_adc_archive(tmp_path / "missing.mmwa")
-
-
-def test_removed_open_archive_preserves_file_not_found_error(tmp_path: Path) -> None:
-    destination, _, _ = _archive(tmp_path)
-    archive = open_adc_archive(destination)
-    destination.unlink()
-
-    with pytest.raises(FileNotFoundError, match="stat file"):
-        archive.revalidate_input()

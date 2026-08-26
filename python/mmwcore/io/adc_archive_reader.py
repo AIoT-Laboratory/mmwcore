@@ -112,8 +112,5 @@ class ADCArchiveFrameReader:
     def verify_all(self) -> None:
         self._archive.verify_all()
 
-    def revalidate_input(self) -> None:
-        self._archive.revalidate_input()
-
 
 __all__ = ["ADCArchiveFrameReader"]

@@ -151,12 +151,6 @@ class ADCArchive:
         except ValueError as exc:
             raise ADCArchiveError(str(exc)) from exc
 
-    def revalidate_input(self) -> None:
-        try:
-            self._native.revalidate_input()
-        except ValueError as exc:
-            raise ADCArchiveError(str(exc)) from exc
-
 
 def write_adc_archive(
     source: str | Path,

@@ -158,7 +158,8 @@ The final 160 bytes are equivalent to `<8sIIQQ32s32s32s32s>`.
 The footer is the terminal commit marker. Structural open verifies format fields, metadata,
 digests, index bounds, contiguous chunk offsets, frame coverage, and codec size bounds. Verified
 reads additionally validate each decoded chunk digest. `verify_all()` replays every chunk and
-validates the logical ADC digest before trusted reads are enabled on that object.
+validates the logical ADC digest. Callers may explicitly use `verify=False` for trusted local
+archives when per-read chunk hashing is unnecessary.
 
 These hashes detect corruption and mismatched artifacts; they do not authenticate origin.
 

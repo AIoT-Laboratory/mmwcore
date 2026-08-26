@@ -11,8 +11,8 @@ use super::contract::{canonical_capture_json, capture_frame_bytes, validate_capt
 use super::reader::{AdcArchiveFile, open_adc_archive_file};
 use super::wire::{archive_chunk_count, encode_footer, encode_header, encode_index};
 use super::{
-    AdcArchiveFileError, ChunkRecord, DEFAULT_RESTART_FRAMES, FileIdentity, error, file_identity,
-    io_error, sha256,
+    AdcArchiveFileError, ChunkRecord, DEFAULT_RESTART_FRAMES, error, io_error, regular_file_size,
+    sha256,
 };
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -24,7 +24,7 @@ pub fn write_adc_archive_file(
     capture_json: &str,
     expected_adc_sha256: Option<[u8; 32]>,
 ) -> Result<AdcArchiveFile, AdcArchiveFileError> {
-    let source_identity = file_identity(source)?;
+    let source_size = regular_file_size(source)?;
     let capture = validate_capture_json(capture_json.as_bytes())?;
     let frame_bytes = capture_frame_bytes(&capture)?;
     let frame_count = capture
@@ -33,7 +33,7 @@ pub fn write_adc_archive_file(
     let expected_size = frame_bytes
         .checked_mul(frame_count)
         .ok_or_else(|| error("Embedded capture size overflows u64."))?;
-    if source_identity.size != expected_size || capture.expected_size_bytes != Some(expected_size) {
+    if source_size != expected_size || capture.expected_size_bytes != Some(expected_size) {
         return Err(error(
             "Source size does not match the embedded capture frame contract.",
         ));
@@ -58,18 +58,10 @@ pub fn write_adc_archive_file(
         frame_bytes,
         frame_count,
         expected_adc_sha256,
-        &source_identity,
     ) {
         let _ = fs::remove_file(&temporary);
         return Err(failure);
     }
-    let prepared = match open_adc_archive_file(&temporary) {
-        Ok(value) => value,
-        Err(failure) => {
-            let _ = fs::remove_file(&temporary);
-            return Err(failure);
-        }
-    };
     if let Err(failure) = fs::hard_link(&temporary, destination) {
         let _ = fs::remove_file(&temporary);
         if failure.kind() == std::io::ErrorKind::AlreadyExists {
@@ -88,18 +80,6 @@ pub fn write_adc_archive_file(
             return Err(failure);
         }
     };
-    if prepared.adc_sha256() != committed.adc_sha256()
-        || prepared.capture_sha256() != committed.capture_sha256()
-    {
-        let _ = fs::remove_file(destination);
-        let _ = fs::remove_file(&temporary);
-        return Err(error("Published ADC archive identity changed."));
-    }
-    if let Err(failure) = sync_parent(destination) {
-        let _ = fs::remove_file(destination);
-        let _ = fs::remove_file(&temporary);
-        return Err(failure);
-    }
     let _ = fs::remove_file(&temporary);
     Ok(committed)
 }
@@ -111,7 +91,6 @@ fn write_temporary_archive(
     frame_bytes: u64,
     frame_count: u64,
     expected_adc_sha256: Option<[u8; 32]>,
-    source_identity: &FileIdentity,
 ) -> Result<(), AdcArchiveFileError> {
     let mut source_file = File::open(source).map_err(|value| io_error("open ADC source", value))?;
     let mut archive = OpenOptions::new()
@@ -166,11 +145,6 @@ fn write_temporary_archive(
             "Source logical SHA-256 does not match expected_adc_sha256.",
         ));
     }
-    if file_identity(source)? != *source_identity {
-        return Err(error(
-            "ADC source changed while the archive was being written.",
-        ));
-    }
     let index = encode_index(&records);
     let footer = encode_footer(
         offset,
@@ -183,7 +157,6 @@ fn write_temporary_archive(
         .write_all(&index)
         .and_then(|_| archive.write_all(&footer))
         .and_then(|_| archive.flush())
-        .and_then(|_| archive.sync_all())
         .map_err(|value| io_error("commit ADC archive", value))?;
     Ok(())
 }
@@ -225,17 +198,4 @@ fn temporary_path(destination: &Path) -> Result<PathBuf, AdcArchiveFileError> {
     Err(error(
         "Cannot allocate a unique temporary ADC archive path.",
     ))
-}
-
-fn sync_parent(_path: &Path) -> Result<(), AdcArchiveFileError> {
-    #[cfg(unix)]
-    {
-        let parent = _path
-            .parent()
-            .ok_or_else(|| error("ADC archive destination has no parent directory."))?;
-        File::open(parent)
-            .and_then(|file| file.sync_all())
-            .map_err(|value| io_error("sync archive directory", value))?;
-    }
-    Ok(())
 }

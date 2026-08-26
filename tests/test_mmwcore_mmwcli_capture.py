@@ -104,6 +104,7 @@ def test_open_capture_validates_and_opens_mmwcli_session(tmp_path: Path) -> None
     assert first.timestamp == pytest.approx(0.0)
     assert second.timestamp == pytest.approx(0.01)
     assert first.metadata["tx_order"] == [0]
+    assert open_capture(root, verify_payload=True).num_frames == 2
 
 
 def test_open_mmwcli_capture_metadata_reads_contract_without_adc_payload(tmp_path: Path) -> None:
@@ -128,25 +129,10 @@ def test_open_mmwcli_capture_metadata_reads_contract_without_adc_payload(tmp_pat
     assert metadata.radar_capture.expected_size_bytes == len(_ADC_BYTES)
     assert metadata.adc_size_bytes == len(_ADC_BYTES)
     assert metadata.adc_sha256 == _sha256(_ADC_BYTES)
-    metadata.revalidate_inputs()
     with pytest.raises(FrozenInstanceError):
         metadata.adc_size_bytes = 0  # type: ignore[misc]
     with pytest.raises(ValueError, match="ADC payload is unavailable"):
         open_capture(root)
-
-
-@pytest.mark.parametrize("leaf", ["capture.json", "radar.cfg"])
-def test_mmwcli_capture_metadata_revalidate_inputs_rejects_modified_metadata(
-    tmp_path: Path,
-    leaf: str,
-) -> None:
-    root = _write_capture(tmp_path)
-    metadata = open_mmwcli_capture_metadata(root)
-    path = root / leaf
-    path.write_bytes(path.read_bytes() + b"\n")
-
-    with pytest.raises(ValueError, match="changed|digest"):
-        metadata.revalidate_inputs()
 
 
 @pytest.mark.parametrize("leaf", ["capture.json", "radar.cfg"])
@@ -631,7 +617,7 @@ def test_open_capture_rejects_integrity_and_contract_failures(
     root = _write_capture(tmp_path, config=config, adc=adc, record=record)
 
     with pytest.raises(ValueError):
-        open_capture(root)
+        open_capture(root, verify_payload=True)
 
 
 def test_open_capture_does_not_fall_back_to_raw_files(tmp_path: Path) -> None:

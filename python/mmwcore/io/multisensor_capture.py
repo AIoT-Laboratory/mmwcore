@@ -19,9 +19,7 @@ from ._multisensor_files import (
     _read_bounded_regular,
     _read_exact,
     _regular_leaf,
-    _require_directory_names,
     _require_file_size,
-    _revalidate_bounded_regular,
     _session_root,
     _sha256_file,
 )
@@ -261,20 +259,6 @@ class MultisensorCaptureMetadata:
                 return source
         raise KeyError(source_id)
 
-    def revalidate_inputs(self) -> None:
-        """Confirm that ``session.json`` still has the opened content.
-
-        This deliberately does not access ``sensors`` or any source artifact.
-        """
-
-        _revalidate_bounded_regular(
-            self.session_path,
-            maximum_bytes=_MAX_SESSION_BYTES,
-            label="multisensor session manifest",
-            expected_size=self.session_size_bytes,
-            expected_sha256=self.session_sha256,
-        )
-
 
 @dataclass(frozen=True)
 class MultisensorTimelineItem:
@@ -302,28 +286,6 @@ class MultisensorSourceTimeline:
     index_size_bytes: int
     index_sha256: str
     items: tuple[MultisensorTimelineItem, ...]
-
-    def revalidate_inputs(self) -> None:
-        """Confirm that session and index files still have the opened content.
-
-        Payload files are deliberately outside this reader's authority and are
-        never inspected, statted, or revalidated.
-        """
-
-        _revalidate_bounded_regular(
-            self.session_path,
-            maximum_bytes=_MAX_SESSION_BYTES,
-            label="multisensor session manifest",
-            expected_size=self.session_size_bytes,
-            expected_sha256=self.session_sha256,
-        )
-        _revalidate_bounded_regular(
-            self.index_path,
-            maximum_bytes=_checked_index_size(self.item_count),
-            label=f"source {self.source_id} sensor index",
-            expected_size=self.index_size_bytes,
-            expected_sha256=self.index_sha256,
-        )
 
 
 @dataclass(frozen=True)
@@ -662,18 +624,19 @@ def _monotonic_mapped_items(
         yield item
 
 
-def open_multisensor_capture(path: str | Path) -> MultisensorCapture:
-    """Open one complete, integrity-checked multi-sensor session directory."""
+def open_multisensor_capture(
+    path: str | Path,
+    *,
+    verify_artifacts: bool = False,
+) -> MultisensorCapture:
+    """Open one complete multi-sensor session, optionally hashing every artifact."""
+
+    if type(verify_artifacts) is not bool:
+        raise TypeError("verify_artifacts must be a boolean.")
 
     parsed = _parse_multisensor_session(path)
     metadata = parsed.metadata
     sensors_root = _directory_leaf(metadata.root, _SENSORS_NAME, "sensor directory")
-    complete_ids = {
-        contract.source_id for contract in parsed.contracts if contract.outcome == "complete"
-    }
-    _require_directory_names(metadata.root, {_SESSION_NAME, _SENSORS_NAME}, "session root")
-    _require_directory_names(sensors_root, complete_ids, "sensors directory")
-
     sources: list[MultisensorSource] = []
     event_counts: dict[str, Counter[int]] = {}
     for contract in parsed.contracts:
@@ -682,6 +645,7 @@ def open_multisensor_capture(path: str | Path) -> MultisensorCapture:
             session_id=metadata.session_id,
             contract=contract,
             event_ids=parsed.event_ids,
+            verify_artifacts=verify_artifacts,
         )
         sources.append(source)
         event_counts[contract.source_id] = counts
@@ -770,20 +734,6 @@ def open_multisensor_source_timeline(
             sync_event_id=entry.sync_event_id,
         )
         for entry in entries
-    )
-    _revalidate_bounded_regular(
-        parsed.metadata.session_path,
-        maximum_bytes=_MAX_SESSION_BYTES,
-        label="multisensor session manifest",
-        expected_size=parsed.metadata.session_size_bytes,
-        expected_sha256=parsed.metadata.session_sha256,
-    )
-    _revalidate_bounded_regular(
-        index_path,
-        maximum_bytes=_checked_index_size(contract.item_count),
-        label=f"source {source_id} sensor index",
-        expected_size=len(index_bytes),
-        expected_sha256=index_sha256,
     )
     return MultisensorSourceTimeline(
         root=parsed.metadata.root,
@@ -1064,15 +1014,11 @@ def _open_source(
     session_id: str,
     contract: _SourceContract,
     event_ids: frozenset[int],
+    verify_artifacts: bool,
 ) -> tuple[MultisensorSource, Counter[int]]:
     if contract.outcome != "complete":
         return _public_source(session_id, contract, None, None, event_ids), Counter()
     source_root = _directory_leaf(root, contract.source_id, f"source {contract.source_id}")
-    _require_directory_names(
-        source_root,
-        {artifact.path for artifact in contract.artifacts},
-        f"source {contract.source_id}",
-    )
     artifact_paths: dict[str, Path] = {}
     for artifact in contract.artifacts:
         path = _regular_leaf(
@@ -1085,17 +1031,14 @@ def _open_source(
     payload_path = artifact_paths["payload"]
     index_path = artifact_paths["index"]
     counts = _validate_index(index_path, contract=contract, event_ids=event_ids)
-    for artifact in contract.artifacts:
-        path = _regular_leaf(
-            source_root,
-            artifact.path,
-            f"source {contract.source_id} artifact {artifact.role}",
-        )
-        digest = _sha256_file(path, artifact.size_bytes)
-        if not hmac.compare_digest(digest, artifact.sha256):
-            raise ValueError(
-                f"source artifact {artifact.path!r} SHA-256 does not match session.json."
-            )
+    if verify_artifacts:
+        for artifact in contract.artifacts:
+            path = artifact_paths[artifact.role]
+            digest = _sha256_file(path, artifact.size_bytes)
+            if not hmac.compare_digest(digest, artifact.sha256):
+                raise ValueError(
+                    f"source artifact {artifact.path!r} SHA-256 does not match session.json."
+                )
     return _public_source(
         session_id,
         contract,

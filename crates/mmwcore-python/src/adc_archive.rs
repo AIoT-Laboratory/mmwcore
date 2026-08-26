@@ -118,13 +118,8 @@ impl PyAdcArchiveFile {
         Ok(PyBytes::new(py, &decoded))
     }
 
-    fn verify_all(&mut self, py: Python<'_>) -> PyResult<()> {
+    fn verify_all(&self, py: Python<'_>) -> PyResult<()> {
         py.detach(|| self.archive.verify_all())
-            .map_err(adc_archive_file_error)
-    }
-
-    fn revalidate_input(&mut self, py: Python<'_>) -> PyResult<()> {
-        py.detach(|| self.archive.revalidate_input())
             .map_err(adc_archive_file_error)
     }
 }

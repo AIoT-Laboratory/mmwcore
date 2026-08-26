@@ -89,8 +89,9 @@ See the [example index](examples/README.md) for copyable commands and finalizati
 
 ### Open a versioned capture directory
 
-`open_capture` validates the manifest schema, required regular files, hashes, byte count, and whole
-ADC-frame geometry. A finalized CFG with `frameCfg numFrames=0` keeps its open-ended acquisition
+`open_capture` validates the manifest schema, required files, byte count, and whole ADC-frame
+geometry without scanning the full payload. Pass `verify_payload=True` when a complete ADC SHA-256
+replay is required. A finalized CFG with `frameCfg numFrames=0` keeps its open-ended acquisition
 semantics; mmwcore derives the positive actual frame count from the immutable ADC file instead of
 inventing a planned length. The directory must remain unchanged while it is open.
 
@@ -144,7 +145,9 @@ for camera_item, radar_item in session.causal_pairs(
 The join uses conservative mapped time intervals, not equal frame numbers or nearest arrival time.
 If training needs Range-Doppler cubes instead of raw frames, bind the exact recipe or preset through
 `open_radar_capture(range_doppler=...)` and call `range_doppler`. Choose processing geometry from
-the actual board, never from the family string alone.
+the actual board, never from the family string alone. Normal session opening validates artifact
+sizes and index structure; pass `verify_artifacts=True` to `open_multisensor_capture` for a full
+SHA-256 replay of every declared artifact.
 
 ### Read session metadata after archiving ADC
 
@@ -164,8 +167,8 @@ print(capture.adc_sha256, session.session_id, radar_timeline.items[0].mapped_tim
 
 These readers validate capture contracts, session metadata, and source timing without opening the
 sensor payload. They keep synchronized training context usable after raw ADC is replaced by a
-verified ADC archive. Call `revalidate_inputs()` before publishing a derived artifact when the
-source files may have changed during processing.
+verified ADC archive. Inputs are validated when opened; derived-artifact workflows should retain
+the resulting source identities rather than repeat the same file reads at publication time.
 
 ### Consume a live aggregate stream
 
@@ -219,8 +222,7 @@ print(reader.capture, reader.num_frames, raw.samples.shape)
 `read_frame()` verifies the selected frame before returning it. Use `reader.verify_all()` for an
 explicit complete replay before a long processing or training run. `write_adc_archive()` accepts a
 `RadarCaptureSpec`, validates it against the source size, embeds its canonical JSON record, and
-publishes atomically without overwriting an existing file. Use `reader.revalidate_input()` before
-publishing derived output to confirm that the opened archive did not change during processing.
+publishes atomically without overwriting an existing file.
 
 ### Assemble archived datagrams
 
@@ -332,9 +334,9 @@ frames = ADCArchiveFrameReader("capture/adc.mmwa").read_frames([5, 0, 5])
 The accepted v3 codec predicts equal `int16` capture coordinates across groups of at most four
 frames, ZigZag maps exact `i32` residuals, and uses adaptive 512-sample Rice blocks with raw-block
 fallback. Rust owns the format and codec; Python adapts the native object to `RadarCaptureSpec` and
-NumPy frame contracts. Reads verify each decoded chunk by default; `verify=False` is accepted only
-after `verify_all()` succeeds on that reader. `read_windows()` preserves caller order while
-opening the archive once and decoding every chunk touched by that batch at most once. See the
+NumPy frame contracts. Reads verify each decoded chunk by default; `verify=False` is an explicit
+fast path for trusted local archives. `read_windows()` preserves caller order while opening the
+archive once and decoding every chunk touched by that batch at most once. See the
 [ADC archive v3 binary
 format](docs/adc-archive-format.md), the [historical v2 format](docs/adc-archive-format-v2.md), and
 the [ADC archive study](docs/adc-archive-study.md). The fixed 14-source real-ADC corpus accepts both

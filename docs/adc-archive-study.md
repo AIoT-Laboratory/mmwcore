@@ -208,8 +208,8 @@ ZigZag residuals are divided into 512-sample blocks. Each block selects the mini
 parameter in `0..16` and falls back to its exact raw `int16` bytes unless Rice is strictly shorter.
 
 The design has unit, small-artifact, and real-ADC corpus round-trip coverage. Both the codec and
-complete container passed their fixed-corpus acceptance runs. Version 3 remains unpublished until
-the next release is prepared.
+complete container passed their fixed-corpus acceptance runs. Version 3 was published in mmwcore
+0.7.0.
 
 The first Rust pilot used the first 16 frames from one empty-scene take, one standing take, and one
 waving take. It compared the v3 codec with identical raw and historical zlib controls, replayed
@@ -370,20 +370,21 @@ coverage, calibration, antenna geometry, or provenance records.
 
 Rust owns the complete writer, parser, metadata validation, codec, index, digest checks, random
 reads, full replay, and publication. Python only converts between the embedded JSON and
-`RadarCaptureSpec`. The normative offsets and invariants are specified in
-[ADC Archive v3 Binary Format](adc-archive-format.md). The published contract remains in
+`RadarCaptureSpec`. The published offsets and invariants are specified in
+[ADC Archive v3 Binary Format](adc-archive-format.md); the incompatible v2 contract remains in
 [Historical ADC Archive v2 Binary Format](adc-archive-format-v2.md).
 
 The writer reads the source once while computing logical and per-chunk digests. It writes and
-`fsync`s a same-directory temporary file, validates the header/index/footer chain, then publishes
-without overwrite. Ordinary reads verify chunk digests. `verify_all()` streams a complete replay
-and authorizes trusted reads on that object until its file identity changes.
+flushes a same-directory temporary file, publishes without overwrite, then structurally opens the
+published archive once. Ordinary reads verify chunk digests. `verify_all()` streams a complete
+logical replay; `verify=False` is an explicit local fast path.
 
 Run the implemented-format acceptance pass only after the codec corpus. Publish throughput covers
 the single source read, Rust transform/compression, source and chunk hashing,
-temporary-file `fsync`, structural validation, and atomic publication. `full_verify` measures a
-separate explicit full replay. Random windows report verified reads and trusted reads after that
-full verification. Archive ratio includes header, index, footer, and every encoded payload.
+temporary-file write and flush, no-overwrite publication, and final structural open. `full_verify`
+measures a separate explicit full replay. Random windows report verified reads and trusted reads
+after that full verification for stable comparison with earlier runs. Archive ratio includes
+header, index, footer, and every encoded payload.
 
 ```console
 uv run --no-sync python -m benchmarks.adc_archive_acceptance_cli CAPTURE_ROOT \

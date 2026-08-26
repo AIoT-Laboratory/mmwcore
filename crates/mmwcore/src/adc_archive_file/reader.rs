@@ -12,8 +12,8 @@ use super::wire::{
     archive_chunk_count, decode_fixed_header, decode_footer, parse_index, validate_header_capture,
 };
 use super::{
-    AdcArchiveFileError, ChunkRecord, FIXED_HEADER_BYTES, FOOTER_BYTES, FileIdentity,
-    INDEX_RECORD_BYTES, error, file_identity, io_error, read_exact_array, read_exact_vec, sha256,
+    AdcArchiveFileError, ChunkRecord, FIXED_HEADER_BYTES, FOOTER_BYTES, INDEX_RECORD_BYTES, error,
+    io_error, read_exact_array, read_exact_vec, regular_file_size, sha256,
 };
 
 /// One opened, structurally verified ADC Archive v3 file.
@@ -21,7 +21,6 @@ use super::{
 pub struct AdcArchiveFile {
     path: PathBuf,
     header: Vec<u8>,
-    footer: [u8; FOOTER_BYTES],
     index: Vec<u8>,
     capture_json: String,
     capture_sha256: [u8; 32],
@@ -32,8 +31,7 @@ pub struct AdcArchiveFile {
     restart_frames: u32,
     index_offset: u64,
     records: Vec<ChunkRecord>,
-    identity: FileIdentity,
-    verified_all: bool,
+    archive_size: u64,
 }
 
 #[derive(Debug)]
@@ -81,7 +79,7 @@ impl AdcArchiveFile {
     }
 
     pub const fn archive_size(&self) -> u64 {
-        self.identity.size
+        self.archive_size
     }
 
     pub fn payload_bytes(&self) -> u64 {
@@ -116,16 +114,7 @@ impl AdcArchiveFile {
                 self.frame_count
             )));
         }
-        if !verify && !self.verified_all {
-            return Err(error(
-                "Trusted reads require verify_all() on this archive object.",
-            ));
-        }
-        let result = self.read_window_batch(&[start], stop - start, verify);
-        if result.is_err() {
-            self.verified_all = false;
-        }
-        result
+        self.read_window_batch(&[start], stop - start, verify)
     }
 
     /// Read fixed-length frame windows in caller order while decoding each touched chunk once.
@@ -149,23 +138,10 @@ impl AdcArchiveFile {
                 )));
             }
         }
-        if !verify && !self.verified_all {
-            return Err(error(
-                "Trusted reads require verify_all() on this archive object.",
-            ));
-        }
-        let result = self.read_window_batch(starts, window_frames, verify);
-        if result.is_err() {
-            self.verified_all = false;
-        }
-        result
+        self.read_window_batch(starts, window_frames, verify)
     }
 
-    pub fn verify_all(&mut self) -> Result<(), AdcArchiveFileError> {
-        self.verified_all = false;
-        if file_identity(&self.path)? != self.identity {
-            return Err(error("ADC archive changed after it was opened."));
-        }
+    pub fn verify_all(&self) -> Result<(), AdcArchiveFileError> {
         let mut logical = Sha256::new();
         let mut file = File::open(&self.path).map_err(|value| io_error("open archive", value))?;
         for record in &self.records {
@@ -177,40 +153,11 @@ impl AdcArchiveFile {
             }
             logical.update(&raw);
         }
-        if file_identity(&self.path)? != self.identity {
-            return Err(error("ADC archive changed during complete verification."));
-        }
         let digest: [u8; 32] = logical.finalize().into();
         if digest != self.adc_sha256 {
             return Err(error(
                 "Archive logical raw SHA-256 does not match the footer.",
             ));
-        }
-        self.verified_all = true;
-        Ok(())
-    }
-
-    pub fn revalidate_input(&mut self) -> Result<(), AdcArchiveFileError> {
-        if file_identity(&self.path)? != self.identity {
-            self.verified_all = false;
-            return Err(error("ADC archive changed after it was opened."));
-        }
-        let mut file = File::open(&self.path).map_err(|value| io_error("open archive", value))?;
-        if read_exact_vec(&mut file, self.header.len(), "header")? != self.header {
-            self.verified_all = false;
-            return Err(error("ADC archive header changed after it was opened."));
-        }
-        file.seek(SeekFrom::Start(self.index_offset))
-            .map_err(|value| io_error("seek archive index", value))?;
-        if read_exact_vec(&mut file, self.index.len(), "index")? != self.index {
-            self.verified_all = false;
-            return Err(error("ADC archive index changed after it was opened."));
-        }
-        file.seek(SeekFrom::Start(self.identity.size - FOOTER_BYTES as u64))
-            .map_err(|value| io_error("seek archive footer", value))?;
-        if read_exact_array::<FOOTER_BYTES>(&mut file, "footer")? != self.footer {
-            self.verified_all = false;
-            return Err(error("ADC archive footer changed after it was opened."));
         }
         Ok(())
     }
@@ -221,9 +168,6 @@ impl AdcArchiveFile {
         window_frames: u64,
         verify: bool,
     ) -> Result<Vec<u8>, AdcArchiveFileError> {
-        if file_identity(&self.path)? != self.identity {
-            return Err(error("ADC archive changed after it was opened."));
-        }
         let frame_bytes = usize::try_from(self.frame_bytes)
             .map_err(|_| error("ADC frame length does not fit memory."))?;
         let window_frames_usize = usize::try_from(window_frames)
@@ -299,9 +243,6 @@ impl AdcArchiveFile {
                     .copy_from_slice(&raw[copy.raw_start..copy.raw_stop]);
             }
         }
-        if file_identity(&self.path)? != self.identity {
-            return Err(error("ADC archive changed while frames were being read."));
-        }
         debug_assert_eq!(decoded.len(), output_bytes);
         Ok(decoded)
     }
@@ -330,8 +271,8 @@ impl AdcArchiveFile {
 
 /// Open a completely committed ADC Archive v3 file.
 pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFileError> {
-    let identity = file_identity(path)?;
-    if identity.size < (FIXED_HEADER_BYTES + FOOTER_BYTES) as u64 {
+    let archive_size = regular_file_size(path)?;
+    if archive_size < (FIXED_HEADER_BYTES + FOOTER_BYTES) as u64 {
         return Err(error(
             "ADC archive is too small for a v3 header and footer.",
         ));
@@ -358,7 +299,7 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
     header.extend_from_slice(&fixed);
     header.extend_from_slice(&metadata);
 
-    file.seek(SeekFrom::Start(identity.size - FOOTER_BYTES as u64))
+    file.seek(SeekFrom::Start(archive_size - FOOTER_BYTES as u64))
         .map_err(|value| io_error("seek commit footer", value))?;
     let footer = read_exact_array::<FOOTER_BYTES>(&mut file, "commit footer")?;
     let decoded_footer = decode_footer(&footer, &header)?;
@@ -368,7 +309,7 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
         .ok_or_else(|| error("ADC archive index length overflows u64."))?;
     if decoded_footer.index_bytes != expected_index_bytes
         || decoded_footer.index_offset + decoded_footer.index_bytes
-            != identity.size - FOOTER_BYTES as u64
+            != archive_size - FOOTER_BYTES as u64
         || decoded_footer.index_offset < decoded.header_bytes
     {
         return Err(error(
@@ -388,13 +329,9 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
     let records = parse_index(&index, &decoded, decoded_footer.index_offset)?;
     let capture_json = String::from_utf8(metadata)
         .map_err(|_| error("ADC archive capture metadata is not UTF-8 JSON."))?;
-    if file_identity(path)? != identity {
-        return Err(error("ADC archive changed while it was being opened."));
-    }
     Ok(AdcArchiveFile {
         path: path.to_path_buf(),
         header,
-        footer,
         index,
         capture_json,
         capture_sha256: decoded.capture_sha256,
@@ -405,7 +342,6 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
         restart_frames: decoded.restart_frames,
         index_offset: decoded_footer.index_offset,
         records,
-        identity,
-        verified_all: false,
+        archive_size,
     })
 }
