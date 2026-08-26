@@ -4,6 +4,24 @@ All notable changes to mmwcore are documented here.
 
 ## Unreleased
 
+## [0.7.1] - 2026-08-26
+
+### Changed
+
+- Open completed ADC and multi-sensor captures without scanning every payload by default; use
+  `verify_payload=True` or `verify_artifacts=True` for an explicit full SHA-256 replay.
+- Keep verified Archive reads as the default while allowing `verify=False` as an explicit local
+  fast path without a preceding full replay.
+- Simplify Archive publication to one source pass, same-directory staging, no-overwrite publish,
+  and one structural open of the published file.
+- Allow unrelated files beside declared multi-sensor artifacts without weakening artifact sizes,
+  index structure, frame geometry, or explicit digest verification.
+
+### Removed
+
+- Remove repeated input-revalidation APIs and per-window file identity polling from completed
+  capture, timeline, and ADC Archive readers.
+
 ## [0.7.0] - 2026-08-25
 
 ### Changed
