@@ -36,8 +36,7 @@ raw `adc.bin` with indexed, lossless `radar.mmwa` and publishes the OpenMMW take
 normal dataset and inference entry point.
 
 A take has one radar stream and at most one directly recorded camera stream. Camera timestamps are
-delivery observations, so radar/camera pairing remains causal rather than pretending both sensors
-share exact exposure timestamps.
+delivery observations rather than exposure timestamps. OpenMMW owns the downstream pairing policy.
 
 The archive preserves fields that change scientific meaning: ADC layout and dimensions, frame
 count and period, waveform, TDM order, and exact logical bytes. Antenna geometry, calibration,
