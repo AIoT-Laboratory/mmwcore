@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
-from pathlib import Path
 from typing import cast
 
 from mmwcore.core import ADCComplexLayout
@@ -25,19 +24,9 @@ class _TiProfile:
     num_adc_samples: int
 
 
-@dataclass(frozen=True)
-class _TiLegacyFamily:
-    display_name: str
-    minimum_start_frequency_hz: float
-    maximum_start_frequency_hz: float
-    transmitter_mask: int
-
-
-_TI_LEGACY_FAMILIES = {
-    "xwr16xx": _TiLegacyFamily("xWR16xx", 76e9, 81e9, 0x03),
-    "xwr18xx": _TiLegacyFamily("xWR18xx", 76e9, 81e9, 0x07),
-    "xwr68xx": _TiLegacyFamily("xWR68xx", 57e9, 64e9, 0x07),
-}
+_IWR6843_MINIMUM_START_FREQUENCY_HZ = 57e9
+_IWR6843_MAXIMUM_START_FREQUENCY_HZ = 64e9
+_IWR6843_TRANSMITTER_MASK = 0x07
 
 
 @dataclass
@@ -65,40 +54,13 @@ def parse_ti_cli_capture_spec(
     text: str,
     *,
     layout: ADCComplexLayout,
-    family: str,
 ) -> RadarCaptureSpec:
-    """Parse one supported family-declared TI legacy raw capture into a contract."""
+    """Parse one IWR6843 TI legacy frameCfg raw capture into a contract."""
 
-    family_contract = _ti_legacy_family(family)
     state = _TiCliCaptureState()
     for line in _config_lines(text):
         _parse_capture_command(line.split(), state)
-    return _capture_spec(state, layout=layout, family=family_contract)
-
-
-def parse_ti_cli_capture_spec_file(
-    path: str | Path,
-    *,
-    layout: ADCComplexLayout,
-    family: str,
-) -> RadarCaptureSpec:
-    """Parse one supported family-declared TI legacy raw-capture config file."""
-
-    return parse_ti_cli_capture_spec(
-        Path(path).read_text(encoding="utf-8"),
-        layout=layout,
-        family=family,
-    )
-
-
-def _ti_legacy_family(family: str) -> _TiLegacyFamily:
-    if type(family) is not str:
-        raise TypeError("TI legacy CLI capture family must be a string.")
-    try:
-        return _TI_LEGACY_FAMILIES[family]
-    except KeyError as exc:
-        supported = ", ".join(_TI_LEGACY_FAMILIES)
-        raise ValueError(f"TI legacy CLI capture family must be one of: {supported}.") from exc
+    return _capture_spec(state, layout=layout)
 
 
 def _parse_capture_command(fields: list[str], state: _TiCliCaptureState) -> None:
@@ -250,13 +212,12 @@ def _capture_spec(
     state: _TiCliCaptureState,
     *,
     layout: ADCComplexLayout,
-    family: _TiLegacyFamily,
 ) -> RadarCaptureSpec:
     _require_complete_capture_state(state)
-    _validate_family_capture_state(state, family)
+    _validate_iwr6843_capture_state(state)
     rx_mask = cast(int, state.rx_mask)
     tx_mask = cast(int, state.tx_mask)
-    frame_fields = _validated_capture_frame_fields(state, family=family)
+    frame_fields = _validated_capture_frame_fields(state)
     frame_chirp_start, frame_chirp_end, num_loops, num_frames_raw, frame_periodicity_s = (
         frame_fields
     )
@@ -307,34 +268,28 @@ def _require_complete_capture_state(state: _TiCliCaptureState) -> None:
         raise ValueError(f"TI CLI config missing required command(s): {', '.join(missing)}")
 
 
-def _validate_family_capture_state(
-    state: _TiCliCaptureState,
-    family: _TiLegacyFamily,
-) -> None:
+def _validate_iwr6843_capture_state(state: _TiCliCaptureState) -> None:
     for profile in state.profiles.values():
         if not (
-            family.minimum_start_frequency_hz
+            _IWR6843_MINIMUM_START_FREQUENCY_HZ
             <= profile.start_frequency_hz
-            <= family.maximum_start_frequency_hz
+            <= _IWR6843_MAXIMUM_START_FREQUENCY_HZ
         ):
-            minimum_ghz = family.minimum_start_frequency_hz / 1e9
-            maximum_ghz = family.maximum_start_frequency_hz / 1e9
+            minimum_ghz = _IWR6843_MINIMUM_START_FREQUENCY_HZ / 1e9
+            maximum_ghz = _IWR6843_MAXIMUM_START_FREQUENCY_HZ / 1e9
             raise ValueError(
-                f"{family.display_name} profileCfg start frequency must be in "
+                "IWR6843 profileCfg start frequency must be in "
                 f"{minimum_ghz:g}..{maximum_ghz:g} GHz."
             )
     for tx_mask in state.chirp_tx_masks.values():
-        if tx_mask < 0 or tx_mask & ~family.transmitter_mask:
+        if tx_mask < 0 or tx_mask & ~_IWR6843_TRANSMITTER_MASK:
             raise ValueError(
-                f"{family.display_name} chirpCfg TX mask must use only "
-                f"0..{family.transmitter_mask}."
+                f"IWR6843 chirpCfg TX mask must use only 0..{_IWR6843_TRANSMITTER_MASK}."
             )
 
 
 def _validated_capture_frame_fields(
     state: _TiCliCaptureState,
-    *,
-    family: _TiLegacyFamily,
 ) -> tuple[int, int, int, int, float]:
     rx_mask = cast(int, state.rx_mask)
     tx_mask = cast(int, state.tx_mask)
@@ -345,22 +300,19 @@ def _validated_capture_frame_fields(
     frame_periodicity_s = cast(float, state.frame_periodicity_s)
 
     if not 1 <= rx_mask <= 0x0F:
-        raise ValueError(f"{family.display_name} channelCfg RX mask must be in range 1..15.")
+        raise ValueError("IWR6843 channelCfg RX mask must be in range 1..15.")
     if rx_mask & (rx_mask + 1):
+        raise ValueError("Sparse IWR6843 RX masks are not representable by RadarCaptureSpec.")
+    if not 1 <= tx_mask <= _IWR6843_TRANSMITTER_MASK:
         raise ValueError(
-            f"Sparse {family.display_name} RX masks are not representable by RadarCaptureSpec."
-        )
-    if not 1 <= tx_mask <= family.transmitter_mask:
-        raise ValueError(
-            f"{family.display_name} channelCfg TX mask must be in range "
-            f"1..{family.transmitter_mask}."
+            f"IWR6843 channelCfg TX mask must be in range 1..{_IWR6843_TRANSMITTER_MASK}."
         )
     if frame_chirp_start < 0 or frame_chirp_end < frame_chirp_start or frame_chirp_end > 511:
-        raise ValueError(f"{family.display_name} frameCfg chirp indices must be in range 0..511.")
+        raise ValueError("IWR6843 frameCfg chirp indices must be in range 0..511.")
     if not 1 <= num_loops <= 255:
-        raise ValueError(f"{family.display_name} frameCfg num loops must be in range 1..255.")
+        raise ValueError("IWR6843 frameCfg num loops must be in range 1..255.")
     if not 0 <= num_frames_raw <= 65535:
-        raise ValueError(f"{family.display_name} frameCfg num frames must be in range 0..65535.")
+        raise ValueError("IWR6843 frameCfg num frames must be in range 0..65535.")
     if not isfinite(frame_periodicity_s) or frame_periodicity_s <= 0:
         raise ValueError("TI CLI config frameCfg periodicity must be positive.")
     return (

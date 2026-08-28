@@ -161,10 +161,6 @@ reads additionally validate each decoded chunk digest. `verify_all()` replays ev
 validates the logical ADC digest. Callers may explicitly use `verify=False` for trusted local
 archives when per-read chunk hashing is unnecessary.
 
-These hashes detect corruption and mismatched artifacts; they do not authenticate origin.
-
 ## Versioning
 
-Version 3 is intentionally incompatible with the published v2 byte-shuffle/zlib format. The v3
-reader rejects v2 rather than carrying a compatibility decoder. The normative historical v2
-layout remains documented in [ADC Archive v2 Binary Format](adc-archive-format-v2.md).
+Version 3 is the format. The reader rejects older versions.

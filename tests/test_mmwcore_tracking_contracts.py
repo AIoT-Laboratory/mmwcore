@@ -9,24 +9,18 @@ import numpy as np
 import pytest
 
 from mmwcore.core import (
-    DBSCANClusteringSpec,
-    TrackAllocationSpec,
+    AllocationSpec,
+    Box2D,
+    DBSCANSpec,
+    GatingSpec,
+    LifecycleSpec,
+    ScenerySpec,
     Tracker2DSpec,
     TrackFrame,
-    TrackGatingSpec,
-    TrackingBox2D,
-    TrackLifecycleSpec,
-    TrackScenerySpec,
     TrackStatus,
 )
 
-type IntegerTrackingSpec = (
-    DBSCANClusteringSpec
-    | TrackAllocationSpec
-    | TrackLifecycleSpec
-    | TrackScenerySpec
-    | Tracker2DSpec
-)
+type IntegerTrackingSpec = DBSCANSpec | AllocationSpec | LifecycleSpec | ScenerySpec | Tracker2DSpec
 type PhysicalSpecFactory = Callable[[float], object]
 
 
@@ -34,24 +28,24 @@ def _tracker_spec_with(**changes: object) -> Tracker2DSpec:
     return replace(
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
+            gating=GatingSpec(max_distance_m=1.0),
         ),
         **changes,
     )
 
 
 _INTEGER_SPEC_FIELDS: tuple[tuple[IntegerTrackingSpec, str], ...] = (
-    (DBSCANClusteringSpec(eps_m=0.5, min_samples=2), "min_samples"),
-    (TrackAllocationSpec(), "min_points"),
-    (TrackAllocationSpec(), "max_new_tracks_per_frame"),
-    (TrackLifecycleSpec(), "confirmation_hits"),
-    (TrackLifecycleSpec(), "tentative_max_misses"),
-    (TrackLifecycleSpec(), "confirmed_max_misses"),
-    (TrackScenerySpec(), "outside_max_frames"),
+    (DBSCANSpec(eps_m=0.5, min_samples=2), "min_samples"),
+    (AllocationSpec(), "min_points"),
+    (AllocationSpec(), "max_new_tracks_per_frame"),
+    (LifecycleSpec(), "confirmation_hits"),
+    (LifecycleSpec(), "tentative_max_misses"),
+    (LifecycleSpec(), "confirmed_max_misses"),
+    (ScenerySpec(), "outside_max_frames"),
     (
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
+            gating=GatingSpec(max_distance_m=1.0),
         ),
         "max_tracks",
     ),
@@ -59,64 +53,64 @@ _INTEGER_SPEC_FIELDS: tuple[tuple[IntegerTrackingSpec, str], ...] = (
 
 _PHYSICAL_SPEC_FIELDS: tuple[tuple[str, PhysicalSpecFactory], ...] = (
     (
-        "DBSCANClusteringSpec.eps_m",
-        lambda value: DBSCANClusteringSpec(eps_m=value, min_samples=2),
+        "DBSCANSpec.eps_m",
+        lambda value: DBSCANSpec(eps_m=value, min_samples=2),
     ),
     (
-        "DBSCANClusteringSpec.velocity_scale_s",
-        lambda value: DBSCANClusteringSpec(
+        "DBSCANSpec.velocity_scale_s",
+        lambda value: DBSCANSpec(
             eps_m=0.5,
             min_samples=2,
             velocity_scale_s=value,
         ),
     ),
     (
-        "TrackGatingSpec.max_distance_m",
-        lambda value: TrackGatingSpec(max_distance_m=value),
+        "GatingSpec.max_distance_m",
+        lambda value: GatingSpec(max_distance_m=value),
     ),
     (
-        "TrackGatingSpec.max_radial_velocity_difference_mps",
-        lambda value: TrackGatingSpec(
+        "GatingSpec.max_radial_velocity_difference_mps",
+        lambda value: GatingSpec(
             max_distance_m=1.0,
             max_radial_velocity_difference_mps=value,
         ),
     ),
     (
-        "TrackGatingSpec.max_mahalanobis_distance",
-        lambda value: TrackGatingSpec(
+        "GatingSpec.max_mahalanobis_distance",
+        lambda value: GatingSpec(
             max_distance_m=1.0,
             max_mahalanobis_distance=value,
         ),
     ),
     (
-        "TrackAllocationSpec.min_abs_radial_velocity_mps",
-        lambda value: TrackAllocationSpec(min_abs_radial_velocity_mps=value),
+        "AllocationSpec.min_abs_radial_velocity_mps",
+        lambda value: AllocationSpec(min_abs_radial_velocity_mps=value),
     ),
     (
-        "TrackAllocationSpec.min_total_snr",
-        lambda value: TrackAllocationSpec(min_total_snr=value),
+        "AllocationSpec.min_total_snr",
+        lambda value: AllocationSpec(min_total_snr=value),
     ),
     (
-        "TrackingBox2D.x_min_m",
-        lambda value: TrackingBox2D(value, 1.0, -1.0, 1.0),
+        "Box2D.x_min_m",
+        lambda value: Box2D(value, 1.0, -1.0, 1.0),
     ),
     (
-        "TrackingBox2D.x_max_m",
-        lambda value: TrackingBox2D(-1.0, value, -1.0, 1.0),
+        "Box2D.x_max_m",
+        lambda value: Box2D(-1.0, value, -1.0, 1.0),
     ),
     (
-        "TrackingBox2D.y_min_m",
-        lambda value: TrackingBox2D(-1.0, 1.0, value, 1.0),
+        "Box2D.y_min_m",
+        lambda value: Box2D(-1.0, 1.0, value, 1.0),
     ),
     (
-        "TrackingBox2D.y_max_m",
-        lambda value: TrackingBox2D(-1.0, 1.0, -1.0, value),
+        "Box2D.y_max_m",
+        lambda value: Box2D(-1.0, 1.0, -1.0, value),
     ),
     (
         "Tracker2DSpec.frame_period_s",
         lambda value: Tracker2DSpec(
             frame_period_s=value,
-            gating=TrackGatingSpec(max_distance_m=1.0),
+            gating=GatingSpec(max_distance_m=1.0),
         ),
     ),
     (
@@ -166,12 +160,12 @@ def _single_track_frame(**integer_fields: np.ndarray) -> TrackFrame:
 def test_cluster_tracker_spec_keeps_explicit_timing_and_lifecycle() -> None:
     spec = Tracker2DSpec(
         frame_period_s=0.1,
-        gating=TrackGatingSpec(
+        gating=GatingSpec(
             max_distance_m=0.8,
             max_radial_velocity_difference_mps=1.5,
         ),
-        allocation=TrackAllocationSpec(min_points=3),
-        lifecycle=TrackLifecycleSpec(
+        allocation=AllocationSpec(min_points=3),
+        lifecycle=LifecycleSpec(
             confirmation_hits=4,
             tentative_max_misses=2,
             confirmed_max_misses=10,
@@ -298,9 +292,9 @@ def test_tracking_specs_reject_bool_physical_fields(
 
 def test_dbscan_spec_preserves_positive_and_non_negative_domains() -> None:
     with pytest.raises(ValueError, match="eps_m"):
-        DBSCANClusteringSpec(eps_m=0.0, min_samples=2)
+        DBSCANSpec(eps_m=0.0, min_samples=2)
     with pytest.raises(ValueError, match="velocity_scale_s"):
-        DBSCANClusteringSpec(eps_m=0.5, min_samples=2, velocity_scale_s=-0.1)
+        DBSCANSpec(eps_m=0.5, min_samples=2, velocity_scale_s=-0.1)
 
 
 @pytest.mark.parametrize(
@@ -312,26 +306,26 @@ def test_dbscan_spec_preserves_positive_and_non_negative_domains() -> None:
     ],
 )
 def test_dbscan_spec_requires_builtin_bool_use_z(invalid: object) -> None:
-    with pytest.raises(TypeError, match=r"DBSCANClusteringSpec\.use_z must be a bool"):
+    with pytest.raises(TypeError, match=r"DBSCANSpec\.use_z must be a bool"):
         replace(
-            DBSCANClusteringSpec(eps_m=0.5, min_samples=2),
+            DBSCANSpec(eps_m=0.5, min_samples=2),
             **{"use_z": invalid},
         )
 
 
 def test_track_allocation_spec_rejects_non_positive_snr_threshold() -> None:
     with pytest.raises(ValueError, match="min_total_snr"):
-        TrackAllocationSpec(min_total_snr=0.0)
+        AllocationSpec(min_total_snr=0.0)
 
 
 def test_track_gating_spec_rejects_non_positive_mahalanobis_limit() -> None:
     with pytest.raises(ValueError, match="max_mahalanobis_distance"):
-        TrackGatingSpec(max_distance_m=1.0, max_mahalanobis_distance=0.0)
+        GatingSpec(max_distance_m=1.0, max_mahalanobis_distance=0.0)
 
 
 def test_tracking_box_preserves_ordered_bound_domain() -> None:
     with pytest.raises(ValueError, match="minimum bounds"):
-        TrackingBox2D(1.0, 1.0, -1.0, 1.0)
+        Box2D(1.0, 1.0, -1.0, 1.0)
 
 
 @pytest.mark.parametrize("smoothing", [0.0, 1.1])
@@ -468,10 +462,10 @@ def test_track_frame_rejects_non_positive_semidefinite_covariance() -> None:
 
 
 def test_tracking_scenery_accepts_any_configured_boundary_box() -> None:
-    scenery = TrackScenerySpec(
+    scenery = ScenerySpec(
         boundary_boxes=(
-            TrackingBox2D(-1.0, 1.0, 0.0, 2.0),
-            TrackingBox2D(2.0, 3.0, 4.0, 5.0),
+            Box2D(-1.0, 1.0, 0.0, 2.0),
+            Box2D(2.0, 3.0, 4.0, 5.0),
         ),
         outside_max_frames=3,
     )

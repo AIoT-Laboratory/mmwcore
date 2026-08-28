@@ -30,7 +30,7 @@ def test_native_cartesian_sparsification_materializes_points_and_diagnostics() -
     volume[0, 0, 0, 0] = 2.0
     volume[1, 1, 2, 2] = 8.0
 
-    points, noise_floors, counts, status = _native.sparsify_cartesian_volume(
+    points, noise_floors, counts, status = _native.sparsify(
         volume,
         _axes(),
         None,
@@ -54,9 +54,9 @@ def test_native_cartesian_sparsification_rejects_noncontiguous_volume_and_mask_s
     volume = np.ones((2, 2, 3, 3), dtype=np.float32)
 
     with pytest.raises(ValueError, match="contiguous"):
-        _native.sparsify_cartesian_volume(volume[:, :, :, ::-1], _axes(), None, None, _config())
+        _native.sparsify(volume[:, :, :, ::-1], _axes(), None, None, _config())
     with pytest.raises(ValueError, match="spatial_mask_zyx"):
-        _native.sparsify_cartesian_volume(
+        _native.sparsify(
             volume,
             _axes(),
             np.ones((2, 3, 2), dtype=bool),
@@ -70,7 +70,7 @@ def test_native_cartesian_sparsification_excludes_suppressed_doppler_slice() -> 
     volume[0, 0, 0, 0] = 2.0
     volume[1, 1, 2, 2] = 8.0
 
-    points, noise_floors, counts, _ = _native.sparsify_cartesian_volume(
+    points, noise_floors, counts, _ = _native.sparsify(
         volume,
         _axes(),
         None,

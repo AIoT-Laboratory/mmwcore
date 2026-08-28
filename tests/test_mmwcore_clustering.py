@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mmwcore.core import ClusterFrame, DBSCANClusteringSpec, PointCloudFrame
+from mmwcore.core import ClusterFrame, DBSCANSpec, PointCloudFrame
 from mmwcore.dsp import cluster_point_cloud
 
 
@@ -37,7 +37,7 @@ def test_cluster_point_cloud_summarizes_each_cluster_velocity() -> None:
 
     clusters = cluster_point_cloud(
         frame,
-        DBSCANClusteringSpec(eps_m=0.3, min_samples=2, velocity_scale_s=0.2),
+        DBSCANSpec(eps_m=0.3, min_samples=2, velocity_scale_s=0.2),
     )
 
     assert clusters.num_clusters == 2
@@ -52,7 +52,7 @@ def test_cluster_point_cloud_summarizes_each_cluster_velocity() -> None:
 def test_cluster_point_cloud_handles_empty_frame() -> None:
     frame = PointCloudFrame(np.empty((0, 3), dtype=np.float32))
 
-    clusters = cluster_point_cloud(frame, DBSCANClusteringSpec(eps_m=1.0, min_samples=1))
+    clusters = cluster_point_cloud(frame, DBSCANSpec(eps_m=1.0, min_samples=1))
 
     assert clusters.num_clusters == 0
     assert clusters.point_labels.size == 0
@@ -64,7 +64,7 @@ def test_cluster_point_cloud_requires_velocity_only_when_weighted() -> None:
     with pytest.raises(ValueError, match="velocity"):
         cluster_point_cloud(
             frame,
-            DBSCANClusteringSpec(eps_m=1.0, min_samples=1, velocity_scale_s=1.0),
+            DBSCANSpec(eps_m=1.0, min_samples=1, velocity_scale_s=1.0),
         )
 
 

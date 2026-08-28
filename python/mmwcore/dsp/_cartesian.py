@@ -33,7 +33,7 @@ type NativePlanarCartesianResult = tuple[
 ]
 
 
-class NativePlanarCartesianProjector:
+class NativeCartesianProjector:
     """Own one native fixed-geometry projection plan."""
 
     def __init__(
@@ -58,7 +58,7 @@ class NativePlanarCartesianProjector:
             elevation_n_fft,
             aperture_spacing_wavelengths,
         ) = config
-        self._projector = _native.NativePlanarCartesianProjector(
+        self._projector = _native.NativeCartesianProjector(
             source_range_bins,
             grid_indices,
             (

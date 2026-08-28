@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from mmwcore.core import ADCFrameSpec, RawADCFrame
+from mmwcore.core import ADCFrame, ADCFrameSpec
 
 
-class ADCFrameReader(Protocol):
+class ADCReader(Protocol):
     """Read fixed-shape raw ADC frames by zero-based index."""
 
     @property
@@ -23,7 +23,7 @@ class ADCFrameReader(Protocol):
     @property
     def num_frames(self) -> int: ...
 
-    def read_frame(self, index: int) -> RawADCFrame: ...
+    def read_frame(self, index: int) -> ADCFrame: ...
 
 
-__all__ = ["ADCFrameReader"]
+__all__ = ["ADCReader"]

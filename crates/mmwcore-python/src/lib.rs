@@ -22,7 +22,7 @@ use mmwcore::{
 };
 use mmwcore::{
     CartesianSparsificationConfig, CartesianSparsificationError, CartesianSparsificationInput,
-    sparsify_cartesian_volume as native_sparsify_cartesian_volume,
+    sparsify as native_sparsify,
 };
 use mmwcore::{
     Cfar1DConfig, Cfar1DResult, Cfar2DConfig, CfarDetections, CfarError, CfarInputScale, CfarMode,
@@ -45,12 +45,6 @@ use mmwcore::{
     map_tdm_virtual_array_complex as map_native_tdm_virtual_array,
     remove_static_clutter_complex as remove_native_static_clutter,
     select_virtual_subarray_complex as select_native_virtual_subarray,
-};
-use mmwcore::{
-    Dca1000Error, Dca1000FrameAssembly, Dca1000Packet,
-    assemble_dca1000_frame_bytes as assemble_native_dca1000_frame_bytes,
-    parse_dca1000_packet as parse_native_dca1000_packet,
-    reorder_dca1000_packets as reorder_native_dca1000_packets,
 };
 use mmwcore::{
     DetectionCandidateInput, DetectionIndexColumns, DetectionPostprocessError,
@@ -84,7 +78,6 @@ mod cube;
 mod detection;
 mod geometry;
 mod tracking;
-mod vitals;
 
 const FFT_REMOVE_DC_FLAG: u8 = 1;
 const FFT_SHIFT_FLAG: u8 = 1 << 1;
@@ -100,40 +93,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     adc_archive::register(module)?;
     geometry::register(module)?;
     tracking::register(module)?;
-    vitals::register(module)?;
     Ok(())
 }
 
 fn decode_error(error: AdcDecodeError) -> PyErr {
-    PyValueError::new_err(error.to_string())
-}
-
-type Dca1000AssemblyResult<'py> = (
-    Bound<'py, PyArray1<i16>>,
-    usize,
-    usize,
-    Vec<i64>,
-    Vec<i64>,
-    Vec<i64>,
-);
-
-fn dca1000_assembly_result(
-    py: Python<'_>,
-    assembly: Dca1000FrameAssembly,
-) -> PyResult<Dca1000AssemblyResult<'_>> {
-    let (samples, stats) = assembly.into_parts();
-    let samples = Array1::from_vec(samples).into_pyarray(py);
-    Ok((
-        samples,
-        stats.expected_packets,
-        stats.received_packets,
-        stats.missing_packet_numbers,
-        stats.duplicate_packet_numbers,
-        stats.out_of_frame_packet_numbers,
-    ))
-}
-
-fn dca1000_error(error: Dca1000Error) -> PyErr {
     PyValueError::new_err(error.to_string())
 }
 

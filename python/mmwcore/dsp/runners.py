@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 
 from mmwcore.core import (
+    ADCFrame,
     DetectionFrame,
     DetectionMethod,
-    DetectionRecipe,
+    DetectionPipeline,
     PointCloudFrame,
-    PointCloudRecipe,
+    PointCloudPipeline,
     RadarCube,
     RangeDopplerCFARSpec,
-    RangeDopplerRecipe,
-    RawADCFrame,
+    RangeDopplerPipeline,
 )
 from mmwcore.dsp.adc import organize_adc_samples
 from mmwcore.dsp.aoa import (
@@ -39,19 +37,19 @@ from mmwcore.dsp.virtual_array import (
 )
 
 
-def process_adc_to_detections(
-    raw: RawADCFrame | np.ndarray,
-    recipe: DetectionRecipe,
+def detect(
+    raw: ADCFrame | np.ndarray,
+    recipe: DetectionPipeline,
 ) -> DetectionFrame:
     """Run an explicit ADC-to-detection recipe."""
 
-    range_doppler_cube = process_adc_to_range_doppler(raw, recipe.transform)
+    range_doppler_cube = range_doppler(raw, recipe.transform)
     return process_range_doppler_to_detections(range_doppler_cube, recipe)
 
 
 def process_range_doppler_to_detections(
     range_doppler_cube: RadarCube,
-    recipe: DetectionRecipe,
+    recipe: DetectionPipeline,
 ) -> DetectionFrame:
     """Detect targets in a range-Doppler cube produced by the same recipe."""
 
@@ -66,16 +64,16 @@ def process_range_doppler_to_detections(
     )
 
 
-def _detection_cube(range_doppler_cube: RadarCube, recipe: DetectionRecipe) -> RadarCube:
+def _detection_cube(range_doppler_cube: RadarCube, recipe: DetectionPipeline) -> RadarCube:
     if recipe.virtual_subarray is None:
         return range_doppler_cube
     return select_virtual_subarray(range_doppler_cube, recipe.virtual_subarray)
 
 
-def _detect(detection_cube: RadarCube, recipe: DetectionRecipe) -> DetectionFrame:
+def _detect(detection_cube: RadarCube, recipe: DetectionPipeline) -> DetectionFrame:
     if recipe.detection_method is DetectionMethod.CFAR:
         if recipe.cfar_detection is None:  # pragma: no cover - recipe validation covers this.
-            raise ValueError("CFAR detection requires DetectionRecipe.cfar_detection.")
+            raise ValueError("CFAR detection requires DetectionPipeline.cfar_detection.")
         if isinstance(recipe.cfar_detection, RangeDopplerCFARSpec):
             detections = detect_range_doppler_cfar(detection_cube, recipe.cfar_detection)
         else:
@@ -93,7 +91,7 @@ def _detect(detection_cube: RadarCube, recipe: DetectionRecipe) -> DetectionFram
 
 def _filter_detections(
     detections: DetectionFrame,
-    recipe: DetectionRecipe,
+    recipe: DetectionPipeline,
 ) -> DetectionFrame:
     if recipe.quality_filter is not None:
         return filter_detection_quality(detections, recipe.quality_filter)
@@ -104,7 +102,7 @@ def _estimate_detection_angles(
     range_doppler_cube: RadarCube,
     detection_cube: RadarCube,
     detections: DetectionFrame,
-    recipe: DetectionRecipe,
+    recipe: DetectionPipeline,
 ) -> DetectionFrame:
     if recipe.detection_method is DetectionMethod.CFAR and recipe.angle_fft is not None:
         detections = estimate_candidate_azimuths(detection_cube, detections, recipe.angle_fft)
@@ -121,23 +119,9 @@ def _estimate_detection_angles(
     return detections
 
 
-def process_adc_file_to_detections(
-    path: str | Path,
-    recipe: DetectionRecipe,
-    *,
-    frame_id: str | int | None = None,
-    mmap: bool = False,
-) -> DetectionFrame:
-    """Load an ADC binary file and run an explicit detection recipe."""
-    from mmwcore.io.adc_file import load_adc_file
-
-    raw = load_adc_file(path, frame_id=frame_id, mmap=mmap)
-    return process_adc_to_detections(raw, recipe)
-
-
 def process_detections_to_point_cloud(
     detections: DetectionFrame,
-    recipe: PointCloudRecipe,
+    recipe: PointCloudPipeline,
 ) -> PointCloudFrame:
     """Project calibrated detections into Cartesian radar coordinates."""
 
@@ -146,7 +130,7 @@ def process_detections_to_point_cloud(
 
 def process_range_doppler_to_calibrated_point_cloud(
     range_doppler_cube: RadarCube,
-    recipe: PointCloudRecipe,
+    recipe: PointCloudPipeline,
 ) -> PointCloudFrame:
     """Detect and project one precomputed range-Doppler product."""
 
@@ -157,34 +141,19 @@ def process_range_doppler_to_calibrated_point_cloud(
     return process_detections_to_point_cloud(detections, recipe)
 
 
-def process_adc_to_calibrated_point_cloud(
-    raw: RawADCFrame | np.ndarray,
-    recipe: PointCloudRecipe,
+def point_cloud(
+    raw: ADCFrame | np.ndarray,
+    recipe: PointCloudPipeline,
 ) -> PointCloudFrame:
     """Run detection and calibrated Cartesian projection recipes."""
 
-    detections = process_adc_to_detections(raw, recipe.detection)
+    detections = detect(raw, recipe.detection)
     return process_detections_to_point_cloud(detections, recipe)
 
 
-def process_adc_file_to_calibrated_point_cloud(
-    path: str | Path,
-    recipe: PointCloudRecipe,
-    *,
-    frame_id: str | int | None = None,
-    mmap: bool = False,
-) -> PointCloudFrame:
-    """Load ADC data and produce a calibrated Cartesian point cloud."""
-
-    from mmwcore.io.adc_file import load_adc_file
-
-    raw = load_adc_file(path, frame_id=frame_id, mmap=mmap)
-    return process_adc_to_calibrated_point_cloud(raw, recipe)
-
-
-def process_adc_to_range_doppler(
-    raw: RawADCFrame | np.ndarray,
-    recipe: RangeDopplerRecipe,
+def range_doppler(
+    raw: ADCFrame | np.ndarray,
+    recipe: RangeDopplerPipeline,
 ) -> RadarCube:
     """Decode ADC words and return the complex range-Doppler radar cube."""
 
@@ -198,8 +167,8 @@ def process_adc_to_range_doppler(
 
 
 def _process_adc_to_range_cube(
-    raw: RawADCFrame | np.ndarray,
-    recipe: RangeDopplerRecipe,
+    raw: ADCFrame | np.ndarray,
+    recipe: RangeDopplerPipeline,
 ) -> RadarCube:
     adc_cube = organize_adc_samples(
         raw,
@@ -214,7 +183,7 @@ def _process_adc_to_range_cube(
 
 def _process_range_cube_to_range_doppler(
     range_cube: RadarCube,
-    recipe: RangeDopplerRecipe,
+    recipe: RangeDopplerPipeline,
 ) -> RadarCube:
     doppler_cube = doppler_fft(range_cube, recipe.doppler_fft)
     if recipe.channel_calibration is not None:
@@ -229,18 +198,3 @@ def _process_range_cube_to_range_doppler(
             fftshift=recipe.doppler_fft.fftshift,
         )
     return doppler_cube
-
-
-def process_adc_file_to_range_doppler(
-    path: str | Path,
-    recipe: RangeDopplerRecipe,
-    *,
-    frame_id: str | int | None = None,
-    mmap: bool = False,
-) -> RadarCube:
-    """Load an ADC binary file and return its complex range-Doppler cube."""
-
-    from mmwcore.io.adc_file import load_adc_file
-
-    raw = load_adc_file(path, frame_id=frame_id, mmap=mmap)
-    return process_adc_to_range_doppler(raw, recipe)

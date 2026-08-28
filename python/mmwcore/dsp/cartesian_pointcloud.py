@@ -6,15 +6,15 @@ from typing import Any
 
 import numpy as np
 
-from mmwcore.core import CartesianVolumeSparsificationSpec, PointCloudFrame
+from mmwcore.core import PointCloudFrame, SparsifySpec
 
-from ._cartesian_pointcloud import sparsify_cartesian_volume as native_sparsify_cartesian_volume
+from ._cartesian_pointcloud import sparsify as native_sparsify
 
 _POINT_CHANNELS = ("x", "y", "z", "velocity", "snr_db")
 _SPARSIFICATION_SCHEMA = "mmwcore.cartesian_volume_sparsification.v4"
 
 
-def sparsify_cartesian_volume(
+def sparsify(
     magnitude_dzyx: np.ndarray,
     *,
     doppler_velocity_mps: np.ndarray,
@@ -23,7 +23,7 @@ def sparsify_cartesian_volume(
     x_m: np.ndarray,
     spatial_mask_zyx: np.ndarray | None = None,
     suppressed_doppler_index: int | None = None,
-    spec: CartesianVolumeSparsificationSpec | None = None,
+    spec: SparsifySpec | None = None,
     frame_id: str | int | None = None,
     timestamp: float | None = None,
     source: str | None = None,
@@ -32,7 +32,7 @@ def sparsify_cartesian_volume(
 ) -> PointCloudFrame:
     """Extract deterministic spatial peaks with signed radial velocity and SNR."""
 
-    policy = spec or CartesianVolumeSparsificationSpec()
+    policy = spec or SparsifySpec()
     source_volume, axes = _validate_inputs(
         magnitude_dzyx,
         doppler_velocity_mps=doppler_velocity_mps,
@@ -41,7 +41,7 @@ def sparsify_cartesian_volume(
         x_m=x_m,
     )
     spatial_mask = _spatial_mask(spatial_mask_zyx, shape_zyx=source_volume.shape[1:])
-    points, noise_floors, counts, status = native_sparsify_cartesian_volume(
+    points, noise_floors, counts, status = native_sparsify(
         source_volume,
         doppler_velocity_mps=axes[0],
         z_m=axes[1],
@@ -179,4 +179,4 @@ def _spatial_mask(
     return spatial_mask
 
 
-__all__ = ["sparsify_cartesian_volume"]
+__all__ = ["sparsify"]

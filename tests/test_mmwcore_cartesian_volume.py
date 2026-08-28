@@ -8,18 +8,18 @@ from sys import maxsize
 import numpy as np
 import pytest
 
-from mmwcore.core import CartesianVolumeSparsificationSpec, PlanarApertureLayout, RadarCube
-from mmwcore.dsp import PlanarCartesianProjector
+from mmwcore.core import PlanarApertureLayout, RadarCube, SparsifySpec
+from mmwcore.dsp import CartesianProjector
 
-type PhysicalProjectorFactory = Callable[[object], PlanarCartesianProjector]
+type PhysicalProjectorFactory = Callable[[object], CartesianProjector]
 
 
 def _projector(
     *,
     grid_origin_xyz_m: tuple[float, float, float] = (1.0, 0.0, 0.0),
     target_velocity_mps: float = 0.0,
-) -> PlanarCartesianProjector:
-    return PlanarCartesianProjector(
+) -> CartesianProjector:
+    return CartesianProjector(
         aperture_layout=PlanarApertureLayout(
             ((0, 0), (1, 0), (0, 1), (1, 1)),
             name="fixture",
@@ -41,7 +41,7 @@ def _projector(
     )
 
 
-def _projector_with(**changes: object) -> PlanarCartesianProjector:
+def _projector_with(**changes: object) -> CartesianProjector:
     return replace(_projector(), **changes)
 
 
@@ -49,7 +49,7 @@ def _projector_with_triplet_component(
     field_name: str,
     index: int,
     value: object,
-) -> PlanarCartesianProjector:
+) -> CartesianProjector:
     projector = _projector()
     values = list(getattr(projector, field_name))
     values[index] = value
@@ -149,7 +149,7 @@ def test_planar_cartesian_projector_rejects_nonintegral_scalar_dimensions(
 ) -> None:
     with pytest.raises(
         TypeError,
-        match=rf"PlanarCartesianProjector.{field_name} must be an integer",
+        match=rf"CartesianProjector.{field_name} must be an integer",
     ):
         _projector_with(**{field_name: invalid})
 
@@ -181,7 +181,7 @@ def test_planar_cartesian_projector_bounds_scalar_dimensions_to_platform(
 ) -> None:
     with pytest.raises(
         OverflowError,
-        match=rf"PlanarCartesianProjector.{field_name}.*platform index",
+        match=rf"CartesianProjector.{field_name}.*platform index",
     ):
         _projector_with(**{field_name: maxsize + 1})
 
@@ -195,7 +195,7 @@ def test_planar_cartesian_projector_preserves_scalar_dimension_domains(
     _valid_value: int,
     minimum: int,
 ) -> None:
-    with pytest.raises(ValueError, match=rf"PlanarCartesianProjector.{field_name}"):
+    with pytest.raises(ValueError, match=rf"CartesianProjector.{field_name}"):
         _projector_with(**{field_name: minimum - 1})
 
 
@@ -208,7 +208,7 @@ def test_planar_cartesian_projector_rejects_nonintegral_grid_shape(
     index: int,
     invalid: object,
 ) -> None:
-    field_name = f"PlanarCartesianProjector.grid_shape_zyx[{index}]"
+    field_name = f"CartesianProjector.grid_shape_zyx[{index}]"
     with pytest.raises(
         TypeError,
         match=rf"{re.escape(field_name)} must be an integer",
@@ -229,7 +229,7 @@ def test_planar_cartesian_projector_normalizes_numpy_grid_shape(index: int) -> N
 def test_planar_cartesian_projector_bounds_grid_shape_to_platform(index: int) -> None:
     with pytest.raises(
         OverflowError,
-        match=rf"{re.escape(f'PlanarCartesianProjector.grid_shape_zyx[{index}]')}.*platform index",
+        match=rf"{re.escape(f'CartesianProjector.grid_shape_zyx[{index}]')}.*platform index",
     ):
         _projector_with_triplet_component("grid_shape_zyx", index, maxsize + 1)
 
@@ -238,7 +238,7 @@ def test_planar_cartesian_projector_bounds_grid_shape_to_platform(index: int) ->
 def test_planar_cartesian_projector_preserves_positive_grid_shape(index: int) -> None:
     with pytest.raises(
         ValueError,
-        match=re.escape(f"PlanarCartesianProjector.grid_shape_zyx[{index}]"),
+        match=re.escape(f"CartesianProjector.grid_shape_zyx[{index}]"),
     ):
         _projector_with_triplet_component("grid_shape_zyx", index, 0)
 
@@ -343,18 +343,18 @@ def test_planar_cartesian_projector_requires_three_value_grid_tuples(
     field_name: str,
     invalid: tuple[object, ...],
 ) -> None:
-    with pytest.raises(ValueError, match=rf"PlanarCartesianProjector.{field_name}"):
+    with pytest.raises(ValueError, match=rf"CartesianProjector.{field_name}"):
         _projector_with(**{field_name: invalid})
 
 
 def test_planar_cartesian_projector_requires_exact_aperture_layout_type() -> None:
-    with pytest.raises(TypeError, match="PlanarCartesianProjector.aperture_layout"):
+    with pytest.raises(TypeError, match="CartesianProjector.aperture_layout"):
         _projector_with(aperture_layout=object())
 
 
 @pytest.mark.parametrize("invalid", [None, 1, b"sensor"])
 def test_planar_cartesian_projector_requires_string_coordinate_frame(invalid: object) -> None:
-    with pytest.raises(TypeError, match="PlanarCartesianProjector.coordinate_frame"):
+    with pytest.raises(TypeError, match="CartesianProjector.coordinate_frame"):
         _projector_with(coordinate_frame=invalid)
 
 
@@ -362,7 +362,7 @@ def test_planar_cartesian_projector_normalizes_nonempty_coordinate_frame() -> No
     projector = _projector_with(coordinate_frame="  sensor_frame  ")
 
     assert projector.coordinate_frame == "sensor_frame"
-    with pytest.raises(ValueError, match="PlanarCartesianProjector.coordinate_frame"):
+    with pytest.raises(ValueError, match="CartesianProjector.coordinate_frame"):
         _projector_with(coordinate_frame=" 	 ")
 
 
@@ -466,7 +466,7 @@ def test_cartesian_sparsification_rejects_nonintegral_integer_fields(
     value: object,
 ) -> None:
     with pytest.raises(TypeError, match=field_name):
-        replace(CartesianVolumeSparsificationSpec(), **{field_name: value})
+        replace(SparsifySpec(), **{field_name: value})
 
 
 @pytest.mark.parametrize(
@@ -483,7 +483,7 @@ def test_cartesian_sparsification_normalizes_numpy_integer_fields(
     field_name: str,
     value: int,
 ) -> None:
-    spec = replace(CartesianVolumeSparsificationSpec(), **{field_name: np.int64(value)})
+    spec = replace(SparsifySpec(), **{field_name: np.int64(value)})
     normalized = getattr(spec, field_name)
     assert normalized == value
     assert type(normalized) is int
@@ -501,7 +501,7 @@ def test_cartesian_sparsification_normalizes_numpy_integer_fields(
 )
 def test_cartesian_sparsification_rejects_platform_index_overflow(field_name: str) -> None:
     with pytest.raises(OverflowError, match=field_name):
-        replace(CartesianVolumeSparsificationSpec(), **{field_name: maxsize + 1})
+        replace(SparsifySpec(), **{field_name: maxsize + 1})
 
 
 @pytest.mark.parametrize(
@@ -520,7 +520,7 @@ def test_cartesian_sparsification_rejects_invalid_physical_scalars(
 ) -> None:
     error = TypeError if value is True else ValueError
     with pytest.raises(error, match=field_name):
-        replace(CartesianVolumeSparsificationSpec(), **{field_name: value})
+        replace(SparsifySpec(), **{field_name: value})
 
 
 @pytest.mark.parametrize(
@@ -536,7 +536,7 @@ def test_cartesian_sparsification_normalizes_numpy_physical_scalars(
     field_name: str,
     value: float,
 ) -> None:
-    spec = replace(CartesianVolumeSparsificationSpec(), **{field_name: np.float32(value)})
+    spec = replace(SparsifySpec(), **{field_name: np.float32(value)})
     normalized = getattr(spec, field_name)
     assert normalized == pytest.approx(value)
     assert type(normalized) is float
@@ -561,10 +561,10 @@ def test_cartesian_sparsification_rejects_values_outside_field_domains(
     value: object,
 ) -> None:
     with pytest.raises(ValueError, match=field_name):
-        replace(CartesianVolumeSparsificationSpec(), **{field_name: value})
+        replace(SparsifySpec(), **{field_name: value})
 
 
 @pytest.mark.parametrize("value", [1, 0, "yes", np.bool_(True)])
 def test_cartesian_sparsification_requires_exact_boolean_fallback(value: object) -> None:
     with pytest.raises(TypeError, match="strongest_point_fallback"):
-        CartesianVolumeSparsificationSpec(strongest_point_fallback=value)  # type: ignore[arg-type]
+        SparsifySpec(strongest_point_fallback=value)  # type: ignore[arg-type]

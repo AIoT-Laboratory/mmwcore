@@ -3,8 +3,6 @@ from collections.abc import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-type DCA1000PacketResult = tuple[int, int, NDArray[np.int16]]
-
 def encode_adc_archive_chunk(
     data: bytes,
     frame_bytes: int,
@@ -64,14 +62,6 @@ def write_adc_archive_file(
     expected_adc_sha256: str | None = None,
 ) -> ADCArchiveFile: ...
 
-type DCA1000AssemblyResult = tuple[
-    NDArray[np.int16],
-    int,
-    int,
-    list[int],
-    list[int],
-    list[int],
-]
 type NativeThresholdDetections = tuple[NDArray[np.int64], NDArray[np.float32]]
 type NativeDetectionAxes = tuple[int, int, int, int]
 type NativeDetectionIndexColumns = tuple[int, int, int]
@@ -162,14 +152,6 @@ def summarize_tracking_metrics(
     scenery_boxes: list[NativeTrackingBox] | None,
     frame_index_offset: int,
 ) -> NativeTrackingMetricsResult: ...
-def unwrap_vital_phase(
-    samples: NDArray[np.complex64],
-    remove_mean: bool,
-) -> NDArray[np.float32]: ...
-def vital_phase_to_displacement(
-    phase_rad: NDArray[np.float32],
-    wavelength_m: float,
-) -> NDArray[np.float32]: ...
 
 type NativeAssignmentResult = tuple[NDArray[np.int64], NDArray[np.int64]]
 type NativePlanarCartesianResult = tuple[
@@ -257,7 +239,7 @@ class NativeClusterTracker2D:
         point_counts: NDArray[np.int64],
     ) -> NativeTrackerStepResult: ...
 
-class NativeMeasurementTracker2D:
+class NativePointTracker2D:
     def __init__(self, config: NativeMeasurementTrackerConfig) -> None: ...
     def step(
         self,
@@ -274,21 +256,6 @@ def decode_adc_i16(
     layout: int,
     drop_incomplete: bool,
 ) -> NDArray[np.complex64]: ...
-def parse_dca1000_packet(data: bytes) -> DCA1000PacketResult: ...
-def reorder_dca1000_packets(
-    packet_numbers: NDArray[np.uint32],
-    payloads: Sequence[NDArray[np.int16]],
-    frame_start_packet_number: int,
-    packets_per_frame: int,
-    payload_values_per_packet: int | None,
-    fill_value: int,
-) -> DCA1000AssemblyResult: ...
-def assemble_dca1000_frame_bytes(
-    packets: Sequence[bytes],
-    raw_values_per_frame: int,
-    payload_values_per_packet: int,
-    frame_start_byte_count: int,
-) -> DCA1000AssemblyResult: ...
 def remove_static_clutter_complex(
     data: NDArray[np.complex64],
     axis: int,
@@ -356,7 +323,7 @@ def cluster_points(
 ) -> NativeClusterResult: ...
 def linear_sum_assignment(costs: NDArray[np.float64]) -> NativeAssignmentResult: ...
 
-class NativePlanarCartesianProjector:
+class NativeCartesianProjector:
     def __init__(
         self,
         source_range_bins: int,
@@ -368,7 +335,7 @@ class NativePlanarCartesianProjector:
         data: NDArray[np.complex64],
     ) -> NativePlanarCartesianResult: ...
 
-def sparsify_cartesian_volume(
+def sparsify(
     magnitude_dzyx: NDArray[np.float32],
     axes: NativeCartesianAxes,
     spatial_mask_zyx: NDArray[np.bool_] | None,

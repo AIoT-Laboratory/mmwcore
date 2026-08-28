@@ -7,21 +7,21 @@ from dataclasses import replace
 from mmwcore.config.profiles import RadarProfile
 from mmwcore.core import (
     ADCComplexLayout,
-    ADCDecodeRecipe,
+    ADCDecodeSpec,
     AngleFFTSpec,
     AntennaArrayGeometry,
     CFARDetectionSpec,
     DetectionMethod,
+    DetectionPipeline,
     DetectionQualitySpec,
-    DetectionRecipe,
     DopplerFFTSpec,
     FFTWindow,
     PeakDetectionSpec,
     PeakGroupingSpec,
     PlanarApertureLayout,
-    PointCloudRecipe,
+    PointCloudPipeline,
     RangeDopplerCFARSpec,
-    RangeDopplerRecipe,
+    RangeDopplerPipeline,
     RangeFFTSpec,
     TDMVirtualArraySpec,
     VirtualAntennaLayout,
@@ -143,7 +143,7 @@ def iwr6843_isk_elevation_subarray(
     )
 
 
-def iwr6843_isk_range_doppler_recipe(
+def iwr6843_isk_range_doppler_pipeline(
     profile: RadarProfile | None = None,
     *,
     adc_layout: ADCComplexLayout = ADCComplexLayout.IQ_INTERLEAVED,
@@ -153,13 +153,13 @@ def iwr6843_isk_range_doppler_recipe(
     remove_static_clutter: bool = False,
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> RangeDopplerRecipe:
+) -> RangeDopplerPipeline:
     """Build the standard ISK ADC-to-range-Doppler recipe."""
 
     radar = profile or iwr6843_profile()
     _require_isk_shape(radar, tx_order=tx_order)
-    return RangeDopplerRecipe(
-        decode=ADCDecodeRecipe(radar.to_adc_frame_spec(layout=adc_layout)),
+    return RangeDopplerPipeline(
+        decode=ADCDecodeSpec(radar.to_adc_frame_spec(layout=adc_layout)),
         range_fft=RangeFFTSpec(
             n_fft=radar.num_adc_samples,
             window=range_window,
@@ -178,7 +178,7 @@ def iwr6843_isk_range_doppler_recipe(
     )
 
 
-def iwr6843_isk_detection_recipe(
+def iwr6843_isk_detection_pipeline(
     threshold: float,
     profile: RadarProfile | None = None,
     *,
@@ -192,12 +192,12 @@ def iwr6843_isk_detection_recipe(
     remove_static_clutter: bool = False,
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> DetectionRecipe:
+) -> DetectionPipeline:
     """Build the standard ISK threshold-detection and azimuth-AoA recipe."""
 
     subarray = iwr6843_isk_azimuth_subarray(tx_order=tx_order)
-    return DetectionRecipe(
-        transform=iwr6843_isk_range_doppler_recipe(
+    return DetectionPipeline(
+        transform=iwr6843_isk_range_doppler_pipeline(
             profile,
             adc_layout=adc_layout,
             range_window=range_window,
@@ -222,7 +222,7 @@ def iwr6843_isk_detection_recipe(
     )
 
 
-def iwr6843_isk_point_cloud_recipe(
+def iwr6843_isk_point_cloud_pipeline(
     threshold: float,
     profile: RadarProfile | None = None,
     *,
@@ -236,12 +236,12 @@ def iwr6843_isk_point_cloud_recipe(
     remove_static_clutter: bool = False,
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> PointCloudRecipe:
+) -> PointCloudPipeline:
     """Build the standard ISK ADC-to-calibrated-point-cloud recipe."""
 
     radar = profile or iwr6843_profile()
-    return PointCloudRecipe(
-        detection=iwr6843_isk_detection_recipe(
+    return PointCloudPipeline(
+        detection=iwr6843_isk_detection_pipeline(
             threshold,
             radar,
             adc_layout=adc_layout,
@@ -259,7 +259,7 @@ def iwr6843_isk_point_cloud_recipe(
     )
 
 
-def iwr6843_isk_3d_point_cloud_recipe(
+def iwr6843_isk_3d_point_cloud_pipeline(
     threshold: float,
     profile: RadarProfile | None = None,
     *,
@@ -273,10 +273,10 @@ def iwr6843_isk_3d_point_cloud_recipe(
     remove_static_clutter: bool = False,
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> PointCloudRecipe:
+) -> PointCloudPipeline:
     """Build the ISK point-cloud recipe with coupled azimuth/elevation AoA."""
 
-    recipe = iwr6843_isk_point_cloud_recipe(
+    recipe = iwr6843_isk_point_cloud_pipeline(
         threshold,
         profile,
         adc_layout=adc_layout,
@@ -299,7 +299,7 @@ def iwr6843_isk_3d_point_cloud_recipe(
     )
 
 
-def iwr6843_isk_cfar_point_cloud_recipe(
+def iwr6843_isk_cfar_point_cloud_pipeline(
     cfar_detection: CFARDetectionSpec | RangeDopplerCFARSpec,
     peak_grouping: PeakGroupingSpec | None = None,
     profile: RadarProfile | None = None,
@@ -313,14 +313,14 @@ def iwr6843_isk_cfar_point_cloud_recipe(
     remove_static_clutter: bool = False,
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> PointCloudRecipe:
+) -> PointCloudPipeline:
     """Build two-stage ISK range-Doppler CFAR and candidate-AoA processing."""
 
     radar = profile or iwr6843_profile()
     subarray = iwr6843_isk_azimuth_subarray(tx_order=tx_order)
-    return PointCloudRecipe(
-        detection=DetectionRecipe(
-            transform=iwr6843_isk_range_doppler_recipe(
+    return PointCloudPipeline(
+        detection=DetectionPipeline(
+            transform=iwr6843_isk_range_doppler_pipeline(
                 radar,
                 adc_layout=adc_layout,
                 range_window=range_window,
@@ -346,7 +346,7 @@ def iwr6843_isk_cfar_point_cloud_recipe(
     )
 
 
-def iwr6843_isk_3d_cfar_point_cloud_recipe(
+def iwr6843_isk_3d_cfar_point_cloud_pipeline(
     cfar_detection: CFARDetectionSpec | RangeDopplerCFARSpec,
     peak_grouping: PeakGroupingSpec | None = None,
     profile: RadarProfile | None = None,
@@ -360,10 +360,10 @@ def iwr6843_isk_3d_cfar_point_cloud_recipe(
     remove_static_clutter: bool = False,
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> PointCloudRecipe:
+) -> PointCloudPipeline:
     """Build ISK range-Doppler CFAR with coupled azimuth/elevation AoA."""
 
-    recipe = iwr6843_isk_cfar_point_cloud_recipe(
+    recipe = iwr6843_isk_cfar_point_cloud_pipeline(
         cfar_detection,
         peak_grouping,
         profile,

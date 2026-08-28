@@ -12,7 +12,7 @@ use crate::assignment::AssignmentError;
 use crate::clustering::ClusterError;
 
 pub use cluster::ClusterTracker2D;
-pub use measurement::MeasurementTracker2D;
+pub use measurement::PointTracker2D;
 pub use metrics::{
     TrackObservationMetrics, TrackingMetricsError, TrackingMetricsInput, TrackingSequenceMetrics,
     summarize_tracking_metrics,
@@ -130,14 +130,14 @@ impl TrackLifecycleConfig {
 
 /// Inclusive Cartesian tracking region in radar x/y coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TrackingBox2D {
+pub struct Box2D {
     pub(crate) x_min_m: f64,
     pub(crate) x_max_m: f64,
     pub(crate) y_min_m: f64,
     pub(crate) y_max_m: f64,
 }
 
-impl TrackingBox2D {
+impl Box2D {
     /// Construct one finite, non-empty tracking boundary.
     pub fn new(
         x_min_m: f64,
@@ -170,14 +170,14 @@ impl TrackingBox2D {
 /// Scene regions that constrain allocation and track lifetime.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrackSceneryConfig {
-    pub(crate) boundary_boxes: Vec<TrackingBox2D>,
+    pub(crate) boundary_boxes: Vec<Box2D>,
     pub(crate) outside_max_frames: usize,
 }
 
 impl TrackSceneryConfig {
     /// Construct validated tracking scenery.
     pub fn new(
-        boundary_boxes: Vec<TrackingBox2D>,
+        boundary_boxes: Vec<Box2D>,
         outside_max_frames: usize,
     ) -> Result<Self, TrackingError> {
         if outside_max_frames == 0 {

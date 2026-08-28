@@ -9,15 +9,15 @@ from struct import Struct
 import numpy as np
 
 from mmwcore.core import (
-    DBSCANClusteringSpec,
+    AllocationSpec,
+    Box2D,
+    DBSCANSpec,
+    GatingSpec,
+    LifecycleSpec,
     PointCloudFrame,
-    TrackAllocationSpec,
+    ScenerySpec,
     Tracker2DSpec,
     TrackFrame,
-    TrackGatingSpec,
-    TrackingBox2D,
-    TrackLifecycleSpec,
-    TrackScenerySpec,
 )
 from mmwcore.dsp import cluster_point_cloud
 from mmwcore.tracking.benchmark import (
@@ -25,7 +25,7 @@ from mmwcore.tracking.benchmark import (
     TrackingGroundTruthFrame,
     evaluate_track_frames,
 )
-from mmwcore.tracking.measurement_tracker import MeasurementTracker2D
+from mmwcore.tracking.measurement_tracker import PointTracker2D
 from mmwcore.tracking.tracker import ClusterTracker2D
 
 _HEADER = Struct("<II")
@@ -91,7 +91,7 @@ class TiGTrackStrategyRun:
 class TiGTrack2DBenchmarkSpec:
     """Reproducible mmwcore configuration for one TI 2D vector scenario."""
 
-    clustering: DBSCANClusteringSpec
+    clustering: DBSCANSpec
     tracker: Tracker2DSpec
     match_distance_m: float
 
@@ -138,7 +138,7 @@ def ti_people_counting_2d_benchmark_spec() -> TiGTrack2DBenchmarkSpec:
     """Map representable SDK people-counting parameters to mmwcore primitives."""
 
     return TiGTrack2DBenchmarkSpec(
-        clustering=DBSCANClusteringSpec(
+        clustering=DBSCANSpec(
             eps_m=1.5,
             min_samples=6,
             velocity_scale_s=0.75,
@@ -146,22 +146,22 @@ def ti_people_counting_2d_benchmark_spec() -> TiGTrack2DBenchmarkSpec:
         ),
         tracker=Tracker2DSpec(
             frame_period_s=0.05,
-            gating=TrackGatingSpec(
+            gating=GatingSpec(
                 max_distance_m=1.5,
                 max_radial_velocity_difference_mps=2.0,
             ),
-            allocation=TrackAllocationSpec(
+            allocation=AllocationSpec(
                 min_points=6,
                 min_abs_radial_velocity_mps=0.1,
                 max_new_tracks_per_frame=1,
             ),
-            lifecycle=TrackLifecycleSpec(
+            lifecycle=LifecycleSpec(
                 confirmation_hits=10,
                 tentative_max_misses=5,
                 confirmed_max_misses=50,
             ),
-            scenery=TrackScenerySpec(
-                boundary_boxes=(TrackingBox2D(-4.0, 4.0, 0.5, 7.5),),
+            scenery=ScenerySpec(
+                boundary_boxes=(Box2D(-4.0, 4.0, 0.5, 7.5),),
                 outside_max_frames=5,
             ),
             max_tracks=20,
@@ -213,7 +213,7 @@ def run_ti_people_counting_2d(
 
 def benchmark_cluster_tracker_on_ti_vectors(
     frames: tuple[TiGTrack2DVectorFrame, ...],
-    clustering: DBSCANClusteringSpec,
+    clustering: DBSCANSpec,
     tracker: Tracker2DSpec,
     *,
     match_distance_m: float,
@@ -227,7 +227,7 @@ def benchmark_cluster_tracker_on_ti_vectors(
 
 def run_cluster_tracker_on_ti_vectors(
     frames: tuple[TiGTrack2DVectorFrame, ...],
-    clustering: DBSCANClusteringSpec,
+    clustering: DBSCANSpec,
     tracker: Tracker2DSpec,
     *,
     match_distance_m: float,
@@ -248,7 +248,7 @@ def run_cluster_tracker_on_ti_vectors(
 
 def benchmark_measurement_tracker_on_ti_vectors(
     frames: tuple[TiGTrack2DVectorFrame, ...],
-    allocation_clustering: DBSCANClusteringSpec,
+    allocation_clustering: DBSCANSpec,
     tracker: Tracker2DSpec,
     *,
     match_distance_m: float,
@@ -262,14 +262,14 @@ def benchmark_measurement_tracker_on_ti_vectors(
 
 def run_measurement_tracker_on_ti_vectors(
     frames: tuple[TiGTrack2DVectorFrame, ...],
-    allocation_clustering: DBSCANClusteringSpec,
+    allocation_clustering: DBSCANSpec,
     tracker: Tracker2DSpec,
     *,
     match_distance_m: float,
 ) -> TiGTrackStrategyRun:
     """Run the measurement-level tracker and retain its frame predictions."""
 
-    stateful_tracker = MeasurementTracker2D(tracker, allocation_clustering)
+    stateful_tracker = PointTracker2D(tracker, allocation_clustering)
     predictions = [
         stateful_tracker.step(_point_cloud(frame, tracker.frame_period_s)) for frame in frames
     ]

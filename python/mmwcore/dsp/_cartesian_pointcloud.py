@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mmwcore import _native
-from mmwcore.core import CartesianVolumeSparsificationSpec
+from mmwcore.core import SparsifySpec
 
 type NativeCartesianSparsificationResult = tuple[
     NDArray[np.float32],
@@ -16,7 +16,7 @@ type NativeCartesianSparsificationResult = tuple[
 ]
 
 
-def sparsify_cartesian_volume(
+def sparsify(
     magnitude_dzyx: NDArray[np.float32],
     *,
     doppler_velocity_mps: NDArray[np.float32],
@@ -25,11 +25,11 @@ def sparsify_cartesian_volume(
     x_m: NDArray[np.float32],
     spatial_mask_zyx: NDArray[np.bool_] | None,
     suppressed_doppler_index: int | None,
-    spec: CartesianVolumeSparsificationSpec,
+    spec: SparsifySpec,
 ) -> NativeCartesianSparsificationResult:
     """Extract deterministic Cartesian RPC points through one native call."""
 
-    return _native.sparsify_cartesian_volume(
+    return _native.sparsify(
         np.ascontiguousarray(magnitude_dzyx, dtype=np.float32),
         (
             np.ascontiguousarray(doppler_velocity_mps, dtype=np.float32),

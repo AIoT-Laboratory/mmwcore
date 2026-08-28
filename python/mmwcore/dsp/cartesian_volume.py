@@ -10,9 +10,9 @@ from sys import maxsize as _MAX_PLATFORM_INDEX
 
 import numpy as np
 
-from mmwcore.core import CartesianRadarVolume, PlanarApertureLayout, RadarCube
+from mmwcore.core import CartesianVolume, PlanarApertureLayout, RadarCube
 
-from ._cartesian import NativePlanarCartesianConfig, NativePlanarCartesianProjector
+from ._cartesian import NativeCartesianProjector, NativePlanarCartesianConfig
 
 
 def _platform_index(value: int, *, name: str) -> int:
@@ -90,7 +90,7 @@ def _real_triplet(
 
 
 @dataclass(frozen=True)
-class PlanarCartesianProjector:
+class CartesianProjector:
     """Project one planar virtual array onto a metric DZYX magnitude grid.
 
     Source and target Doppler coordinates are physical radial velocities. The
@@ -114,7 +114,7 @@ class PlanarCartesianProjector:
     azimuth_n_fft: int = 128
     elevation_n_fft: int = 32
     aperture_spacing_wavelengths: float = 0.5
-    _native_projector: NativePlanarCartesianProjector = field(
+    _native_projector: NativeCartesianProjector = field(
         init=False,
         repr=False,
         compare=False,
@@ -122,78 +122,76 @@ class PlanarCartesianProjector:
 
     def __post_init__(self) -> None:
         if type(self.aperture_layout) is not PlanarApertureLayout:
-            raise TypeError(
-                "PlanarCartesianProjector.aperture_layout must be a PlanarApertureLayout."
-            )
+            raise TypeError("CartesianProjector.aperture_layout must be a PlanarApertureLayout.")
 
         range_resolution_m = _positive_real(
             self.range_resolution_m,
-            name="PlanarCartesianProjector.range_resolution_m",
+            name="CartesianProjector.range_resolution_m",
         )
         source_range_bins = _integer_at_least(
             self.source_range_bins,
-            name="PlanarCartesianProjector.source_range_bins",
+            name="CartesianProjector.source_range_bins",
             minimum=1,
         )
         source_doppler_bins = _integer_at_least(
             self.source_doppler_bins,
-            name="PlanarCartesianProjector.source_doppler_bins",
+            name="CartesianProjector.source_doppler_bins",
             minimum=2,
         )
         source_velocity_start_mps = _finite_real(
             self.source_velocity_start_mps,
-            name="PlanarCartesianProjector.source_velocity_start_mps",
+            name="CartesianProjector.source_velocity_start_mps",
         )
         source_velocity_step_mps = _positive_real(
             self.source_velocity_step_mps,
-            name="PlanarCartesianProjector.source_velocity_step_mps",
+            name="CartesianProjector.source_velocity_step_mps",
         )
         target_doppler_bins = _integer_at_least(
             self.target_doppler_bins,
-            name="PlanarCartesianProjector.target_doppler_bins",
+            name="CartesianProjector.target_doppler_bins",
             minimum=1,
         )
         target_velocity_start_mps = _finite_real(
             self.target_velocity_start_mps,
-            name="PlanarCartesianProjector.target_velocity_start_mps",
+            name="CartesianProjector.target_velocity_start_mps",
         )
         target_velocity_step_mps = _positive_real(
             self.target_velocity_step_mps,
-            name="PlanarCartesianProjector.target_velocity_step_mps",
+            name="CartesianProjector.target_velocity_step_mps",
         )
         azimuth_n_fft = _integer_at_least(
             self.azimuth_n_fft,
-            name="PlanarCartesianProjector.azimuth_n_fft",
+            name="CartesianProjector.azimuth_n_fft",
             minimum=2,
         )
         elevation_n_fft = _integer_at_least(
             self.elevation_n_fft,
-            name="PlanarCartesianProjector.elevation_n_fft",
+            name="CartesianProjector.elevation_n_fft",
             minimum=2,
         )
         aperture_spacing_wavelengths = _positive_real(
             self.aperture_spacing_wavelengths,
-            name="PlanarCartesianProjector.aperture_spacing_wavelengths",
+            name="CartesianProjector.aperture_spacing_wavelengths",
         )
         shape = _integer_triplet(
             self.grid_shape_zyx,
-            name="PlanarCartesianProjector.grid_shape_zyx",
+            name="CartesianProjector.grid_shape_zyx",
         )
         origin = _real_triplet(
             self.grid_origin_xyz_m,
-            name="PlanarCartesianProjector.grid_origin_xyz_m",
+            name="CartesianProjector.grid_origin_xyz_m",
             positive=False,
         )
         voxel_size = _real_triplet(
             self.grid_voxel_size_xyz_m,
-            name="PlanarCartesianProjector.grid_voxel_size_xyz_m",
+            name="CartesianProjector.grid_voxel_size_xyz_m",
             positive=True,
         )
         if not isinstance(self.coordinate_frame, str):
-            raise TypeError("PlanarCartesianProjector.coordinate_frame must be a string.")
+            raise TypeError("CartesianProjector.coordinate_frame must be a string.")
         frame = self.coordinate_frame.strip()
         if not frame:
-            raise ValueError("PlanarCartesianProjector.coordinate_frame must not be empty.")
+            raise ValueError("CartesianProjector.coordinate_frame must not be empty.")
 
         object.__setattr__(self, "range_resolution_m", range_resolution_m)
         object.__setattr__(self, "source_range_bins", source_range_bins)
@@ -217,7 +215,7 @@ class PlanarCartesianProjector:
         object.__setattr__(
             self,
             "_native_projector",
-            NativePlanarCartesianProjector(
+            NativeCartesianProjector(
                 source_range_bins=self.source_range_bins,
                 grid_indices=self.aperture_layout.grid_indices,
                 config=self._native_config(),
@@ -244,7 +242,7 @@ class PlanarCartesianProjector:
             x_origin + np.arange(x_size, dtype=np.float32) * x_step,
         )
 
-    def project(self, range_doppler: RadarCube) -> CartesianRadarVolume:
+    def project(self, range_doppler: RadarCube) -> CartesianVolume:
         """Return target-velocity Cartesian magnitude with axes DZYX."""
 
         expected_axes = ("frame", "doppler_bin", "virtual_rx", "range_bin")
@@ -278,7 +276,7 @@ class PlanarCartesianProjector:
         spatial_voxel_count = (
             self.grid_shape_zyx[0] * self.grid_shape_zyx[1] * self.grid_shape_zyx[2]
         )
-        return CartesianRadarVolume(
+        return CartesianVolume(
             magnitude_dzyx=magnitude,
             doppler_velocity_mps=self.target_velocities_mps,
             z_m=z_m,
@@ -368,4 +366,4 @@ class PlanarCartesianProjector:
         )
 
 
-__all__ = ["PlanarCartesianProjector"]
+__all__ = ["CartesianProjector"]

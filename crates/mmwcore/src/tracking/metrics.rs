@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
-use super::TrackingBox2D;
+use super::Box2D;
 
 /// Packed observations from ordered tracker frames.
 #[derive(Clone, Copy, Debug)]
@@ -18,7 +18,7 @@ pub struct TrackingMetricsInput<'a> {
     /// Native lifecycle status codes aligned with observations.
     pub status_codes: &'a [u8],
     /// `None` means scenery metrics are disabled; `Some([])` means every point is in scenery.
-    pub scenery_boxes: Option<&'a [TrackingBox2D]>,
+    pub scenery_boxes: Option<&'a [Box2D]>,
     pub frame_index_offset: usize,
 }
 
@@ -212,7 +212,7 @@ fn vector3(values: &[f32], index: usize) -> [f32; 3] {
 fn summarize_track(
     track_id: i64,
     observations: &[Observation],
-    scenery_boxes: Option<&[TrackingBox2D]>,
+    scenery_boxes: Option<&[Box2D]>,
 ) -> TrackObservationMetrics {
     let first = observations
         .first()
@@ -291,7 +291,7 @@ fn median(mut values: Vec<f32>) -> f32 {
     }
 }
 
-fn scenery_contains(boxes: &[TrackingBox2D], position: [f32; 3]) -> bool {
+fn scenery_contains(boxes: &[Box2D], position: [f32; 3]) -> bool {
     boxes.is_empty()
         || boxes
             .iter()

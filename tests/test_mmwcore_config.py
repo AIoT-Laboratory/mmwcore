@@ -11,25 +11,20 @@ import mmwcore.config
 from mmwcore.config import (
     RadarCaptureSpec,
     RadarProfile,
-    awr1843_aop_antenna_geometry,
-    iwr6843_aop_antenna_geometry,
-    iwr6843_isk_3d_cfar_point_cloud_recipe,
-    iwr6843_isk_3d_point_cloud_recipe,
+    iwr6843_isk_3d_cfar_point_cloud_pipeline,
+    iwr6843_isk_3d_point_cloud_pipeline,
     iwr6843_isk_antenna_geometry,
     iwr6843_isk_azimuth_subarray,
-    iwr6843_isk_cfar_point_cloud_recipe,
+    iwr6843_isk_cfar_point_cloud_pipeline,
     iwr6843_isk_elevation_subarray,
     iwr6843_isk_planar_aperture_layout,
     iwr6843_isk_tdm_virtual_array,
     iwr6843_profile,
     parse_ti_cli_capture_spec,
-    xwr1642_antenna_geometry,
-    xwr1843_evm_antenna_geometry,
 )
 from mmwcore.core import (
     ADCComplexLayout,
     ADCFrameSpec,
-    AntennaArrayGeometry,
     CFAR1DSpec,
     DetectionMethod,
     DetectionQualitySpec,
@@ -307,68 +302,6 @@ def test_iwr6843_isk_geometry_uses_standard_evm_phase_centers() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("factory", "name", "tx_positions", "rx_positions"),
-    [
-        (
-            xwr1642_antenna_geometry,
-            "xwr1642",
-            ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
-            (
-                (0.0, 0.0, 0.0),
-                (0.5, 0.0, 0.0),
-                (1.0, 0.0, 0.0),
-                (1.5, 0.0, 0.0),
-            ),
-        ),
-        (
-            xwr1843_evm_antenna_geometry,
-            "xwr1843_evm",
-            ((0.0, 0.0, 0.5), (1.0, 0.0, 0.0), (2.0, 0.0, 0.5)),
-            (
-                (0.0, 0.0, 0.0),
-                (0.5, 0.0, 0.0),
-                (1.0, 0.0, 0.0),
-                (1.5, 0.0, 0.0),
-            ),
-        ),
-        (
-            iwr6843_aop_antenna_geometry,
-            "iwr6843_aop",
-            ((0.0, 0.0, 0.0), (1.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
-            (
-                (0.5, 0.0, 0.5),
-                (0.5, 0.0, 0.0),
-                (0.0, 0.0, 0.5),
-                (0.0, 0.0, 0.0),
-            ),
-        ),
-        (
-            awr1843_aop_antenna_geometry,
-            "awr1843_aop",
-            ((0.0, 0.0, 0.0), (0.0, 0.0, 0.5), (0.0, 0.0, 1.0)),
-            (
-                (1.5, 0.0, 0.0),
-                (1.0, 0.0, 0.0),
-                (0.5, 0.0, 0.0),
-                (0.0, 0.0, 0.0),
-            ),
-        ),
-    ],
-)
-def test_ti_sdk_antenna_geometry_presets_match_half_wavelength_offsets(
-    factory: Callable[[], AntennaArrayGeometry],
-    name: str,
-    tx_positions: tuple[tuple[float, float, float], ...],
-    rx_positions: tuple[tuple[float, float, float], ...],
-) -> None:
-    geometry = factory()
-
-    assert geometry.name == name
-    assert geometry.tx_positions_wavelengths == tx_positions
-    assert geometry.rx_positions_wavelengths == rx_positions
-
-
 def test_iwr6843_isk_tdm_array_keeps_configured_tx_order() -> None:
     spec = iwr6843_isk_tdm_virtual_array()
 
@@ -377,7 +310,7 @@ def test_iwr6843_isk_tdm_array_keeps_configured_tx_order() -> None:
 
 
 def test_iwr6843_range_doppler_recipe_can_match_range_dc_policy() -> None:
-    recipe = mmwcore.config.iwr6843_isk_range_doppler_recipe(
+    recipe = mmwcore.config.iwr6843_isk_range_doppler_pipeline(
         remove_range_dc=True,
     )
 
@@ -387,7 +320,7 @@ def test_iwr6843_range_doppler_recipe_can_match_range_dc_policy() -> None:
 def test_iwr6843_range_doppler_recipe_supports_active_tx_subset() -> None:
     profile = iwr6843_profile(num_tx=2, num_chirps_per_tx=32)
 
-    recipe = mmwcore.config.iwr6843_isk_range_doppler_recipe(
+    recipe = mmwcore.config.iwr6843_isk_range_doppler_pipeline(
         profile,
         adc_layout=ADCComplexLayout.GROUP2_I_THEN_Q,
         tx_order=(0, 2),
@@ -403,7 +336,7 @@ def test_iwr6843_range_doppler_recipe_rejects_active_tx_count_mismatch() -> None
     profile = iwr6843_profile(num_tx=2)
 
     with pytest.raises(ValueError, match="active-Tx count"):
-        mmwcore.config.iwr6843_isk_range_doppler_recipe(
+        mmwcore.config.iwr6843_isk_range_doppler_pipeline(
             profile,
             tx_order=(0, 2, 1),
         )
@@ -450,14 +383,14 @@ def test_iwr6843_isk_elevation_subarray_tracks_displaced_row() -> None:
 
 
 def test_iwr6843_3d_recipe_declares_paired_elevation_row() -> None:
-    recipe = iwr6843_isk_3d_point_cloud_recipe(100.0, tx_order=(0, 1, 2))
+    recipe = iwr6843_isk_3d_point_cloud_pipeline(100.0, tx_order=(0, 1, 2))
 
     assert recipe.detection.virtual_subarray == iwr6843_isk_azimuth_subarray(tx_order=(0, 1, 2))
     assert recipe.detection.elevation_subarray == iwr6843_isk_elevation_subarray(tx_order=(0, 1, 2))
 
 
 def test_iwr6843_cfar_recipe_uses_candidate_level_aoa() -> None:
-    recipe = iwr6843_isk_cfar_point_cloud_recipe(
+    recipe = iwr6843_isk_cfar_point_cloud_pipeline(
         RangeDopplerCFARSpec(
             range=CFAR1DSpec(training_cells=2, guard_cells=1, threshold_scale=4.0)
         ),
@@ -474,7 +407,7 @@ def test_iwr6843_cfar_recipe_uses_candidate_level_aoa() -> None:
 
 
 def test_iwr6843_3d_cfar_recipe_declares_paired_elevation_row() -> None:
-    recipe = iwr6843_isk_3d_cfar_point_cloud_recipe(
+    recipe = iwr6843_isk_3d_cfar_point_cloud_pipeline(
         RangeDopplerCFARSpec(
             range=CFAR1DSpec(training_cells=2, guard_cells=1, threshold_scale=4.0)
         ),
@@ -505,7 +438,6 @@ def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None
     capture = parse_ti_cli_capture_spec(
         text,
         layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-        family="xwr68xx",
     )
 
     assert capture.tx_order == (0, 2)
@@ -527,71 +459,17 @@ def test_parse_ti_cli_capture_spec_preserves_physical_capture_contract() -> None
     assert capture.expected_size_bytes == 26_214_400
 
 
-@pytest.mark.parametrize(
-    ("family", "channel_tx_mask", "chirp_tx_masks", "expected_tx_order"),
-    [
-        ("xwr16xx", 3, (2, 1), (1, 0)),
-        ("xwr18xx", 7, (4, 1, 2), (2, 0, 1)),
-    ],
-)
-def test_parse_ti_cli_capture_spec_accepts_77_ghz_family_tx_contracts(
-    family: str,
-    channel_tx_mask: int,
-    chirp_tx_masks: tuple[int, ...],
-    expected_tx_order: tuple[int, ...],
-) -> None:
+def test_parse_ti_cli_capture_spec_rejects_non_iwr6843_frequency() -> None:
     text = _ti_family_capture_config(
         start_frequency_ghz=77,
-        channel_tx_mask=channel_tx_mask,
-        chirp_tx_masks=chirp_tx_masks,
+        channel_tx_mask=7,
+        chirp_tx_masks=(1, 4, 2),
     )
 
-    capture = parse_ti_cli_capture_spec(
-        text,
-        layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-        family=family,
-    )
-
-    assert capture.profile.start_frequency_hz == pytest.approx(77e9)
-    assert capture.profile.num_tx == len(chirp_tx_masks)
-    assert capture.tx_order == expected_tx_order
-
-
-@pytest.mark.parametrize(
-    ("family", "start_frequency_ghz", "channel_tx_mask", "chirp_tx_masks"),
-    [
-        ("xwr16xx", 60, 3, (1, 2)),
-        ("xwr18xx", 60, 7, (1, 4, 2)),
-        ("xwr68xx", 77, 7, (1, 4, 2)),
-        ("xwr16xx", 77, 7, (1, 4)),
-    ],
-)
-def test_parse_ti_cli_capture_spec_rejects_family_config_mismatch(
-    family: str,
-    start_frequency_ghz: int,
-    channel_tx_mask: int,
-    chirp_tx_masks: tuple[int, ...],
-) -> None:
-    text = _ti_family_capture_config(
-        start_frequency_ghz=start_frequency_ghz,
-        channel_tx_mask=channel_tx_mask,
-        chirp_tx_masks=chirp_tx_masks,
-    )
-
-    with pytest.raises(ValueError, match="start frequency|TX mask"):
+    with pytest.raises(ValueError, match="start frequency"):
         parse_ti_cli_capture_spec(
             text,
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-            family=family,
-        )
-
-
-def test_parse_ti_cli_capture_spec_rejects_unknown_family() -> None:
-    with pytest.raises(ValueError, match="xwr16xx, xwr18xx, xwr68xx"):
-        parse_ti_cli_capture_spec(
-            "",
-            layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-            family="xwr14xx",
         )
 
 
@@ -613,7 +491,6 @@ def test_parse_ti_cli_capture_spec_supports_continuous_frames() -> None:
     capture = parse_ti_cli_capture_spec(
         text,
         layout=ADCComplexLayout.IQ_INTERLEAVED,
-        family="xwr68xx",
     )
 
     assert capture.tx_order == (0, 2, 1)
@@ -633,7 +510,6 @@ def test_parse_ti_cli_capture_spec_rejects_late_flush() -> None:
                 ]
             ),
             layout=ADCComplexLayout.IQ_INTERLEAVED,
-            family="xwr68xx",
         )
 
 
@@ -672,7 +548,6 @@ def test_parse_ti_cli_capture_spec_rejects_non_tdm_tx_sequences(
         parse_ti_cli_capture_spec(
             text,
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-            family="xwr68xx",
         )
 
 
@@ -724,7 +599,6 @@ def test_parse_ti_cli_capture_spec_rejects_ambiguous_physical_contracts(
         parse_ti_cli_capture_spec(
             "\n".join(lines),
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-            family="xwr68xx",
         )
 
 
@@ -757,7 +631,6 @@ def test_ti_cli_capture_spec_rejects_missing_or_invalid_capture_commands(
         parse_ti_cli_capture_spec(
             text,
             layout=ADCComplexLayout.GROUP2_I_THEN_Q,
-            family="xwr68xx",
         )
 
 
@@ -779,7 +652,6 @@ def test_ti_cli_capture_spec_requires_raw_hardware_stream_commands(command: str)
         parse_ti_cli_capture_spec(
             "\n".join(lines),
             layout=ADCComplexLayout.IQ_INTERLEAVED,
-            family="xwr68xx",
         )
 
 
@@ -809,7 +681,6 @@ def test_ti_cli_capture_spec_rejects_odd_group2_sample_count(
         parse_ti_cli_capture_spec(
             text,
             layout=layout,
-            family="xwr68xx",
         )
 
 

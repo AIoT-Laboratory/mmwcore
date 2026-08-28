@@ -56,7 +56,7 @@ def _project(
         elevation_n_fft,
         aperture_spacing_wavelengths,
     ) = config
-    projector = _native.NativePlanarCartesianProjector(
+    projector = _native.NativeCartesianProjector(
         source.shape[-1],
         _APERTURE,
         (
@@ -124,7 +124,7 @@ def test_native_cartesian_plan_matches_locked_non_axis_reference() -> None:
     source = (rng.standard_normal((1, 7, 4, 9)) + 1j * rng.standard_normal((1, 7, 4, 9))).astype(
         np.complex64
     )
-    projector = _native.NativePlanarCartesianProjector(
+    projector = _native.NativeCartesianProjector(
         9,
         _APERTURE,
         (

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from mmwcore import _native
-from mmwcore.core import TrackFrame, TrackScenerySpec, TrackStatus
+from mmwcore.core import ScenerySpec, TrackFrame, TrackStatus
 
 _STATUS_CODES = {
     TrackStatus.TENTATIVE: 0,
@@ -99,7 +99,7 @@ class TrackingSequenceSummary:
 def summarize_track_frames(
     frames: Iterable[TrackFrame],
     *,
-    scenery: TrackScenerySpec | None = None,
+    scenery: ScenerySpec | None = None,
     frame_index_offset: int = 0,
 ) -> TrackingSequenceSummary:
     """Summarize ordered tracker reports without assuming ground-truth identities."""

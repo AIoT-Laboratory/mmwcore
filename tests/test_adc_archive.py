@@ -201,7 +201,7 @@ def test_writer_rejects_wrong_source_identity_and_never_overwrites(tmp_path: Pat
     assert not list(tmp_path.glob(".capture.mmwa.*.tmp"))
 
 
-def test_v2_magic_is_rejected_without_compatibility_path(tmp_path: Path) -> None:
+def test_v2_magic_is_rejected(tmp_path: Path) -> None:
     destination, _, _ = _archive(tmp_path)
     payload = bytearray(destination.read_bytes())
     payload[:8] = b"MMWADCA2"

@@ -15,8 +15,8 @@ class ClusterTracker2D:
     def __init__(self, spec: Tracker2DSpec) -> None:
         if spec.allocation.min_total_snr is not None:
             raise ValueError(
-                "ClusterTracker2D cannot use TrackAllocationSpec.min_total_snr; "
-                "use MeasurementTracker2D with an SNR channel."
+                "ClusterTracker2D cannot use AllocationSpec.min_total_snr; "
+                "use PointTracker2D with an SNR channel."
             )
         self.spec = spec
         self._tracker = _native.NativeClusterTracker2D(native_tracker_config(spec))

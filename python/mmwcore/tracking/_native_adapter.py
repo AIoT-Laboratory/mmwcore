@@ -6,7 +6,7 @@ from typing import Any
 
 from mmwcore import _native
 from mmwcore.core import (
-    DBSCANClusteringSpec,
+    DBSCANSpec,
     Tracker2DSpec,
     TrackFrame,
     TrackStatus,
@@ -59,7 +59,7 @@ def native_tracker_config(spec: Tracker2DSpec) -> _native.NativeClusterTrackerCo
 
 def native_measurement_tracker_config(
     spec: Tracker2DSpec,
-    allocation_clustering: DBSCANClusteringSpec,
+    allocation_clustering: DBSCANSpec,
 ) -> _native.NativeMeasurementTrackerConfig:
     """Encode the native measurement tracker and its allocation clustering rule."""
 

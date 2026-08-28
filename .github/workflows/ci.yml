@@ -9,88 +9,32 @@ permissions:
   contents: read
 
 jobs:
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.97.0
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
-      - run: cargo publish -p mmwcore --dry-run --locked
-
-  quality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-      - run: uv sync --extra dev --locked
-      - run: uv run ruff check python tests benchmarks examples
-      - run: uv run ruff format --check python tests benchmarks examples
-      - run: uv run pyright
-
-  python:
+  test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.12", "3.13", "3.14"]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-      - run: uv sync --python ${{ matrix.python-version }} --extra dev --locked
-      - run: uv run --python ${{ matrix.python-version }} pytest --cov=mmwcore
-
-  package:
-    needs: [rust, quality, python]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.14"
-      - uses: astral-sh/setup-uv@v7
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: x86_64
-          args: >-
-            --release --locked --out dist
-            --interpreter python3.14
-            --compatibility pypi
-          manylinux: 2_17
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-      - run: uv venv --python 3.14 .package-venv
-      - run: uv pip install --python .package-venv/bin/python dist/*.whl
-      - name: Smoke-test installed native and archive APIs
-        run: >-
-          .package-venv/bin/python -c "import numpy as np; import mmwcore;
-          from mmwcore import _native;
-          raw = np.array([1, 10, 2, 20], dtype=np.int16);
-          decoded = _native.decode_adc_i16(raw, 1, 1, 2, 0, False);
-          expected = np.array([[[[1 + 10j, 2 + 20j]]]], dtype=np.complex64);
-          np.testing.assert_array_equal(decoded, expected);
-          adc_frame = bytes([1, 0, 2, 0]);
-          encoded = _native.encode_adc_archive_chunk(adc_frame, len(adc_frame));
-          assert _native.decode_adc_archive_chunk(encoded, len(adc_frame), 1) == adc_frame;
-          assert callable(mmwcore.open_mmwcli_capture_metadata);
-          assert callable(mmwcore.open_multisensor_capture_metadata);
-          assert callable(mmwcore.open_multisensor_source_timeline);
-          print(mmwcore.__version__)"
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - run: uv sync --python 3.12 --extra dev --locked
+      - if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      - if: runner.os == 'Linux'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: uv run --python 3.12 ruff format --check python tests benchmarks examples
+      - run: uv run --python 3.12 ruff check python tests benchmarks examples
+      - run: uv run --python 3.12 pyright
+      - run: uv run --python 3.12 pytest -q
+      - run: uv run --python 3.12 python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2

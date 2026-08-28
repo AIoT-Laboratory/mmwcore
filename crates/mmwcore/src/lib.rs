@@ -12,14 +12,12 @@ pub mod cartesian;
 pub mod cfar;
 pub mod clustering;
 pub mod cube;
-pub mod dca1000;
 pub mod detection;
 pub mod detection_postprocess;
 pub mod fft;
 pub mod pointcloud;
 pub mod sparsification;
 pub mod tracking;
-pub mod vitals;
 
 #[inline]
 pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<usize> {
@@ -66,10 +64,6 @@ pub use cube::{
     map_planar_aperture_complex, map_tdm_virtual_array_complex, remove_static_clutter_complex,
     select_virtual_subarray_complex,
 };
-pub use dca1000::{
-    Dca1000Error, Dca1000FrameAssembly, Dca1000Packet, PacketLossStats, assemble_dca1000_frame,
-    assemble_dca1000_frame_bytes, parse_dca1000_packet, reorder_dca1000_packets,
-};
 pub use detection::{
     DetectionError, RangeDopplerAxes, RangeDopplerAzimuthAxes, ReceiverAggregation,
     ThresholdDetections, range_doppler_magnitude_complex, threshold_range_doppler_azimuth_complex,
@@ -87,13 +81,12 @@ pub use pointcloud::{
 };
 pub use sparsification::{
     CartesianSparsificationConfig, CartesianSparsificationError, CartesianSparsificationInput,
-    CartesianSparsificationResult, sparsify_cartesian_volume,
+    CartesianSparsificationResult, sparsify,
 };
 pub use tracking::{
-    ClusterMeasurements, ClusterTracker2D, MeasurementTracker2D, NativeTrackStatus,
-    PointMeasurements, TrackAllocationConfig, TrackGatingConfig, TrackLifecycleConfig,
+    Box2D, ClusterMeasurements, ClusterTracker2D, NativeTrackStatus, PointMeasurements,
+    PointTracker2D, TrackAllocationConfig, TrackGatingConfig, TrackLifecycleConfig,
     TrackObservationMetrics, TrackSceneryConfig, TrackStepResult, Tracker2DConfig,
-    TrackerDynamicsConfig, TrackingBox2D, TrackingError, TrackingMetricsError,
-    TrackingMetricsInput, TrackingSequenceMetrics, summarize_tracking_metrics,
+    TrackerDynamicsConfig, TrackingError, TrackingMetricsError, TrackingMetricsInput,
+    TrackingSequenceMetrics, summarize_tracking_metrics,
 };
-pub use vitals::{VitalSignError, unwrap_vital_phase_complex, vital_phase_to_displacement};

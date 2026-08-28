@@ -6,22 +6,22 @@ from collections.abc import Iterator
 from math import isclose
 
 from mmwcore.core import (
-    DBSCANClusteringSpec,
+    DBSCANSpec,
     PointCloudFrame,
-    PointCloudRecipe,
+    PointCloudPipeline,
     Tracker2DSpec,
     TrackFrame,
 )
-from mmwcore.dsp import cluster_point_cloud, process_adc_to_calibrated_point_cloud
-from mmwcore.io import ADCFrameReader
-from mmwcore.tracking.measurement_tracker import MeasurementTracker2D
+from mmwcore.dsp import cluster_point_cloud, point_cloud
+from mmwcore.io import ADCReader
+from mmwcore.tracking.measurement_tracker import PointTracker2D
 from mmwcore.tracking.tracker import ClusterTracker2D
 
 
 def iter_adc_cluster_track_frames(
-    reader: ADCFrameReader,
-    point_cloud_recipe: PointCloudRecipe,
-    clustering: DBSCANClusteringSpec,
+    reader: ADCReader,
+    point_cloud_recipe: PointCloudPipeline,
+    clustering: DBSCANSpec,
     tracker: Tracker2DSpec,
     *,
     start: int = 0,
@@ -30,20 +30,20 @@ def iter_adc_cluster_track_frames(
     """Track DBSCAN cluster centers over a contiguous ADC file interval."""
 
     stateful_tracker = ClusterTracker2D(tracker)
-    for point_cloud in _iter_adc_point_clouds(
+    for cloud in _iter_adc_point_clouds(
         reader,
         point_cloud_recipe,
         tracker,
         start=start,
         stop=stop,
     ):
-        yield stateful_tracker.step(cluster_point_cloud(point_cloud, clustering))
+        yield stateful_tracker.step(cluster_point_cloud(cloud, clustering))
 
 
 def iter_adc_measurement_track_frames(
-    reader: ADCFrameReader,
-    point_cloud_recipe: PointCloudRecipe,
-    allocation_clustering: DBSCANClusteringSpec,
+    reader: ADCReader,
+    point_cloud_recipe: PointCloudPipeline,
+    allocation_clustering: DBSCANSpec,
     tracker: Tracker2DSpec,
     *,
     start: int = 0,
@@ -51,20 +51,20 @@ def iter_adc_measurement_track_frames(
 ) -> Iterator[TrackFrame]:
     """Track raw measurements over a contiguous ADC file interval."""
 
-    stateful_tracker = MeasurementTracker2D(tracker, allocation_clustering)
-    for point_cloud in _iter_adc_point_clouds(
+    stateful_tracker = PointTracker2D(tracker, allocation_clustering)
+    for cloud in _iter_adc_point_clouds(
         reader,
         point_cloud_recipe,
         tracker,
         start=start,
         stop=stop,
     ):
-        yield stateful_tracker.step(point_cloud)
+        yield stateful_tracker.step(cloud)
 
 
 def _iter_adc_point_clouds(
-    reader: ADCFrameReader,
-    point_cloud_recipe: PointCloudRecipe,
+    reader: ADCReader,
+    point_cloud_recipe: PointCloudPipeline,
     tracker: Tracker2DSpec,
     *,
     start: int,
@@ -89,7 +89,7 @@ def _iter_adc_point_clouds(
         )
 
     for frame_index in range(start, end):
-        yield process_adc_to_calibrated_point_cloud(
+        yield point_cloud(
             reader.read_frame(frame_index),
             point_cloud_recipe,
         )

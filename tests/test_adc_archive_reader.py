@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 
 from mmwcore.config import RadarCaptureSpec, RadarProfile
-from mmwcore.core import ADCDecodeRecipe, ADCFrameSpec, DopplerFFTSpec, RangeDopplerRecipe
-from mmwcore.dsp import process_adc_to_range_doppler
-from mmwcore.io import ADCArchiveFrameReader, ADCFileFrameReader, write_adc_archive
+from mmwcore.core import ADCDecodeSpec, ADCFrameSpec, DopplerFFTSpec, RangeDopplerPipeline
+from mmwcore.dsp import range_doppler
+from mmwcore.io import ADCArchiveReader, ADCFileReader, write_adc_archive
 from mmwcore.io.adc_archive import ADCArchive
 
 
@@ -46,7 +46,7 @@ def _archive(tmp_path: Path) -> tuple[Path, RadarCaptureSpec, bytes]:
 
 def test_reader_recovers_contract_and_decodes_frames_without_external_spec(tmp_path: Path) -> None:
     archive, capture, raw = _archive(tmp_path)
-    reader = ADCArchiveFrameReader(archive, metadata={"session": "fixture"})
+    reader = ADCArchiveReader(archive, metadata={"session": "fixture"})
     frame = reader.read_frame(2)
 
     assert reader.capture == capture
@@ -64,7 +64,7 @@ def test_reader_recovers_contract_and_decodes_frames_without_external_spec(tmp_p
 
 def test_reader_batches_frames_in_caller_order(tmp_path: Path) -> None:
     archive, _, _ = _archive(tmp_path)
-    reader = ADCArchiveFrameReader(archive)
+    reader = ADCArchiveReader(archive)
 
     frames = reader.read_frames([2, 0, 2, 1])
 
@@ -80,7 +80,7 @@ def test_reader_batches_frames_in_caller_order(tmp_path: Path) -> None:
 def test_reader_metadata_cannot_override_embedded_tx_order(tmp_path: Path) -> None:
     archive, _, _ = _archive(tmp_path)
     with pytest.raises(ValueError, match="tx_order"):
-        ADCArchiveFrameReader(archive, metadata={"tx_order": [9]})
+        ADCArchiveReader(archive, metadata={"tx_order": [9]})
 
 
 def test_reader_open_does_not_decode_all_frames(
@@ -93,7 +93,7 @@ def test_reader_open_does_not_decode_all_frames(
         raise AssertionError("verify_all must remain explicit")
 
     monkeypatch.setattr(ADCArchive, "verify_all", reject_eager_verification)
-    reader = ADCArchiveFrameReader(archive)
+    reader = ADCArchiveReader(archive)
 
     np.testing.assert_array_equal(reader.read_frame(0).samples, np.array([0, 1, 2, 3]))
 
@@ -106,7 +106,7 @@ def test_open_ended_capture_records_final_frame_count(tmp_path: Path) -> None:
     destination = tmp_path / "open-ended.mmwa"
 
     write_adc_archive(source, destination, capture)
-    reader = ADCArchiveFrameReader(destination)
+    reader = ADCArchiveReader(destination)
 
     assert reader.capture.num_frames == 3
     assert reader.capture.expected_size_bytes == len(raw)
@@ -137,7 +137,7 @@ def test_writer_binds_expected_logical_source_identity(tmp_path: Path) -> None:
         capture,
         expected_adc_sha256=digest,
     )
-    reader = ADCArchiveFrameReader(destination)
+    reader = ADCArchiveReader(destination)
 
     assert written.adc_sha256 == digest
     np.testing.assert_array_equal(reader.read_frame(1).samples, np.array([4, 5, 6, 7]))
@@ -150,16 +150,16 @@ def test_raw_and_archive_readers_produce_identical_range_doppler_data(tmp_path: 
     source.write_bytes(raw)
     archive = tmp_path / "adc.mmwa"
     write_adc_archive(source, archive, capture)
-    raw_reader = ADCFileFrameReader.from_capture(source, capture)
-    archive_reader = ADCArchiveFrameReader(archive)
-    recipe = RangeDopplerRecipe(
-        decode=ADCDecodeRecipe(capture.adc),
+    raw_reader = ADCFileReader.from_capture(source, capture)
+    archive_reader = ADCArchiveReader(archive)
+    recipe = RangeDopplerPipeline(
+        decode=ADCDecodeSpec(capture.adc),
         doppler_fft=DopplerFFTSpec(fftshift=False),
     )
 
     for index in range(capture.num_frames or 0):
-        raw_cube = process_adc_to_range_doppler(raw_reader.read_frame(index), recipe)
-        archive_cube = process_adc_to_range_doppler(archive_reader.read_frame(index), recipe)
+        raw_cube = range_doppler(raw_reader.read_frame(index), recipe)
+        archive_cube = range_doppler(archive_reader.read_frame(index), recipe)
         np.testing.assert_array_equal(archive_cube.data, raw_cube.data)
         assert archive_cube.axes == raw_cube.axes
         assert archive_cube.frame_id == raw_cube.frame_id

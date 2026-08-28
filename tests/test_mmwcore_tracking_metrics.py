@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mmwcore.core import TrackFrame, TrackingBox2D, TrackScenerySpec, TrackStatus
+from mmwcore.core import Box2D, ScenerySpec, TrackFrame, TrackStatus
 from mmwcore.tracking import summarize_track_frames
 
 
@@ -87,7 +87,7 @@ def test_summarize_track_frames_reports_spatial_motion_and_scenery() -> None:
                 velocities=((0.0, 2.0, 0.0),),
             ),
         ],
-        scenery=TrackScenerySpec((TrackingBox2D(-0.5, 1.0, 0.5, 2.0),)),
+        scenery=ScenerySpec((Box2D(-0.5, 1.0, 0.5, 2.0),)),
     )
 
     track = summary.tracks[0]

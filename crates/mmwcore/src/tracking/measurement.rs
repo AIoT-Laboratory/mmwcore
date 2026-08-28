@@ -10,12 +10,12 @@ use super::{PointMeasurements, TrackStepResult, Tracker2DConfig, TrackingError};
 
 /// Stateful tracker that associates individual Cartesian radar points.
 #[derive(Clone, Debug)]
-pub struct MeasurementTracker2D {
+pub struct PointTracker2D {
     state: TrackerState2D,
     allocation_clustering: DbscanConfig,
 }
 
-impl MeasurementTracker2D {
+impl PointTracker2D {
     /// Construct one native measurement-level tracker.
     pub fn new(config: Tracker2DConfig, allocation_clustering: DbscanConfig) -> Self {
         Self {
@@ -306,7 +306,7 @@ fn summarize_points(coordinates: &[f32], indices: &[usize]) -> PointSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::{MeasurementTracker2D, PointMeasurements};
+    use super::{PointMeasurements, PointTracker2D};
     use crate::clustering::DbscanConfig;
     use crate::tracking::{
         TrackAllocationConfig, TrackGatingConfig, TrackLifecycleConfig, TrackSceneryConfig,
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn partitions_points_between_native_tracks() {
         let mut tracker =
-            MeasurementTracker2D::new(config(), DbscanConfig::new(0.2, 2, 0.0, false).unwrap());
+            PointTracker2D::new(config(), DbscanConfig::new(0.2, 2, 0.0, false).unwrap());
         tracker
             .step(PointMeasurements {
                 coordinates: &[

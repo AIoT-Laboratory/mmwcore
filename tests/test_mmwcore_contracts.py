@@ -11,15 +11,16 @@ import mmwcore
 from mmwcore.config import RadarCaptureSpec, RadarProfile
 from mmwcore.core import (
     ADCComplexLayout,
-    ADCDecodeRecipe,
+    ADCDecodeSpec,
+    ADCFrame,
     ADCFrameSpec,
     AngleFFTSpec,
     CascadeADCFrameSpec,
     CFARDetectionSpec,
     DetectionFrame,
     DetectionMethod,
+    DetectionPipeline,
     DetectionQualitySpec,
-    DetectionRecipe,
     DopplerFFTSpec,
     FFTWindow,
     PeakDetectionSpec,
@@ -27,27 +28,24 @@ from mmwcore.core import (
     PlanarAngleFFTSpec,
     PlanarApertureLayout,
     PointCloudFrame,
+    PointCloudPipeline,
     PointCloudProjectionSpec,
-    PointCloudRecipe,
     RadarCube,
-    RangeDopplerRecipe,
+    RangeDopplerPipeline,
     RangeFFTSpec,
-    RawADCFrame,
     VirtualAntennaLayout,
 )
 from mmwcore.dsp import (
+    detect,
     detect_peaks,
     detections_to_point_cloud,
     doppler_fft,
     organize_adc_samples,
-    process_adc_file_to_calibrated_point_cloud,
-    process_adc_file_to_range_doppler,
-    process_adc_to_calibrated_point_cloud,
-    process_adc_to_detections,
-    process_adc_to_range_doppler,
+    point_cloud,
+    range_doppler,
     range_fft,
 )
-from mmwcore.io import ADCFileFrameReader, load_adc_cube, load_adc_file
+from mmwcore.io import ADCFileReader, load_adc_cube, load_adc_file
 
 type FFTSpec = RangeFFTSpec | DopplerFFTSpec | AngleFFTSpec | PlanarAngleFFTSpec
 
@@ -83,7 +81,7 @@ def test_mmwcore_import_is_lightweight() -> None:
 
 
 def test_raw_adc_frame_normalizes_representable_integers_to_int16() -> None:
-    frame = RawADCFrame(np.arange(8, dtype=np.int32), frame_id="f0")
+    frame = ADCFrame(np.arange(8, dtype=np.int32), frame_id="f0")
 
     assert frame.samples.dtype == np.int16
     assert frame.samples.shape == (8,)
@@ -104,12 +102,12 @@ def test_raw_adc_frame_rejects_lossy_int16_conversion(
     message: str,
 ) -> None:
     with pytest.raises(error, match=message):
-        RawADCFrame(samples)
+        ADCFrame(samples)
 
 
 def test_raw_adc_frame_rejects_empty_samples() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
-        RawADCFrame(np.array([], dtype=np.int16))
+        ADCFrame(np.array([], dtype=np.int16))
 
 
 def test_radar_cube_requires_axes_to_match_dimensions() -> None:
@@ -342,7 +340,7 @@ def test_fft_specs_require_nonempty_string_axes(
 
 def test_organize_adc_samples_interleaved_iq_layout() -> None:
     spec = ADCFrameSpec(num_chirps=1, num_rx=2, num_samples=2)
-    raw = RawADCFrame(
+    raw = ADCFrame(
         np.array([1, 10, 2, 20, 3, 30, 4, 40], dtype=np.int16),
         frame_id="frame-0",
         source="fixture.bin",
@@ -524,7 +522,7 @@ def test_load_adc_file_supports_memmap(tmp_path) -> None:
 def test_adc_file_frame_reader_maps_requested_frame_and_timestamp(tmp_path) -> None:
     adc_path = tmp_path / "adc.bin"
     np.arange(12, dtype=np.int16).tofile(adc_path)
-    reader = ADCFileFrameReader(
+    reader = ADCFileReader(
         adc_path,
         ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2),
         frame_periodicity_s=0.1,
@@ -548,16 +546,16 @@ def test_adc_file_frame_reader_rejects_invalid_files_and_indices(tmp_path) -> No
     spec = ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2)
 
     with pytest.raises(ValueError, match="whole number"):
-        ADCFileFrameReader(adc_path, spec)
+        ADCFileReader(adc_path, spec)
 
     np.arange(8, dtype=np.int16).tofile(adc_path)
-    reader = ADCFileFrameReader(adc_path, spec)
+    reader = ADCFileReader(adc_path, spec)
     with pytest.raises(IndexError, match="outside"):
         reader.read_frame(2)
     with pytest.raises(TypeError, match="not bool"):
         reader.read_frame(True)
     with pytest.raises(ValueError, match="finite and positive"):
-        ADCFileFrameReader(adc_path, spec, frame_periodicity_s=float("nan"))
+        ADCFileReader(adc_path, spec, frame_periodicity_s=float("nan"))
 
 
 def test_adc_file_frame_reader_validates_explicit_capture(tmp_path) -> None:
@@ -577,7 +575,7 @@ def test_adc_file_frame_reader_validates_explicit_capture(tmp_path) -> None:
         num_frames=4,
     )
 
-    reader = ADCFileFrameReader.from_capture(adc_path, capture, metadata={"session": "test"})
+    reader = ADCFileReader.from_capture(adc_path, capture, metadata={"session": "test"})
     frame = reader.read_frame(3)
 
     assert reader.num_frames == 4
@@ -587,7 +585,7 @@ def test_adc_file_frame_reader_validates_explicit_capture(tmp_path) -> None:
     assert frame.metadata["session"] == "test"
 
     with pytest.raises(ValueError, match="must not override capture tx_order"):
-        ADCFileFrameReader.from_capture(adc_path, capture, metadata={"tx_order": [2]})
+        ADCFileReader.from_capture(adc_path, capture, metadata={"tx_order": [2]})
 
     invalid_capture = RadarCaptureSpec(
         profile=profile,
@@ -596,7 +594,7 @@ def test_adc_file_frame_reader_validates_explicit_capture(tmp_path) -> None:
         num_frames=3,
     )
     with pytest.raises(ValueError, match="frame count"):
-        ADCFileFrameReader.from_capture(adc_path, invalid_capture)
+        ADCFileReader.from_capture(adc_path, invalid_capture)
 
 
 def test_load_adc_cube_loads_and_organizes_file(tmp_path) -> None:
@@ -1083,31 +1081,31 @@ def test_detections_to_point_cloud_requires_detection_channels() -> None:
 
 
 def test_point_cloud_recipe_rejects_detection_without_calibrated_aoa() -> None:
-    detection = DetectionRecipe(
-        transform=RangeDopplerRecipe(
-            decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+    detection = DetectionPipeline(
+        transform=RangeDopplerPipeline(
+            decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
         ),
         peak_detection=PeakDetectionSpec(threshold=1.0),
     )
 
     with pytest.raises(ValueError, match="calibrated virtual antenna"):
-        PointCloudRecipe(detection)
+        PointCloudPipeline(detection)
 
 
-def test_process_adc_to_range_doppler_runs_explicit_recipe() -> None:
-    raw = RawADCFrame(
+def test_range_doppler_runs_explicit_recipe() -> None:
+    raw = ADCFrame(
         np.array([1, 0, 0, 0, 1, 0, 0, 0], dtype=np.int16),
         frame_id="frame-7",
         timestamp=12.5,
         source="fixture.bin",
     )
-    recipe = RangeDopplerRecipe(
-        decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=2, num_rx=1, num_samples=2)),
+    recipe = RangeDopplerPipeline(
+        decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=2, num_rx=1, num_samples=2)),
         range_fft=RangeFFTSpec(one_sided=True),
         doppler_fft=DopplerFFTSpec(fftshift=False),
     )
 
-    cube = process_adc_to_range_doppler(raw, recipe)
+    cube = range_doppler(raw, recipe)
 
     assert cube.axes == ("frame", "doppler_bin", "rx", "range_bin")
     assert cube.data.shape == (1, 2, 1, 2)
@@ -1120,11 +1118,11 @@ def test_process_adc_to_range_doppler_runs_explicit_recipe() -> None:
     np.testing.assert_array_equal(cube.data[:, 1], np.zeros((1, 1, 2), dtype=np.complex64))
 
 
-def test_process_adc_to_detections_supports_cfar_without_point_cloud_projection() -> None:
+def test_detect_supports_cfar_without_point_cloud_projection() -> None:
     raw = np.zeros(50, dtype=np.int16)
-    recipe = DetectionRecipe(
-        transform=RangeDopplerRecipe(
-            decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=5, num_rx=1, num_samples=5)),
+    recipe = DetectionPipeline(
+        transform=RangeDopplerPipeline(
+            decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=5, num_rx=1, num_samples=5)),
             range_fft=RangeFFTSpec(one_sided=True),
             doppler_fft=DopplerFFTSpec(fftshift=False),
         ),
@@ -1138,7 +1136,7 @@ def test_process_adc_to_detections_supports_cfar_without_point_cloud_projection(
         quality_filter=DetectionQualitySpec(2.0),
     )
 
-    detections = process_adc_to_detections(raw, recipe)
+    detections = detect(raw, recipe)
     assert detections.channels == (
         "frame",
         "range_bin",
@@ -1151,25 +1149,25 @@ def test_process_adc_to_detections_supports_cfar_without_point_cloud_projection(
 
 
 def test_threshold_recipe_rejects_quality_filter_without_snr_at_runtime() -> None:
-    recipe = DetectionRecipe(
-        transform=RangeDopplerRecipe(
-            decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+    recipe = DetectionPipeline(
+        transform=RangeDopplerPipeline(
+            decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
         ),
         peak_detection=PeakDetectionSpec(threshold=0.0),
         quality_filter=DetectionQualitySpec(2.0),
     )
 
     with pytest.raises(ValueError, match='requires an "snr" channel'):
-        process_adc_to_detections(np.zeros(4, dtype=np.int16), recipe)
+        detect(np.zeros(4, dtype=np.int16), recipe)
 
 
-def test_process_adc_to_calibrated_point_cloud_composes_recipes() -> None:
+def test_point_cloud_composes_recipes() -> None:
     raw = np.array([1, 0, 0, 0, 0, 0, 0, 0], dtype=np.int16)
     layout = VirtualAntennaLayout.uniform_linear(4)
-    recipe = PointCloudRecipe(
-        detection=DetectionRecipe(
-            transform=RangeDopplerRecipe(
-                decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=4, num_samples=1)),
+    recipe = PointCloudPipeline(
+        detection=DetectionPipeline(
+            transform=RangeDopplerPipeline(
+                decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=4, num_samples=1)),
                 range_fft=RangeFFTSpec(one_sided=True),
                 doppler_fft=DopplerFFTSpec(fftshift=False),
             ),
@@ -1178,10 +1176,10 @@ def test_process_adc_to_calibrated_point_cloud_composes_recipes() -> None:
         ),
     )
 
-    point_cloud = process_adc_to_calibrated_point_cloud(raw, recipe)
-    assert isinstance(point_cloud, PointCloudFrame)
+    cloud = point_cloud(raw, recipe)
+    assert isinstance(cloud, PointCloudFrame)
 
-    assert point_cloud.channels == (
+    assert cloud.channels == (
         "x",
         "y",
         "z",
@@ -1192,13 +1190,13 @@ def test_process_adc_to_calibrated_point_cloud_composes_recipes() -> None:
         "azimuth_bin",
         "azimuth_rad",
     )
-    assert point_cloud.metadata["angle_fft"]["virtual_layout"] == layout.as_metadata()
+    assert cloud.metadata["angle_fft"]["virtual_layout"] == layout.as_metadata()
     np.testing.assert_array_equal(
-        point_cloud.points[:, 7],
+        cloud.points[:, 7],
         np.array([0, 1, 2, 3], dtype=np.float32),
     )
     np.testing.assert_allclose(
-        point_cloud.points[:, 8],
+        cloud.points[:, 8],
         np.array([0.0, np.pi / 6, -np.pi / 2, -np.pi / 6], dtype=np.float32),
         atol=1e-6,
     )
@@ -1206,9 +1204,9 @@ def test_process_adc_to_calibrated_point_cloud_composes_recipes() -> None:
 
 def test_detection_recipe_requires_cfar_config_for_cfar_method() -> None:
     with pytest.raises(ValueError, match="cfar_detection"):
-        DetectionRecipe(
-            transform=RangeDopplerRecipe(
-                decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+        DetectionPipeline(
+            transform=RangeDopplerPipeline(
+                decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
             ),
             peak_detection=PeakDetectionSpec(threshold=1.0),
             detection_method=DetectionMethod.CFAR,
@@ -1217,10 +1215,10 @@ def test_detection_recipe_requires_cfar_config_for_cfar_method() -> None:
 
 def test_detection_recipe_composes_cfar_grouping_and_candidate_aoa() -> None:
     raw = np.zeros(200, dtype=np.int16)
-    recipe = PointCloudRecipe(
-        detection=DetectionRecipe(
-            transform=RangeDopplerRecipe(
-                decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=5, num_rx=4, num_samples=5)),
+    recipe = PointCloudPipeline(
+        detection=DetectionPipeline(
+            transform=RangeDopplerPipeline(
+                decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=5, num_rx=4, num_samples=5)),
                 range_fft=RangeFFTSpec(one_sided=True),
                 doppler_fft=DopplerFFTSpec(fftshift=False),
             ),
@@ -1234,57 +1232,12 @@ def test_detection_recipe_composes_cfar_grouping_and_candidate_aoa() -> None:
         ),
     )
 
-    point_cloud = process_adc_to_calibrated_point_cloud(raw, recipe)
+    cloud = point_cloud(raw, recipe)
 
-    assert point_cloud.points.shape == (0, 12)
-    assert point_cloud.channels[-3:] == ("noise", "snr", "angle_magnitude")
-    assert point_cloud.channels[7:9] == ("azimuth_bin", "azimuth_rad")
-    assert point_cloud.metadata["candidate_azimuth"]["input_axis"] == "rx"
-
-
-def test_process_adc_file_to_calibrated_point_cloud_loads_file(tmp_path) -> None:
-    adc_path = tmp_path / "adc.bin"
-    np.array([1, 0, 0, 0, 0, 0, 0, 0], dtype=np.int16).tofile(adc_path)
-    recipe = PointCloudRecipe(
-        detection=DetectionRecipe(
-            transform=RangeDopplerRecipe(
-                decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=4, num_samples=1)),
-                range_fft=RangeFFTSpec(one_sided=True),
-                doppler_fft=DopplerFFTSpec(fftshift=False),
-            ),
-            angle_fft=AngleFFTSpec(
-                fftshift=False,
-                virtual_layout=VirtualAntennaLayout.uniform_linear(4),
-            ),
-            peak_detection=PeakDetectionSpec(threshold=1.0, azimuth_peak_radius=0),
-        ),
-    )
-
-    point_cloud = process_adc_file_to_calibrated_point_cloud(adc_path, recipe, frame_id="file-0")
-    assert isinstance(point_cloud, PointCloudFrame)
-
-    assert point_cloud.frame_id == "file-0"
-    assert point_cloud.source == str(adc_path)
-    assert point_cloud.points.shape == (4, 9)
-
-
-def test_process_adc_file_to_range_doppler_loads_file(tmp_path) -> None:
-    adc_path = tmp_path / "adc.bin"
-    np.array([1, 0, 0, 0], dtype=np.int16).tofile(adc_path)
-    recipe = RangeDopplerRecipe(
-        decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2)),
-        doppler_fft=DopplerFFTSpec(fftshift=False),
-    )
-
-    cube = process_adc_file_to_range_doppler(
-        adc_path,
-        recipe,
-        frame_id="capture-rd",
-        mmap=True,
-    )
-
-    assert cube.frame_id == "capture-rd"
-    assert cube.axes == ("frame", "doppler_bin", "rx", "range_bin")
+    assert cloud.points.shape == (0, 12)
+    assert cloud.channels[-3:] == ("noise", "snr", "angle_magnitude")
+    assert cloud.channels[7:9] == ("azimuth_bin", "azimuth_rad")
+    assert cloud.metadata["candidate_azimuth"]["input_axis"] == "rx"
 
 
 @pytest.mark.parametrize(
@@ -1300,10 +1253,10 @@ def test_recipe_boolean_policies_require_builtin_bool(
     field_name: str,
     value: object,
 ) -> None:
-    decode = ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
-    recipes: dict[str, ADCDecodeRecipe | RangeDopplerRecipe] = {
+    decode = ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+    recipes: dict[str, ADCDecodeSpec | RangeDopplerPipeline] = {
         "decode": decode,
-        "transform": RangeDopplerRecipe(decode=decode),
+        "transform": RangeDopplerPipeline(decode=decode),
     }
 
     with pytest.raises(TypeError, match=field_name):
@@ -1323,10 +1276,10 @@ def test_recipe_boolean_policies_accept_builtin_bool(
     field_name: str,
     value: bool,
 ) -> None:
-    decode = ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
-    recipes: dict[str, ADCDecodeRecipe | RangeDopplerRecipe] = {
+    decode = ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=1, num_samples=2))
+    recipes: dict[str, ADCDecodeSpec | RangeDopplerPipeline] = {
         "decode": decode,
-        "transform": RangeDopplerRecipe(decode=decode),
+        "transform": RangeDopplerPipeline(decode=decode),
     }
 
     updated = replace(recipes[recipe_name], **{field_name: value})
@@ -1359,21 +1312,21 @@ def test_recipe_nested_contracts_require_declared_types(
     field_name: str,
 ) -> None:
     layout = VirtualAntennaLayout.uniform_linear(4)
-    decode = ADCDecodeRecipe(ADCFrameSpec(num_chirps=1, num_rx=4, num_samples=2))
-    transform = RangeDopplerRecipe(decode=decode)
-    detection = DetectionRecipe(
+    decode = ADCDecodeSpec(ADCFrameSpec(num_chirps=1, num_rx=4, num_samples=2))
+    transform = RangeDopplerPipeline(decode=decode)
+    detection = DetectionPipeline(
         transform=transform,
         peak_detection=PeakDetectionSpec(threshold=1.0),
         angle_fft=AngleFFTSpec(virtual_layout=layout),
     )
     recipes: dict[
         str,
-        ADCDecodeRecipe | RangeDopplerRecipe | DetectionRecipe | PointCloudRecipe,
+        ADCDecodeSpec | RangeDopplerPipeline | DetectionPipeline | PointCloudPipeline,
     ] = {
         "decode": decode,
         "transform": transform,
         "detection": detection,
-        "point_cloud": PointCloudRecipe(detection=detection),
+        "point_cloud": PointCloudPipeline(detection=detection),
     }
 
     with pytest.raises(TypeError, match=field_name):

@@ -63,7 +63,7 @@ def test_native_cluster_tracker_rejects_non_contiguous_or_mismatched_inputs() ->
 
 
 def test_native_measurement_tracker_partitions_points_between_tracks() -> None:
-    tracker = _native.NativeMeasurementTracker2D(_measurement_config())
+    tracker = _native.NativePointTracker2D(_measurement_config())
     first_coordinates = np.array(
         ((-1.05, 1.0, 0.0), (-0.95, 1.0, 0.0), (0.95, 1.0, 0.0), (1.05, 1.0, 0.0)),
         dtype=np.float32,

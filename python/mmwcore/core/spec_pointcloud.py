@@ -11,7 +11,7 @@ from typing import SupportsFloat, SupportsIndex, cast
 
 
 @dataclass(frozen=True)
-class CartesianVolumeSparsificationSpec:
+class SparsifySpec:
     """Deterministic sparsification of a dense Doppler-Cartesian magnitude volume."""
 
     min_snr_db: float = 0.0
@@ -141,4 +141,4 @@ def _unit_fraction(value: object, *, name: str) -> float:
     return normalized
 
 
-__all__ = ["CartesianVolumeSparsificationSpec"]
+__all__ = ["SparsifySpec"]

@@ -203,7 +203,7 @@ impl fmt::Display for CartesianSparsificationError {
 impl std::error::Error for CartesianSparsificationError {}
 
 /// Extract deterministic Cartesian radar points from one DZYX magnitude volume.
-pub fn sparsify_cartesian_volume(
+pub fn sparsify(
     input: CartesianSparsificationInput<'_>,
     config: CartesianSparsificationConfig,
 ) -> Result<CartesianSparsificationResult, CartesianSparsificationError> {
@@ -213,10 +213,10 @@ pub fn sparsify_cartesian_volume(
         .map_or(1, |parallelism| parallelism.get())
         .min(4)
         .min(input.shape_dzyx[0].max(1));
-    sparsify_cartesian_volume_with_workers(input, config, worker_count)
+    sparsify_with_workers(input, config, worker_count)
 }
 
-fn sparsify_cartesian_volume_with_workers(
+fn sparsify_with_workers(
     input: CartesianSparsificationInput<'_>,
     config: CartesianSparsificationConfig,
     worker_count: usize,
@@ -637,8 +637,8 @@ fn materialize_points(
 #[cfg(test)]
 mod tests {
     use super::{
-        CartesianSparsificationConfig, CartesianSparsificationInput, sparsify_cartesian_volume,
-        sparsify_cartesian_volume_with_workers,
+        CartesianSparsificationConfig, CartesianSparsificationInput, sparsify,
+        sparsify_with_workers,
     };
 
     fn config() -> CartesianSparsificationConfig {
@@ -674,7 +674,7 @@ mod tests {
         let mut volume = vec![0.0; 2 * 2 * 3 * 3];
         volume[0] = 2.0;
         volume[2 * 3 * 3 + (3 + 2) * 3 + 2] = 8.0;
-        let result = sparsify_cartesian_volume(input(&volume, [2, 2, 3, 3]), config()).unwrap();
+        let result = sparsify(input(&volume, [2, 2, 3, 3]), config()).unwrap();
 
         assert_eq!(result.point_count, 2);
         assert_eq!(
@@ -690,7 +690,7 @@ mod tests {
         volume[(3 + 1) * 4 + 2] = 5.0;
         let mut policy = config();
         policy.spatial_peak_radius = 1;
-        let result = sparsify_cartesian_volume(
+        let result = sparsify(
             CartesianSparsificationInput {
                 magnitude_dzyx: &volume,
                 shape_dzyx: [1, 3, 3, 4],
@@ -722,8 +722,8 @@ mod tests {
         policy.max_doppler_peaks_per_spatial = Some(1);
         let input = input(&volume, [2, 2, 3, 3]);
 
-        let sequential = sparsify_cartesian_volume_with_workers(input, policy, 1).unwrap();
-        let parallel = sparsify_cartesian_volume_with_workers(input, policy, 2).unwrap();
+        let sequential = sparsify_with_workers(input, policy, 1).unwrap();
+        let parallel = sparsify_with_workers(input, policy, 2).unwrap();
 
         assert_eq!(parallel, sequential);
     }
@@ -733,7 +733,7 @@ mod tests {
         let volume = [5.0, 5.0];
         let mut policy = config();
         policy.doppler_peak_radius = 1;
-        let result = sparsify_cartesian_volume(
+        let result = sparsify(
             CartesianSparsificationInput {
                 magnitude_dzyx: &volume,
                 shape_dzyx: [2, 1, 1, 1],
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn excludes_suppressed_doppler_slice_from_points_and_counts() {
         let volume = [2.0, 8.0];
-        let result = sparsify_cartesian_volume(
+        let result = sparsify(
             CartesianSparsificationInput {
                 magnitude_dzyx: &volume,
                 shape_dzyx: [2, 1, 1, 1],

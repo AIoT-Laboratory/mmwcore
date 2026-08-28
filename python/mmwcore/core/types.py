@@ -46,7 +46,7 @@ def _as_int64_array(values: np.ndarray, *, name: str) -> np.ndarray:
 
 
 @dataclass(frozen=True)
-class RawADCFrame:
+class ADCFrame:
     """Raw ADC frame values captured from hardware or loaded from an ADC file."""
 
     samples: np.ndarray
@@ -59,18 +59,17 @@ class RawADCFrame:
     def __post_init__(self) -> None:
         samples = self.samples if isinstance(self.samples, np.memmap) else np.asarray(self.samples)
         if samples.ndim != 1:
-            raise ValueError(f"RawADCFrame.samples must be one-dimensional; got {samples.shape}.")
+            raise ValueError(f"ADCFrame.samples must be one-dimensional; got {samples.shape}.")
         if samples.size == 0:
-            raise ValueError("RawADCFrame.samples must not be empty.")
+            raise ValueError("ADCFrame.samples must not be empty.")
         if samples.dtype != np.int16:
             if not np.issubdtype(samples.dtype, np.integer):
                 raise TypeError(
-                    "RawADCFrame.samples must contain integer ADC values; "
-                    f"got dtype {samples.dtype}."
+                    f"ADCFrame.samples must contain integer ADC values; got dtype {samples.dtype}."
                 )
             limits = np.iinfo(np.int16)
             if np.any(samples < limits.min) or np.any(samples > limits.max):
-                raise ValueError("RawADCFrame.samples contains values outside the int16 range.")
+                raise ValueError("ADCFrame.samples contains values outside the int16 range.")
             samples = samples.astype(np.int16)
 
         object.__setattr__(self, "samples", samples)
@@ -113,7 +112,7 @@ class RadarCube:
 
 
 @dataclass(frozen=True)
-class CartesianRadarVolume:
+class CartesianVolume:
     """Non-negative radar magnitude on physical Doppler and Cartesian axes."""
 
     magnitude_dzyx: np.ndarray
@@ -141,23 +140,23 @@ class CartesianRadarVolume:
         expected_shape = tuple(axis.size for axis in axes)
         if magnitude.ndim != 4 or magnitude.shape != expected_shape:
             raise ValueError(
-                "CartesianRadarVolume magnitude must have shape (D, Z, Y, X); "
+                "CartesianVolume magnitude must have shape (D, Z, Y, X); "
                 f"got {magnitude.shape} for axes {expected_shape}."
             )
         if not np.isfinite(magnitude).all() or np.any(magnitude < 0.0):
-            raise ValueError("CartesianRadarVolume magnitude must be finite and non-negative.")
+            raise ValueError("CartesianVolume magnitude must be finite and non-negative.")
         for name, axis in zip(
             ("doppler_velocity_mps", "z_m", "y_m", "x_m"),
             axes,
             strict=True,
         ):
             if axis.ndim != 1 or axis.size == 0 or not np.isfinite(axis).all():
-                raise ValueError(f"CartesianRadarVolume {name} must be a finite 1D axis.")
+                raise ValueError(f"CartesianVolume {name} must be a finite 1D axis.")
             if axis.size > 1 and not np.all(np.diff(axis) > 0.0):
-                raise ValueError(f"CartesianRadarVolume {name} must be strictly increasing.")
+                raise ValueError(f"CartesianVolume {name} must be strictly increasing.")
         coordinate_frame = self.coordinate_frame.strip()
         if not coordinate_frame:
-            raise ValueError("CartesianRadarVolume coordinate_frame must not be empty.")
+            raise ValueError("CartesianVolume coordinate_frame must not be empty.")
 
         object.__setattr__(self, "magnitude_dzyx", magnitude)
         object.__setattr__(self, "doppler_velocity_mps", axes[0])

@@ -25,17 +25,17 @@ from pathlib import Path
 import numpy as np
 
 import mmwcore
-from mmwcore.config import iwr6843_isk_range_doppler_recipe, iwr6843_profile
-from mmwcore.core import ADCComplexLayout, RadarCube, RangeDopplerRecipe, RawADCFrame
+from mmwcore.config import iwr6843_isk_range_doppler_pipeline, iwr6843_profile
+from mmwcore.core import ADCComplexLayout, ADCFrame, RadarCube, RangeDopplerPipeline
 from mmwcore.dsp import (
     compensate_tdm_doppler_phase,
     doppler_fft,
     map_tdm_virtual_array,
     organize_adc_samples,
-    process_adc_to_range_doppler,
+    range_doppler,
     range_fft,
 )
-from mmwcore.io import ADCFileFrameReader
+from mmwcore.io import ADCFileReader
 
 SCHEMA = "mmwcore.benchmark.v1"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -63,12 +63,12 @@ class _BenchmarkWorkload:
             raise ValueError("Benchmark loop count must be positive.")
 
     @property
-    def recipe(self) -> RangeDopplerRecipe:
+    def recipe(self) -> RangeDopplerPipeline:
         profile = iwr6843_profile(
             num_adc_samples=self.num_adc_samples,
             num_chirps_per_tx=self.num_loops,
         )
-        return iwr6843_isk_range_doppler_recipe(
+        return iwr6843_isk_range_doppler_pipeline(
             profile,
             adc_layout=ADCComplexLayout.GROUP2_I_THEN_Q,
         )
@@ -81,7 +81,7 @@ _DEFAULT_WORKLOAD = _BenchmarkWorkload(
 )
 
 
-def _synthetic_frame(recipe: RangeDopplerRecipe) -> np.ndarray:
+def _synthetic_frame(recipe: RangeDopplerPipeline) -> np.ndarray:
     """Return stable signed ADC words without relying on NumPy's RNG stream."""
 
     count = recipe.decode.adc.raw_values_per_frame
@@ -96,7 +96,7 @@ def _little_endian_payload(frame: np.ndarray) -> bytes:
 
 def _range_doppler_from_decoded(
     decoded: RadarCube,
-    recipe: RangeDopplerRecipe,
+    recipe: RangeDopplerPipeline,
 ) -> RadarCube:
     """Run the fixed benchmark RD stages without repeating ADC decoding."""
 
@@ -175,13 +175,13 @@ def _write_stream_fixture(path: Path, payload: bytes, frames: int) -> None:
 
 
 def _stream_operation(
-    reader: ADCFileFrameReader,
-    recipe: RangeDopplerRecipe,
+    reader: ADCFileReader,
+    recipe: RangeDopplerPipeline,
 ) -> Callable[[], float]:
     def process_all_frames() -> float:
         checksum = 0.0
         for index in range(reader.num_frames):
-            product = process_adc_to_range_doppler(reader.read_frame(index), recipe)
+            product = range_doppler(reader.read_frame(index), recipe)
             checksum += float(product.data[0, 0, 0, 0].real)
         return checksum
 
@@ -246,11 +246,11 @@ def run_benchmarks(
     adc_spec = recipe.decode.adc
     frame = _synthetic_frame(recipe)
     payload = _little_endian_payload(frame)
-    raw = RawADCFrame(frame, frame_id="synthetic-iwr6843", source="generated")
+    raw = ADCFrame(frame, frame_id="synthetic-iwr6843", source="generated")
 
     decoded = organize_adc_samples(raw, adc_spec)
     rd_only = _range_doppler_from_decoded(decoded, recipe)
-    end_to_end = process_adc_to_range_doppler(raw, recipe)
+    end_to_end = range_doppler(raw, recipe)
     expected_shape = (1, workload.num_loops, 12, workload.num_adc_samples // 2 + 1)
     if rd_only.data.shape != expected_shape or rd_only.data.dtype != np.complex64:
         raise RuntimeError("Benchmark range-Doppler output contract changed unexpectedly.")
@@ -282,7 +282,7 @@ def run_benchmarks(
             name="adc_to_range_doppler",
             scope="one raw int16 frame through decode and the complete range-Doppler recipe",
             input_kind="raw_adc_int16",
-            operation=lambda: process_adc_to_range_doppler(raw, recipe),
+            operation=lambda: range_doppler(raw, recipe),
             warmups=warmups,
             samples=samples,
             frames_per_sample=1,
@@ -293,7 +293,7 @@ def run_benchmarks(
     with tempfile.TemporaryDirectory(prefix="mmwcore-benchmark-") as temporary_directory:
         stream_path = Path(temporary_directory) / "adc.bin"
         _write_stream_fixture(stream_path, payload, stream_frames)
-        reader = ADCFileFrameReader(stream_path, adc_spec)
+        reader = ADCFileReader(stream_path, adc_spec)
         cases.append(
             _measure_case(
                 name="stream_adc_to_rd",

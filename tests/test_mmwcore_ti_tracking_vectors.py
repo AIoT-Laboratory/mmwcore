@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 
 from mmwcore.core import (
-    DBSCANClusteringSpec,
+    DBSCANSpec,
+    GatingSpec,
+    LifecycleSpec,
     Tracker2DSpec,
-    TrackGatingSpec,
-    TrackLifecycleSpec,
 )
 from mmwcore.tracking import (
     TiGTrack2DBenchmarkSpec,
@@ -96,11 +96,11 @@ def test_benchmark_cluster_tracker_on_ti_vectors_reports_both_status_views(tmp_p
 
     comparison = benchmark_cluster_tracker_on_ti_vectors(
         frames,
-        DBSCANClusteringSpec(eps_m=0.5, min_samples=1, use_z=False),
+        DBSCANSpec(eps_m=0.5, min_samples=1, use_z=False),
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=0.5),
-            lifecycle=TrackLifecycleSpec(confirmation_hits=2),
+            gating=GatingSpec(max_distance_m=0.5),
+            lifecycle=LifecycleSpec(confirmation_hits=2),
         ),
         match_distance_m=0.5,
     )
@@ -110,11 +110,11 @@ def test_benchmark_cluster_tracker_on_ti_vectors_reports_both_status_views(tmp_p
 
     run = run_cluster_tracker_on_ti_vectors(
         frames,
-        DBSCANClusteringSpec(eps_m=0.5, min_samples=1, use_z=False),
+        DBSCANSpec(eps_m=0.5, min_samples=1, use_z=False),
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=0.5),
-            lifecycle=TrackLifecycleSpec(confirmation_hits=2),
+            gating=GatingSpec(max_distance_m=0.5),
+            lifecycle=LifecycleSpec(confirmation_hits=2),
         ),
         match_distance_m=0.5,
     )
@@ -140,11 +140,11 @@ def test_benchmark_measurement_tracker_on_ti_vectors_reports_both_status_views(
 
     comparison = benchmark_measurement_tracker_on_ti_vectors(
         frames,
-        DBSCANClusteringSpec(eps_m=0.5, min_samples=1, use_z=False),
+        DBSCANSpec(eps_m=0.5, min_samples=1, use_z=False),
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=0.5),
-            lifecycle=TrackLifecycleSpec(confirmation_hits=2),
+            gating=GatingSpec(max_distance_m=0.5),
+            lifecycle=LifecycleSpec(confirmation_hits=2),
         ),
         match_distance_m=0.5,
     )
@@ -167,11 +167,11 @@ def test_paired_ti_benchmark_report_is_json_serializable(tmp_path) -> None:
     vector_path.write_bytes(frame + frame)
     frames = read_ti_gtrack_2d_vectors(vector_path)
     spec = TiGTrack2DBenchmarkSpec(
-        clustering=DBSCANClusteringSpec(eps_m=0.5, min_samples=1, use_z=False),
+        clustering=DBSCANSpec(eps_m=0.5, min_samples=1, use_z=False),
         tracker=Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=0.5),
-            lifecycle=TrackLifecycleSpec(confirmation_hits=2),
+            gating=GatingSpec(max_distance_m=0.5),
+            lifecycle=LifecycleSpec(confirmation_hits=2),
         ),
         match_distance_m=0.5,
     )

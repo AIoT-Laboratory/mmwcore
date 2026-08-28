@@ -5,24 +5,24 @@ from __future__ import annotations
 import numpy as np
 
 from mmwcore import _native
-from mmwcore.core import DBSCANClusteringSpec, PointCloudFrame, Tracker2DSpec, TrackFrame
+from mmwcore.core import DBSCANSpec, PointCloudFrame, Tracker2DSpec, TrackFrame
 from mmwcore.tracking._native_adapter import (
     native_measurement_tracker_config,
     track_frame,
 )
 
 
-class MeasurementTracker2D:
+class PointTracker2D:
     """Advance one Rust-owned measurement tracker per point-cloud frame."""
 
     def __init__(
         self,
         spec: Tracker2DSpec,
-        allocation_clustering: DBSCANClusteringSpec,
+        allocation_clustering: DBSCANSpec,
     ) -> None:
         self.spec = spec
         self.allocation_clustering = allocation_clustering
-        self._tracker = _native.NativeMeasurementTracker2D(
+        self._tracker = _native.NativePointTracker2D(
             native_measurement_tracker_config(spec, allocation_clustering)
         )
 
@@ -41,7 +41,7 @@ class MeasurementTracker2D:
                 point_cloud,
                 "snr",
                 required=self.spec.allocation.min_total_snr is not None,
-                requirement="TrackAllocationSpec.min_total_snr",
+                requirement="AllocationSpec.min_total_snr",
             ),
         )
         return track_frame(

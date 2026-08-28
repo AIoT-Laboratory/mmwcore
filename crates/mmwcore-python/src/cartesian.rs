@@ -13,17 +13,17 @@ use super::{
     NativePlanarCartesianResult, PlanarCartesianProjectionPlan, bool_cube_input, cartesian_axes,
     cartesian_error, cartesian_sparsification_config, complex_cube_input,
     detection_point_cloud_config, detection_point_cloud_error, dzyx_shape,
-    native_project_detection_point_cloud, native_sparsify_cartesian_volume,
-    planar_cartesian_config, real_cube_array, real_cube_input, sparsification_error,
+    native_project_detection_point_cloud, native_sparsify, planar_cartesian_config,
+    real_cube_array, real_cube_input, sparsification_error,
 };
 
 #[pyclass]
-struct NativePlanarCartesianProjector {
+struct NativeCartesianProjector {
     plan: PlanarCartesianProjectionPlan,
 }
 
 #[pymethods]
-impl NativePlanarCartesianProjector {
+impl NativeCartesianProjector {
     #[new]
     fn new(
         source_range_bins: usize,
@@ -60,7 +60,7 @@ impl NativePlanarCartesianProjector {
 }
 
 #[pyfunction]
-fn sparsify_cartesian_volume<'py>(
+fn sparsify<'py>(
     py: Python<'py>,
     magnitude_dzyx: PyReadonlyArrayDyn<'py, f32>,
     axes: NativeCartesianAxes<'py>,
@@ -83,7 +83,7 @@ fn sparsify_cartesian_volume<'py>(
     let config = cartesian_sparsification_config(config);
     let result = py
         .detach(move || {
-            native_sparsify_cartesian_volume(
+            native_sparsify(
                 CartesianSparsificationInput {
                     magnitude_dzyx: &magnitude_dzyx,
                     shape_dzyx,
@@ -190,8 +190,8 @@ fn project_detection_point_cloud<'py>(
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativePlanarCartesianProjector>()?;
-    module.add_function(wrap_pyfunction!(sparsify_cartesian_volume, module)?)?;
+    module.add_class::<NativeCartesianProjector>()?;
+    module.add_function(wrap_pyfunction!(sparsify, module)?)?;
     module.add_function(wrap_pyfunction!(project_detection_point_cloud, module)?)?;
     Ok(())
 }

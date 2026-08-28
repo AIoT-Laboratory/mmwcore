@@ -11,12 +11,12 @@ from typing import Any
 import numpy as np
 
 from mmwcore.config import RadarCaptureSpec
-from mmwcore.core import ADCFrameSpec, RawADCFrame
+from mmwcore.core import ADCFrame, ADCFrameSpec
 
 from .adc_archive import ADCArchive, open_adc_archive
 
 
-class ADCArchiveFrameReader:
+class ADCArchiveReader:
     """Random-access ADC reader whose contract comes from the archive Header."""
 
     __slots__ = ("_archive", "_capture", "_metadata")
@@ -57,12 +57,12 @@ class ADCArchiveFrameReader:
     def path(self) -> Path:
         return self._archive.path
 
-    def read_frame(self, index: int) -> RawADCFrame:
+    def read_frame(self, index: int) -> ADCFrame:
         index = self._frame_index(index)
         samples = np.frombuffer(self._archive.read_frames(index, index + 1), dtype=np.dtype("<i2"))
         return self._raw_frame(index, samples)
 
-    def read_frames(self, indices: Sequence[int]) -> tuple[RawADCFrame, ...]:
+    def read_frames(self, indices: Sequence[int]) -> tuple[ADCFrame, ...]:
         """Read frames in caller order while sharing archive chunk decoding."""
 
         if isinstance(indices, str | bytes) or not isinstance(indices, Sequence):
@@ -90,11 +90,11 @@ class ADCArchiveFrameReader:
             raise IndexError(f"ADC frame index {index} is outside [0, {self.num_frames}).")
         return index
 
-    def _raw_frame(self, index: int, samples: np.ndarray) -> RawADCFrame:
+    def _raw_frame(self, index: int, samples: np.ndarray) -> ADCFrame:
         timestamp = (
             index * self.frame_periodicity_s if self.frame_periodicity_s is not None else None
         )
-        return RawADCFrame(
+        return ADCFrame(
             samples,
             frame_id=index,
             timestamp=timestamp,
@@ -113,4 +113,4 @@ class ADCArchiveFrameReader:
         self._archive.verify_all()
 
 
-__all__ = ["ADCArchiveFrameReader"]
+__all__ = ["ADCArchiveReader"]

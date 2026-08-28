@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 
 from mmwcore import _native
-from mmwcore.core import ADCComplexLayout, ADCFrameSpec, RadarCube, RawADCFrame
+from mmwcore.core import ADCComplexLayout, ADCFrame, ADCFrameSpec, RadarCube
 
 
 def organize_adc_samples(
-    raw: RawADCFrame | np.ndarray,
+    raw: ADCFrame | np.ndarray,
     spec: ADCFrameSpec,
     *,
     drop_incomplete: bool = False,
@@ -20,7 +20,7 @@ def organize_adc_samples(
     with axes ``("frame", "chirp", "rx", "sample")``.
     """
 
-    raw_frame = raw if isinstance(raw, RawADCFrame) else RawADCFrame(raw)
+    raw_frame = raw if isinstance(raw, ADCFrame) else ADCFrame(raw)
     samples = np.ascontiguousarray(raw_frame.samples, dtype=np.int16)
     cube_data = _native.decode_adc_i16(
         samples,

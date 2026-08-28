@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from mmwcore.core import ClusterFrame, DBSCANClusteringSpec, PointCloudFrame
+from mmwcore.core import ClusterFrame, DBSCANSpec, PointCloudFrame
 from mmwcore.dsp._clustering import cluster_points as native_cluster_points
 
 
 def cluster_point_cloud(
     point_cloud: PointCloudFrame,
-    spec: DBSCANClusteringSpec,
+    spec: DBSCANSpec,
 ) -> ClusterFrame:
     """Cluster Cartesian radar points with spatial and radial-velocity distance."""
 

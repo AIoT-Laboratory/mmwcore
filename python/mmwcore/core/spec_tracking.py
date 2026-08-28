@@ -67,7 +67,7 @@ def _positive_acceleration(value: object) -> float:
 
 
 @dataclass(frozen=True)
-class DBSCANClusteringSpec:
+class DBSCANSpec:
     """DBSCAN policy for Cartesian radar points and optional radial velocity."""
 
     eps_m: float
@@ -76,22 +76,22 @@ class DBSCANClusteringSpec:
     use_z: bool = True
 
     def __post_init__(self) -> None:
-        _require_finite_positive(self.eps_m, name="DBSCANClusteringSpec.eps_m")
+        _require_finite_positive(self.eps_m, name="DBSCANSpec.eps_m")
         object.__setattr__(
             self,
             "min_samples",
-            _positive_integer(self.min_samples, name="DBSCANClusteringSpec.min_samples"),
+            _positive_integer(self.min_samples, name="DBSCANSpec.min_samples"),
         )
         _require_finite_non_negative(
             self.velocity_scale_s,
-            name="DBSCANClusteringSpec.velocity_scale_s",
+            name="DBSCANSpec.velocity_scale_s",
         )
         if type(self.use_z) is not bool:
-            raise TypeError("DBSCANClusteringSpec.use_z must be a bool.")
+            raise TypeError("DBSCANSpec.use_z must be a bool.")
 
 
 @dataclass(frozen=True)
-class TrackGatingSpec:
+class GatingSpec:
     """Hard limits used before probabilistic track association."""
 
     max_distance_m: float
@@ -99,21 +99,21 @@ class TrackGatingSpec:
     max_mahalanobis_distance: float | None = None
 
     def __post_init__(self) -> None:
-        _require_finite_positive(self.max_distance_m, name="TrackGatingSpec.max_distance_m")
+        _require_finite_positive(self.max_distance_m, name="GatingSpec.max_distance_m")
         if self.max_radial_velocity_difference_mps is not None:
             _require_finite_positive(
                 self.max_radial_velocity_difference_mps,
-                name="TrackGatingSpec.max_radial_velocity_difference_mps",
+                name="GatingSpec.max_radial_velocity_difference_mps",
             )
         if self.max_mahalanobis_distance is not None:
             _require_finite_positive(
                 self.max_mahalanobis_distance,
-                name="TrackGatingSpec.max_mahalanobis_distance",
+                name="GatingSpec.max_mahalanobis_distance",
             )
 
 
 @dataclass(frozen=True)
-class TrackAllocationSpec:
+class AllocationSpec:
     """Minimum cluster support required to allocate a tentative track."""
 
     min_points: int = 1
@@ -125,16 +125,16 @@ class TrackAllocationSpec:
         object.__setattr__(
             self,
             "min_points",
-            _positive_integer(self.min_points, name="TrackAllocationSpec.min_points"),
+            _positive_integer(self.min_points, name="AllocationSpec.min_points"),
         )
         _require_finite_non_negative(
             self.min_abs_radial_velocity_mps,
-            name="TrackAllocationSpec.min_abs_radial_velocity_mps",
+            name="AllocationSpec.min_abs_radial_velocity_mps",
         )
         if self.min_total_snr is not None:
             _require_finite_positive(
                 self.min_total_snr,
-                name="TrackAllocationSpec.min_total_snr",
+                name="AllocationSpec.min_total_snr",
             )
         if self.max_new_tracks_per_frame is not None:
             object.__setattr__(
@@ -142,13 +142,13 @@ class TrackAllocationSpec:
                 "max_new_tracks_per_frame",
                 _positive_integer(
                     self.max_new_tracks_per_frame,
-                    name="TrackAllocationSpec.max_new_tracks_per_frame",
+                    name="AllocationSpec.max_new_tracks_per_frame",
                 ),
             )
 
 
 @dataclass(frozen=True)
-class TrackLifecycleSpec:
+class LifecycleSpec:
     """Explicit hit/miss counts for track confirmation and deletion."""
 
     confirmation_hits: int = 4
@@ -164,12 +164,12 @@ class TrackLifecycleSpec:
             object.__setattr__(
                 self,
                 name,
-                _positive_integer(value, name=f"TrackLifecycleSpec.{name}"),
+                _positive_integer(value, name=f"LifecycleSpec.{name}"),
             )
 
 
 @dataclass(frozen=True)
-class TrackingBox2D:
+class Box2D:
     """Inclusive Cartesian tracking region in radar x/y coordinates."""
 
     x_min_m: float
@@ -185,28 +185,28 @@ class TrackingBox2D:
             ("y_max_m", self.y_max_m),
         ):
             if isinstance(value, bool):
-                raise TypeError(f"TrackingBox2D.{name} must be a real number, not bool.")
+                raise TypeError(f"Box2D.{name} must be a real number, not bool.")
             if not isfinite(value):
-                raise ValueError(f"TrackingBox2D.{name} must be finite.")
+                raise ValueError(f"Box2D.{name} must be finite.")
         if self.x_min_m >= self.x_max_m or self.y_min_m >= self.y_max_m:
-            raise ValueError("TrackingBox2D minimum bounds must be below maximum bounds.")
+            raise ValueError("Box2D minimum bounds must be below maximum bounds.")
 
     def contains(self, x_m: float, y_m: float) -> bool:
         return self.x_min_m <= x_m <= self.x_max_m and self.y_min_m <= y_m <= self.y_max_m
 
 
 @dataclass(frozen=True)
-class TrackScenerySpec:
+class ScenerySpec:
     """Scene regions that constrain association, allocation, and track lifetime."""
 
-    boundary_boxes: tuple[TrackingBox2D, ...] = ()
+    boundary_boxes: tuple[Box2D, ...] = ()
     outside_max_frames: int = 5
 
     def __post_init__(self) -> None:
         boxes = tuple(self.boundary_boxes)
         outside_max_frames = _positive_integer(
             self.outside_max_frames,
-            name="TrackScenerySpec.outside_max_frames",
+            name="ScenerySpec.outside_max_frames",
         )
         object.__setattr__(self, "boundary_boxes", boxes)
         object.__setattr__(self, "outside_max_frames", outside_max_frames)
@@ -220,10 +220,10 @@ class Tracker2DSpec:
     """Configuration for stateful two-dimensional target tracking."""
 
     frame_period_s: float
-    gating: TrackGatingSpec
-    allocation: TrackAllocationSpec = TrackAllocationSpec()
-    lifecycle: TrackLifecycleSpec = TrackLifecycleSpec()
-    scenery: TrackScenerySpec = TrackScenerySpec()
+    gating: GatingSpec
+    allocation: AllocationSpec = AllocationSpec()
+    lifecycle: LifecycleSpec = LifecycleSpec()
+    scenery: ScenerySpec = ScenerySpec()
     max_tracks: int = 200
     max_acceleration_mps2: tuple[float, float] = (2.0, 2.0)
     measurement_noise_m: float = 0.2

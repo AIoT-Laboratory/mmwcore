@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from mmwcore.core import ADCFrameSpec, RadarCube, RawADCFrame
+from mmwcore.core import ADCFrame, ADCFrameSpec, RadarCube
 from mmwcore.dsp.adc import organize_adc_samples
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class ADCFileFrameReader:
+class ADCFileReader:
     """Random-access memmap reader for fixed-shape int16 ADC frames."""
 
     path: str | Path
@@ -48,7 +48,7 @@ class ADCFileFrameReader:
         if self.frame_periodicity_s is not None and (
             not math.isfinite(self.frame_periodicity_s) or self.frame_periodicity_s <= 0
         ):
-            raise ValueError("ADCFileFrameReader.frame_periodicity_s must be finite and positive.")
+            raise ValueError("ADCFileReader.frame_periodicity_s must be finite and positive.")
         object.__setattr__(self, "path", path)
         object.__setattr__(self, "profile", dict(self.profile))
         object.__setattr__(self, "metadata", dict(self.metadata))
@@ -65,11 +65,11 @@ class ADCFileFrameReader:
         capture: RadarCaptureSpec,
         *,
         metadata: dict[str, Any] | None = None,
-    ) -> ADCFileFrameReader:
+    ) -> ADCFileReader:
         """Open a file and validate it against an explicit capture contract."""
 
         if metadata is not None and "tx_order" in metadata:
-            raise ValueError("ADCFileFrameReader metadata must not override capture tx_order.")
+            raise ValueError("ADCFileReader metadata must not override capture tx_order.")
         reader = cls(
             path=path,
             spec=capture.adc,
@@ -84,7 +84,7 @@ class ADCFileFrameReader:
             )
         return reader
 
-    def read_frame(self, index: int) -> RawADCFrame:
+    def read_frame(self, index: int) -> ADCFrame:
         """Map one frame by zero-based index without reading the full file."""
 
         if isinstance(index, bool):
@@ -106,7 +106,7 @@ class ADCFileFrameReader:
         timestamp = (
             index * self.frame_periodicity_s if self.frame_periodicity_s is not None else None
         )
-        return RawADCFrame(
+        return ADCFrame(
             samples,
             frame_id=index,
             timestamp=timestamp,
@@ -127,7 +127,7 @@ def load_adc_file(
     profile: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     mmap: bool = False,
-) -> RawADCFrame:
+) -> ADCFrame:
     """Load raw int16 ADC samples from a binary file."""
 
     adc_path = Path(path)
@@ -136,7 +136,7 @@ def load_adc_file(
     else:
         samples = np.fromfile(adc_path, dtype=np.int16)
 
-    return RawADCFrame(
+    return ADCFrame(
         samples=samples,
         frame_id=frame_id,
         source=str(adc_path),

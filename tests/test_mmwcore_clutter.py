@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 
 from mmwcore.core import (
-    ADCDecodeRecipe,
+    ADCDecodeSpec,
     ADCFrameSpec,
     DopplerFFTSpec,
     RadarCube,
-    RangeDopplerRecipe,
+    RangeDopplerPipeline,
 )
-from mmwcore.dsp import process_adc_to_range_doppler, remove_static_clutter
+from mmwcore.dsp import range_doppler, remove_static_clutter
 
 
 def test_remove_static_clutter_uses_named_axis_and_preserves_metadata() -> None:
@@ -50,13 +50,13 @@ def test_remove_static_clutter_rejects_missing_axis() -> None:
 
 def test_range_doppler_recipe_can_remove_stationary_component() -> None:
     raw = np.array([1, 0, 1, 0], dtype=np.int16)
-    recipe = RangeDopplerRecipe(
-        decode=ADCDecodeRecipe(ADCFrameSpec(num_chirps=2, num_rx=1, num_samples=1)),
+    recipe = RangeDopplerPipeline(
+        decode=ADCDecodeSpec(ADCFrameSpec(num_chirps=2, num_rx=1, num_samples=1)),
         doppler_fft=DopplerFFTSpec(fftshift=False),
         remove_static_clutter=True,
     )
 
-    cube = process_adc_to_range_doppler(raw, recipe)
+    cube = range_doppler(raw, recipe)
 
     np.testing.assert_array_equal(cube.data, np.zeros((1, 2, 1, 1), dtype=np.complex64))
     assert cube.metadata["static_clutter_removal"] == {"axis": "chirp"}

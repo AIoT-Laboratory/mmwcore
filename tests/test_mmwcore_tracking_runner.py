@@ -4,23 +4,23 @@ import numpy as np
 import pytest
 
 from mmwcore.core import (
-    ADCDecodeRecipe,
+    ADCDecodeSpec,
     ADCFrameSpec,
     AngleFFTSpec,
-    DBSCANClusteringSpec,
-    DetectionRecipe,
+    DBSCANSpec,
+    DetectionPipeline,
     DopplerFFTSpec,
+    GatingSpec,
+    LifecycleSpec,
     PeakDetectionSpec,
+    PointCloudPipeline,
     PointCloudProjectionSpec,
-    PointCloudRecipe,
-    RangeDopplerRecipe,
+    RangeDopplerPipeline,
     RangeFFTSpec,
     Tracker2DSpec,
-    TrackGatingSpec,
-    TrackLifecycleSpec,
     VirtualAntennaLayout,
 )
-from mmwcore.io import ADCFileFrameReader
+from mmwcore.io import ADCFileReader
 from mmwcore.tracking import (
     iter_adc_cluster_track_frames,
     iter_adc_measurement_track_frames,
@@ -28,12 +28,12 @@ from mmwcore.tracking import (
 )
 
 
-def _point_cloud_recipe(adc: ADCFrameSpec) -> PointCloudRecipe:
+def _point_cloud_recipe(adc: ADCFrameSpec) -> PointCloudPipeline:
     layout = VirtualAntennaLayout.uniform_linear(2)
-    return PointCloudRecipe(
-        detection=DetectionRecipe(
-            transform=RangeDopplerRecipe(
-                decode=ADCDecodeRecipe(adc),
+    return PointCloudPipeline(
+        detection=DetectionPipeline(
+            transform=RangeDopplerPipeline(
+                decode=ADCDecodeSpec(adc),
                 range_fft=RangeFFTSpec(n_fft=2, one_sided=True),
                 doppler_fft=DopplerFFTSpec(n_fft=2),
             ),
@@ -55,18 +55,18 @@ def test_iter_adc_cluster_track_frames_composes_contiguous_sequence(tmp_path) ->
     adc = ADCFrameSpec(num_chirps=2, num_rx=2, num_samples=2)
     adc_path = tmp_path / "adc.bin"
     np.arange(adc.raw_values_per_frame * 3, dtype=np.int16).tofile(adc_path)
-    reader = ADCFileFrameReader(adc_path, adc, frame_periodicity_s=0.1)
+    reader = ADCFileReader(adc_path, adc, frame_periodicity_s=0.1)
     tracker = Tracker2DSpec(
         frame_period_s=0.1,
-        gating=TrackGatingSpec(max_distance_m=1.0),
-        lifecycle=TrackLifecycleSpec(confirmation_hits=1),
+        gating=GatingSpec(max_distance_m=1.0),
+        lifecycle=LifecycleSpec(confirmation_hits=1),
     )
 
     frames = list(
         iter_adc_cluster_track_frames(
             reader,
             _point_cloud_recipe(adc),
-            DBSCANClusteringSpec(eps_m=1.0, min_samples=1),
+            DBSCANSpec(eps_m=1.0, min_samples=1),
             tracker,
             start=1,
         )
@@ -84,14 +84,14 @@ def test_iter_adc_cluster_track_frames_rejects_timing_mismatch(tmp_path) -> None
     adc = ADCFrameSpec(num_chirps=2, num_rx=2, num_samples=2)
     adc_path = tmp_path / "adc.bin"
     np.arange(adc.raw_values_per_frame, dtype=np.int16).tofile(adc_path)
-    reader = ADCFileFrameReader(adc_path, adc, frame_periodicity_s=0.2)
+    reader = ADCFileReader(adc_path, adc, frame_periodicity_s=0.2)
     frames = iter_adc_cluster_track_frames(
         reader,
         _point_cloud_recipe(adc),
-        DBSCANClusteringSpec(eps_m=1.0, min_samples=1),
+        DBSCANSpec(eps_m=1.0, min_samples=1),
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
+            gating=GatingSpec(max_distance_m=1.0),
         ),
     )
 
@@ -103,17 +103,17 @@ def test_iter_adc_measurement_track_frames_reports_point_associations(tmp_path) 
     adc = ADCFrameSpec(num_chirps=2, num_rx=2, num_samples=2)
     adc_path = tmp_path / "adc.bin"
     np.arange(adc.raw_values_per_frame * 2, dtype=np.int16).tofile(adc_path)
-    reader = ADCFileFrameReader(adc_path, adc, frame_periodicity_s=0.1)
+    reader = ADCFileReader(adc_path, adc, frame_periodicity_s=0.1)
 
     frames = list(
         iter_adc_measurement_track_frames(
             reader,
             _point_cloud_recipe(adc),
-            DBSCANClusteringSpec(eps_m=1.0, min_samples=1),
+            DBSCANSpec(eps_m=1.0, min_samples=1),
             Tracker2DSpec(
                 frame_period_s=0.1,
-                gating=TrackGatingSpec(max_distance_m=1.0),
-                lifecycle=TrackLifecycleSpec(confirmation_hits=1),
+                gating=GatingSpec(max_distance_m=1.0),
+                lifecycle=LifecycleSpec(confirmation_hits=1),
             ),
         )
     )

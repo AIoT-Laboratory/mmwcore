@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 
 from mmwcore.core import (
+    AllocationSpec,
+    Box2D,
     ClusterFrame,
-    TrackAllocationSpec,
+    GatingSpec,
+    LifecycleSpec,
+    ScenerySpec,
     Tracker2DSpec,
-    TrackGatingSpec,
-    TrackingBox2D,
-    TrackLifecycleSpec,
-    TrackScenerySpec,
     TrackStatus,
 )
 from mmwcore.tracking import (
@@ -37,8 +37,8 @@ def test_cluster_tracker_confirms_and_estimates_motion() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=0.5),
-            lifecycle=TrackLifecycleSpec(
+            gating=GatingSpec(max_distance_m=0.5),
+            lifecycle=LifecycleSpec(
                 confirmation_hits=3,
                 tentative_max_misses=2,
                 confirmed_max_misses=3,
@@ -58,12 +58,12 @@ def test_cluster_tracker_confirms_and_estimates_motion() -> None:
 
 
 def test_cluster_tracker_rejects_snr_allocation_policy() -> None:
-    with pytest.raises(ValueError, match="MeasurementTracker2D"):
+    with pytest.raises(ValueError, match="PointTracker2D"):
         ClusterTracker2D(
             Tracker2DSpec(
                 frame_period_s=0.1,
-                gating=TrackGatingSpec(max_distance_m=0.5),
-                allocation=TrackAllocationSpec(min_total_snr=10.0),
+                gating=GatingSpec(max_distance_m=0.5),
+                allocation=AllocationSpec(min_total_snr=10.0),
             )
         )
 
@@ -72,8 +72,8 @@ def test_cluster_tracker_coasts_and_deletes_confirmed_track() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
-            lifecycle=TrackLifecycleSpec(
+            gating=GatingSpec(max_distance_m=1.0),
+            lifecycle=LifecycleSpec(
                 confirmation_hits=1,
                 tentative_max_misses=1,
                 confirmed_max_misses=2,
@@ -94,8 +94,8 @@ def test_cluster_tracker_deletes_unconfirmed_track_after_misses() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
-            lifecycle=TrackLifecycleSpec(
+            gating=GatingSpec(max_distance_m=1.0),
+            lifecycle=LifecycleSpec(
                 confirmation_hits=3,
                 tentative_max_misses=1,
                 confirmed_max_misses=3,
@@ -113,8 +113,8 @@ def test_cluster_tracker_uses_global_one_to_one_association() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
-            lifecycle=TrackLifecycleSpec(1, 1, 2),
+            gating=GatingSpec(max_distance_m=1.0),
+            lifecycle=LifecycleSpec(1, 1, 2),
         )
     )
     tracker.step(_clusters((0.0, 1.0, 0.0), (2.0, 1.0, 0.0)))
@@ -128,9 +128,9 @@ def test_cluster_tracker_rejects_allocations_outside_scenery() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=0.1,
-            gating=TrackGatingSpec(max_distance_m=1.0),
-            scenery=TrackScenerySpec(
-                boundary_boxes=(TrackingBox2D(-1.0, 1.0, 0.0, 2.0),),
+            gating=GatingSpec(max_distance_m=1.0),
+            scenery=ScenerySpec(
+                boundary_boxes=(Box2D(-1.0, 1.0, 0.0, 2.0),),
             ),
         )
     )
@@ -145,10 +145,10 @@ def test_cluster_tracker_deletes_track_after_repeated_predictions_outside_scener
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=1.0,
-            gating=TrackGatingSpec(max_distance_m=2.0),
-            lifecycle=TrackLifecycleSpec(confirmation_hits=1, confirmed_max_misses=10),
-            scenery=TrackScenerySpec(
-                boundary_boxes=(TrackingBox2D(-1.0, 1.0, 0.0, 2.0),),
+            gating=GatingSpec(max_distance_m=2.0),
+            lifecycle=LifecycleSpec(confirmation_hits=1, confirmed_max_misses=10),
+            scenery=ScenerySpec(
+                boundary_boxes=(Box2D(-1.0, 1.0, 0.0, 2.0),),
                 outside_max_frames=2,
             ),
         )
@@ -166,8 +166,8 @@ def test_cluster_tracker_preserves_ids_through_two_target_crossing() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=1.0,
-            gating=TrackGatingSpec(max_distance_m=0.6),
-            lifecycle=TrackLifecycleSpec(confirmation_hits=1),
+            gating=GatingSpec(max_distance_m=0.6),
+            lifecycle=LifecycleSpec(confirmation_hits=1),
         )
     )
     predictions = []
@@ -197,8 +197,8 @@ def test_cluster_tracker_recovers_same_id_after_temporary_occlusion() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=1.0,
-            gating=TrackGatingSpec(max_distance_m=0.4),
-            lifecycle=TrackLifecycleSpec(
+            gating=GatingSpec(max_distance_m=0.4),
+            lifecycle=LifecycleSpec(
                 confirmation_hits=1,
                 confirmed_max_misses=3,
             ),

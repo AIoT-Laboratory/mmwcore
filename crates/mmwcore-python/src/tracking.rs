@@ -3,10 +3,10 @@
 use std::sync::Mutex;
 
 use mmwcore::{
-    ClusterMeasurements, ClusterTracker2D, MeasurementTracker2D, PointMeasurements,
+    Box2D, ClusterMeasurements, ClusterTracker2D, PointMeasurements, PointTracker2D,
     TrackAllocationConfig, TrackGatingConfig, TrackLifecycleConfig, TrackSceneryConfig,
-    TrackStepResult, Tracker2DConfig, TrackerDynamicsConfig, TrackingBox2D, TrackingError,
-    TrackingMetricsError, TrackingMetricsInput, TrackingSequenceMetrics,
+    TrackStepResult, Tracker2DConfig, TrackerDynamicsConfig, TrackingError, TrackingMetricsError,
+    TrackingMetricsInput, TrackingSequenceMetrics,
     summarize_tracking_metrics as native_summarize_tracking_metrics,
 };
 use numpy::ndarray::{Array1, Array2, Array3};
@@ -78,16 +78,16 @@ impl NativeClusterTracker2D {
 }
 
 #[pyclass]
-struct NativeMeasurementTracker2D {
-    tracker: Mutex<MeasurementTracker2D>,
+struct NativePointTracker2D {
+    tracker: Mutex<PointTracker2D>,
 }
 
 #[pymethods]
-impl NativeMeasurementTracker2D {
+impl NativePointTracker2D {
     #[new]
     fn new(config: NativeMeasurementTrackerConfig) -> PyResult<Self> {
         let (tracker_config, allocation_clustering) = config;
-        let tracker = MeasurementTracker2D::new(
+        let tracker = PointTracker2D::new(
             native_tracker_config(tracker_config)?,
             dbscan_config(allocation_clustering)?,
         );
@@ -169,7 +169,7 @@ fn summarize_tracking_metrics<'py>(
             boxes
                 .into_iter()
                 .map(|(x_min_m, x_max_m, y_min_m, y_max_m)| {
-                    TrackingBox2D::new(x_min_m, x_max_m, y_min_m, y_max_m)
+                    Box2D::new(x_min_m, x_max_m, y_min_m, y_max_m)
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
@@ -193,7 +193,7 @@ fn summarize_tracking_metrics<'py>(
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<NativeClusterTracker2D>()?;
-    module.add_class::<NativeMeasurementTracker2D>()?;
+    module.add_class::<NativePointTracker2D>()?;
     module.add_function(wrap_pyfunction!(summarize_tracking_metrics, module)?)?;
     Ok(())
 }
@@ -291,9 +291,7 @@ fn native_tracker_config(config: NativeClusterTrackerConfig) -> PyResult<Tracker
     let (boundary_boxes, outside_max_frames) = scenery;
     let boundary_boxes = boundary_boxes
         .into_iter()
-        .map(|(x_min_m, x_max_m, y_min_m, y_max_m)| {
-            TrackingBox2D::new(x_min_m, x_max_m, y_min_m, y_max_m)
-        })
+        .map(|(x_min_m, x_max_m, y_min_m, y_max_m)| Box2D::new(x_min_m, x_max_m, y_min_m, y_max_m))
         .collect::<Result<Vec<_>, _>>()
         .map_err(tracking_error)?;
     let dynamics = TrackerDynamicsConfig::new(

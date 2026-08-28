@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .calibration import TimeDomainChannelCalibration, VirtualChannelCalibration
-from .recipes import ADCDecodeRecipe, DetectionRecipe, PointCloudRecipe, RangeDopplerRecipe
+from .recipes import ADCDecodeSpec, DetectionPipeline, PointCloudPipeline, RangeDopplerPipeline
 from .spec_adc import (
     ADCFrameSpec,
     AntennaArrayGeometry,
@@ -24,36 +24,35 @@ from .spec_detection import (
 )
 from .spec_enums import ADCComplexLayout, CFARInputScale, CFARMode, DetectionMethod, FFTWindow
 from .spec_fft import AngleFFTSpec, DopplerFFTSpec, PlanarAngleFFTSpec, RangeFFTSpec
-from .spec_pointcloud import CartesianVolumeSparsificationSpec
+from .spec_pointcloud import SparsifySpec
 from .spec_tracking import (
-    DBSCANClusteringSpec,
-    TrackAllocationSpec,
+    AllocationSpec,
+    Box2D,
+    DBSCANSpec,
+    GatingSpec,
+    LifecycleSpec,
+    ScenerySpec,
     Tracker2DSpec,
-    TrackGatingSpec,
-    TrackingBox2D,
-    TrackLifecycleSpec,
-    TrackScenerySpec,
     TrackStatus,
 )
 from .types import (
-    CartesianRadarVolume,
+    ADCFrame,
+    CartesianVolume,
     ClusterFrame,
     DetectionFrame,
     PointCloudFrame,
     RadarCube,
-    RawADCFrame,
     TrackFrame,
 )
-from .vitals import VitalSignQuantity, VitalSignWaveform
 
 __all__ = [
     "ADCComplexLayout",
-    "ADCDecodeRecipe",
+    "ADCDecodeSpec",
     "ADCFrameSpec",
     "AntennaArrayGeometry",
     "CascadeADCFrameSpec",
-    "CartesianRadarVolume",
-    "CartesianVolumeSparsificationSpec",
+    "CartesianVolume",
+    "SparsifySpec",
     "AngleFFTSpec",
     "CFARDetectionSpec",
     "CFAR1DSpec",
@@ -61,37 +60,35 @@ __all__ = [
     "CFARMode",
     "ClusterFrame",
     "Tracker2DSpec",
-    "DBSCANClusteringSpec",
+    "DBSCANSpec",
     "DetectionFrame",
     "DetectionQualitySpec",
     "DetectionMethod",
     "DopplerFFTSpec",
     "FFTWindow",
-    "DetectionRecipe",
+    "DetectionPipeline",
     "PeakDetectionSpec",
     "PeakGroupingSpec",
     "PointCloudFrame",
     "PointCloudProjectionSpec",
-    "PointCloudRecipe",
+    "PointCloudPipeline",
     "PlanarAngleFFTSpec",
     "PlanarApertureLayout",
     "RadarCube",
     "RangeFFTSpec",
-    "RangeDopplerRecipe",
+    "RangeDopplerPipeline",
     "RangeDopplerCFARSpec",
-    "RawADCFrame",
+    "ADCFrame",
     "TDMVirtualArraySpec",
     "TimeDomainChannelCalibration",
-    "TrackAllocationSpec",
+    "AllocationSpec",
     "TrackFrame",
-    "TrackGatingSpec",
-    "TrackLifecycleSpec",
-    "TrackScenerySpec",
+    "GatingSpec",
+    "LifecycleSpec",
+    "ScenerySpec",
     "TrackStatus",
-    "TrackingBox2D",
+    "Box2D",
     "VirtualAntennaLayout",
     "VirtualChannelCalibration",
     "VirtualSubarraySpec",
-    "VitalSignQuantity",
-    "VitalSignWaveform",
 ]

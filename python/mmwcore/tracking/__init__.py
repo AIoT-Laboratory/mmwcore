@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from .artifacts import track_frame_from_record, track_frame_to_record
 from .benchmark import (
     IdentitySwitchEvent,
     TrackingBenchmarkSummary,
     TrackingGroundTruthFrame,
     evaluate_track_frames,
 )
-from .measurement_tracker import MeasurementTracker2D
+from .measurement_tracker import PointTracker2D
 from .metrics import TrackingSequenceSummary, TrackObservationSummary, summarize_track_frames
 from .runners import iter_adc_cluster_track_frames, iter_adc_measurement_track_frames
 from .ti_vectors import (
@@ -33,7 +32,7 @@ from .tracker import ClusterTracker2D
 __all__ = [
     "ClusterTracker2D",
     "IdentitySwitchEvent",
-    "MeasurementTracker2D",
+    "PointTracker2D",
     "TrackObservationSummary",
     "TrackingSequenceSummary",
     "TiGTrack2DVectorFrame",
@@ -56,6 +55,4 @@ __all__ = [
     "run_ti_people_counting_2d",
     "ti_people_counting_2d_benchmark_spec",
     "summarize_track_frames",
-    "track_frame_to_record",
-    "track_frame_from_record",
 ]

@@ -1,57 +1,41 @@
 # Benchmarking
 
-`benchmarks/pipeline.py` measures the maintained ADC-to-range-Doppler path without adding a
-package command or public API. It generates its input at run time and does not depend on the
-repository-local `adc_data.bin` capture.
+`benchmarks/pipeline.py` is the local quality gate for the maintained IWR6843 ADC-to-RD path. It is
+a repository tool, not a package command or workflow framework.
 
-The fixed workload represents an IWR6843 TDM capture with 3 transmitters, 4 receivers, 256 ADC
-samples, 128 loops, Tx order `(0, 2, 1)`, and `group2_i_then_q` raw layout. One generated frame is
-1,572,864 bytes. The signed ADC words use the documented `lcg16_index_v1` integer formula, and the
-result records the frame SHA-256 so separate runs can verify identical input.
+The deterministic fixture uses 3 transmitters, 4 receivers, 256 ADC samples, 128 loops, Tx order
+`(0, 2, 1)`, and `group2_i_then_q` layout. Each frame is 1,572,864 bytes. Results record the frame
+SHA-256 so separate runs can confirm identical input.
 
-This is one stable synthetic performance fixture, not the mmwcore hardware-support scope. Directory
-and stream readers also accept the closed xWR16xx, xWR18xx, and xWR68xx contracts, while processing
-recipes and antenna geometry remain explicit.
-
-Run the default suite from a release-profile development environment:
+Run a quick regression check:
 
 ```console
-uv sync --extra dev --locked
-uv run python benchmarks/pipeline.py --output benchmark.json
+uv run --python 3.12 python benchmarks/pipeline.py \
+  --warmups 0 --samples 1 --stream-frames 2 --output benchmark.json
 ```
 
-The four cases have deliberately separate scopes:
-
-- `decode`: one raw int16 frame to a complex64 ADC cube.
-- `range_doppler`: one decoded cube through range FFT, TDM mapping, Doppler FFT, and compensation.
-- `adc_to_range_doppler`: raw int16 through decode and the complete RD recipe.
-- `stream_adc_to_rd`: frame-by-frame memmap reads and complete RD processing, discarding each
-  product before reading the next frame.
-
-Warm-up runs are never included in `samples_ns`. The runner reports each raw duration, median,
-median absolute deviation, frames per second, input MiB/s, environment versions, source revision,
-and workload contract using the `mmwcore.benchmark.v1` JSON schema. Stream fixture creation and
-reader construction are outside the timed region. The stream result declares whether a complete
-warm-up established a warm page-cache measurement.
-
-For a longer streaming run:
+Run a more stable local measurement:
 
 ```console
-uv run python benchmarks/pipeline.py --warmups 2 --samples 10 --stream-frames 1000 --output benchmark.json
+uv run --python 3.12 python benchmarks/pipeline.py \
+  --warmups 2 --samples 10 --stream-frames 100 --output benchmark.json
 ```
 
-At this shape, 1000 frames require about 1.465 GiB of temporary disk and every warm-up or sample
-processes the full file. The temporary fixture is removed after the run.
+The cases isolate four costs:
 
-Compare results only when schema, workload, Python, NumPy, mmwcore build, operating system,
-architecture, thread settings, and cache mode match. Shared CI hosts are suitable for smoke runs
-and artifacts, not performance gates. Set NumPy-related thread environment variables consistently
-before starting Python; the maintained Rust FFT path is single-threaded.
+- `decode`: raw `int16` to a complex ADC cube.
+- `range_doppler`: decoded cube through range FFT, TDM mapping, Doppler FFT, and compensation.
+- `adc_to_range_doppler`: raw ADC through the complete RD recipe.
+- `stream_adc_to_rd`: finite file reads plus complete RD processing, one frame at a time.
 
-Peak RSS is intentionally absent from v1. Python allocation tracing omits some NumPy and native
-Rust allocations, while dependency-free process RSS is not sufficiently consistent across the
-supported operating systems. No OpenRadar comparison or relative performance claim is implied.
+Warm-ups are excluded from samples. The `mmwcore.benchmark.v1` result records raw durations,
+median, median absolute deviation, throughput, environment versions, source revision, workload,
+and thread settings.
 
-The separate [ADC archive study](adc-archive-study.md) records the reversible-codec screening
-and validates the implemented offline archive on caller-owned captures. It is independent of this
-synthetic DSP benchmark.
+CI proves only that the benchmark executes and emits its contract. Compare performance only when
+workload, Python, NumPy, mmwcore build, operating system, architecture, thread settings, and cache
+mode match. Run serious comparisons on the same local machine; shared CI timing is not a gate.
+
+Keep the benchmark fixed unless the maintained IWR6843 research chain changes. Add a focused case
+only when it protects a real storage, RT/RPC, or tracking regression; do not turn the runner into a
+general benchmark framework.

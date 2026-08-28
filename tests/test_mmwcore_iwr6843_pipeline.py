@@ -7,17 +7,17 @@ import pytest
 
 from mmwcore.config import (
     RadarProfile,
-    iwr6843_isk_3d_point_cloud_recipe,
+    iwr6843_isk_3d_point_cloud_pipeline,
     iwr6843_isk_antenna_geometry,
-    iwr6843_isk_point_cloud_recipe,
-    iwr6843_isk_range_doppler_recipe,
+    iwr6843_isk_point_cloud_pipeline,
+    iwr6843_isk_range_doppler_pipeline,
 )
-from mmwcore.core import FFTWindow, RawADCFrame, VirtualChannelCalibration
+from mmwcore.core import ADCFrame, FFTWindow, VirtualChannelCalibration
 from mmwcore.dsp import (
-    process_adc_to_calibrated_point_cloud,
-    process_adc_to_detections,
-    process_adc_to_range_doppler,
+    detect,
+    point_cloud,
     process_range_doppler_to_calibrated_point_cloud,
+    range_doppler,
 )
 
 
@@ -47,7 +47,7 @@ def _synthesize_isk_target(
     amplitude: float = 1000.0,
     channel_errors: tuple[complex, ...] | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
-) -> RawADCFrame:
+) -> ADCFrame:
     geometry = iwr6843_isk_antenna_geometry()
     lateral_direction = np.cos(elevation_rad) * np.sin(azimuth_rad)
     vertical_direction = np.sin(elevation_rad)
@@ -80,13 +80,13 @@ def _synthesize_isk_target(
     iq = np.empty((*cube.shape, 2), dtype=np.int16)
     iq[..., 0] = np.rint(cube.real).astype(np.int16)
     iq[..., 1] = np.rint(cube.imag).astype(np.int16)
-    return RawADCFrame(iq.reshape(-1), frame_id="synthetic-isk", source="synthetic")
+    return ADCFrame(iq.reshape(-1), frame_id="synthetic-isk", source="synthetic")
 
 
 def test_iwr6843_recipe_maps_tdm_adc_to_virtual_range_doppler_cube() -> None:
     profile = _small_isk_profile()
     raw = _synthesize_isk_target(profile, range_bin=2, doppler_bin=1, azimuth_rad=np.pi / 6)
-    recipe = iwr6843_isk_point_cloud_recipe(
+    recipe = iwr6843_isk_point_cloud_pipeline(
         100_000.0,
         profile,
         range_window=FFTWindow.NONE,
@@ -95,7 +95,7 @@ def test_iwr6843_recipe_maps_tdm_adc_to_virtual_range_doppler_cube() -> None:
         angle_n_fft=8,
     )
 
-    cube = process_adc_to_range_doppler(raw, recipe.detection.transform)
+    cube = range_doppler(raw, recipe.detection.transform)
 
     assert cube.axes == ("frame", "doppler_bin", "virtual_rx", "range_bin")
     assert cube.data.shape == (1, 8, 12, 5)
@@ -111,14 +111,14 @@ def test_iwr6843_recipe_maps_active_tx_subset_to_virtual_range_doppler_cube() ->
         azimuth_rad=np.pi / 6,
         tx_order=(0, 2),
     )
-    recipe = iwr6843_isk_range_doppler_recipe(
+    recipe = iwr6843_isk_range_doppler_pipeline(
         profile,
         range_window=FFTWindow.NONE,
         doppler_window=FFTWindow.NONE,
         tx_order=(0, 2),
     )
 
-    cube = process_adc_to_range_doppler(raw, recipe)
+    cube = range_doppler(raw, recipe)
 
     assert cube.axes == ("frame", "doppler_bin", "virtual_rx", "range_bin")
     assert cube.data.shape == (1, 8, 8, 5)
@@ -134,7 +134,7 @@ def test_iwr6843_static_clutter_removal_preserves_moving_target() -> None:
         doppler_bin=1,
         azimuth_rad=np.pi / 6,
     )
-    recipe = iwr6843_isk_point_cloud_recipe(
+    recipe = iwr6843_isk_point_cloud_pipeline(
         100_000.0,
         profile,
         range_window=FFTWindow.NONE,
@@ -143,8 +143,8 @@ def test_iwr6843_static_clutter_removal_preserves_moving_target() -> None:
         angle_n_fft=8,
     )
 
-    full = process_adc_to_range_doppler(raw, recipe.detection.transform)
-    filtered = process_adc_to_range_doppler(
+    full = range_doppler(raw, recipe.detection.transform)
+    filtered = range_doppler(
         raw,
         replace(recipe.detection.transform, remove_static_clutter=True),
     )
@@ -171,7 +171,7 @@ def test_iwr6843_static_clutter_removal_removes_stationary_target() -> None:
         doppler_bin=0,
         azimuth_rad=np.pi / 6,
     )
-    recipe = iwr6843_isk_point_cloud_recipe(
+    recipe = iwr6843_isk_point_cloud_pipeline(
         100_000.0,
         profile,
         range_window=FFTWindow.NONE,
@@ -180,8 +180,8 @@ def test_iwr6843_static_clutter_removal_removes_stationary_target() -> None:
         angle_n_fft=8,
     )
 
-    full = process_adc_to_range_doppler(raw, recipe.detection.transform)
-    filtered = process_adc_to_range_doppler(
+    full = range_doppler(raw, recipe.detection.transform)
+    filtered = range_doppler(
         raw,
         replace(recipe.detection.transform, remove_static_clutter=True),
     )
@@ -217,7 +217,7 @@ def test_iwr6843_point_cloud_recipe_recovers_synthetic_target_coordinates(
         azimuth_rad=azimuth,
         tx_order=tx_order,
     )
-    recipe = iwr6843_isk_point_cloud_recipe(
+    recipe = iwr6843_isk_point_cloud_pipeline(
         100_000.0,
         profile,
         range_window=FFTWindow.NONE,
@@ -227,8 +227,8 @@ def test_iwr6843_point_cloud_recipe_recovers_synthetic_target_coordinates(
         tx_order=tx_order,
     )
 
-    detections = process_adc_to_detections(raw, recipe.detection)
-    point_cloud = process_adc_to_calibrated_point_cloud(raw, recipe)
+    detections = detect(raw, recipe.detection)
+    cloud = point_cloud(raw, recipe)
 
     assert detections.detections.shape == (1, 6)
     detection = dict(zip(detections.channels, detections.detections[0], strict=True))
@@ -237,12 +237,12 @@ def test_iwr6843_point_cloud_recipe_recovers_synthetic_target_coordinates(
     assert detection["azimuth_rad"] == pytest.approx(azimuth, abs=1e-6)
 
     expected_range = 2 * profile.range_resolution_m
-    assert point_cloud.num_points == 1
-    assert point_cloud.points[0, 0] == pytest.approx(expected_range * np.sin(azimuth))
-    assert point_cloud.points[0, 1] == pytest.approx(expected_range * np.cos(azimuth))
-    assert point_cloud.points[0, 3] == pytest.approx(doppler_bin * profile.velocity_resolution_mps)
-    assert point_cloud.frame_id == "synthetic-isk"
-    assert point_cloud.source == "synthetic"
+    assert cloud.num_points == 1
+    assert cloud.points[0, 0] == pytest.approx(expected_range * np.sin(azimuth))
+    assert cloud.points[0, 1] == pytest.approx(expected_range * np.cos(azimuth))
+    assert cloud.points[0, 3] == pytest.approx(doppler_bin * profile.velocity_resolution_mps)
+    assert cloud.frame_id == "synthetic-isk"
+    assert cloud.source == "synthetic"
 
 
 def test_iwr6843_channel_calibration_restores_azimuth() -> None:
@@ -265,21 +265,21 @@ def test_iwr6843_channel_calibration_restores_azimuth() -> None:
         "angle_window": FFTWindow.NONE,
         "angle_n_fft": 8,
     }
-    uncalibrated = iwr6843_isk_point_cloud_recipe(100_000.0, profile, **options)
+    uncalibrated = iwr6843_isk_point_cloud_pipeline(100_000.0, profile, **options)
     calibration = VirtualChannelCalibration(
         tuple(1 / error for error in errors),
         source="synthetic",
         version="known-error-v1",
     )
-    calibrated = iwr6843_isk_point_cloud_recipe(
+    calibrated = iwr6843_isk_point_cloud_pipeline(
         100_000.0,
         profile,
         channel_calibration=calibration,
         **options,
     )
 
-    uncalibrated_detections = process_adc_to_detections(raw, uncalibrated.detection)
-    calibrated_detections = process_adc_to_detections(raw, calibrated.detection)
+    uncalibrated_detections = detect(raw, uncalibrated.detection)
+    calibrated_detections = detect(raw, calibrated.detection)
     uncalibrated_angle = dict(
         zip(
             uncalibrated_detections.channels,
@@ -319,7 +319,7 @@ def test_iwr6843_3d_point_cloud_recovers_synthetic_target(
         elevation_rad=elevation,
         tx_order=tx_order,
     )
-    recipe = iwr6843_isk_3d_point_cloud_recipe(
+    recipe = iwr6843_isk_3d_point_cloud_pipeline(
         100_000.0,
         profile,
         range_window=FFTWindow.NONE,
@@ -329,8 +329,8 @@ def test_iwr6843_3d_point_cloud_recovers_synthetic_target(
         tx_order=tx_order,
     )
 
-    detections = process_adc_to_detections(raw, recipe.detection)
-    point_cloud = process_adc_to_calibrated_point_cloud(raw, recipe)
+    detections = detect(raw, recipe.detection)
+    cloud = point_cloud(raw, recipe)
 
     detection = dict(zip(detections.channels, detections.detections[0], strict=True))
     assert detection["elevation_rad"] == pytest.approx(elevation, abs=1e-4)
@@ -342,6 +342,6 @@ def test_iwr6843_3d_point_cloud_recovers_synthetic_target(
             vertical_direction,
         ]
     )
-    np.testing.assert_allclose(point_cloud.points[0, :3], expected, atol=1e-4)
-    assert point_cloud.channels[9:11] == ("elevation_rad", "elevation_magnitude")
-    assert point_cloud.metadata["pointcloud_projection"]["spatial_dimensions"] == 3
+    np.testing.assert_allclose(cloud.points[0, :3], expected, atol=1e-4)
+    assert cloud.channels[9:11] == ("elevation_rad", "elevation_magnitude")
+    assert cloud.metadata["pointcloud_projection"]["spatial_dimensions"] == 3
