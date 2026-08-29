@@ -13,7 +13,7 @@ from pathlib import Path
 from .adc_archive import ADCArchive, open_adc_archive, write_adc_archive
 from .capture import CameraRecord, Capture, FileRecord, HostTimeRange
 
-TAKE_SCHEMA = "openmmw.take.v1"
+TAKE_SCHEMA = "openmmw.take.v2"
 type SampleKey = tuple[str, int]
 
 _CAMERA_MAGIC = b"MMWCAM01"
@@ -59,6 +59,7 @@ class Take:
     frame_period_ns: int
     radar_start: HostTimeRange
     radar_height_m: float
+    radar_tilt_deg: float
     archive: ADCArchive = field(repr=False)
     config_path: Path
     camera: Camera | None
@@ -121,6 +122,7 @@ def open_take(path: str | Path) -> Take:
         "frame_period_ns",
         "radar_start",
         "radar_height_m",
+        "radar_tilt_deg",
         "radar",
     }
     if not required <= set(session) or set(session) - required - {"camera"}:
@@ -129,6 +131,7 @@ def open_take(path: str | Path) -> Take:
     frame_count = _positive_int(session["frame_count"], "frame_count")
     frame_period_ns = _positive_int(session["frame_period_ns"], "frame_period_ns")
     radar_height_m = _positive_float(session["radar_height_m"], "radar_height_m")
+    radar_tilt_deg = _upright_tilt(session["radar_tilt_deg"])
     start = _object(session["radar_start"], "radar_start")
     if set(start) != {"lower_ns", "upper_ns"}:
         raise ValueError("radar_start fields are invalid")
@@ -167,6 +170,7 @@ def open_take(path: str | Path) -> Take:
         frame_period_ns=frame_period_ns,
         radar_start=radar_start,
         radar_height_m=radar_height_m,
+        radar_tilt_deg=radar_tilt_deg,
         archive=archive,
         config_path=root / "radar.cfg",
         camera=camera,
@@ -197,6 +201,7 @@ def _session_record(
             "upper_ns": capture.radar_start.upper_ns,
         },
         "radar_height_m": capture.radar_height_m,
+        "radar_tilt_deg": _upright_tilt(capture.radar_tilt_deg),
         "radar": {
             "archive": {
                 "path": "radar.mmwa",
@@ -334,6 +339,14 @@ def _positive_float(value: object, label: str) -> float:
         raise ValueError(f"{label} must be positive")
     if value <= 0:
         raise ValueError(f"{label} must be positive")
+    return float(value)
+
+
+def _upright_tilt(value: object) -> float:
+    if type(value) is not int and type(value) is not float:
+        raise ValueError("radar_tilt_deg must be 90")
+    if float(value) != 90.0:
+        raise ValueError("radar_tilt_deg must be 90")
     return float(value)
 
 

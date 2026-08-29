@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from mmwcore.io import open_take, read_capture, write_take
 
@@ -34,6 +37,8 @@ def test_raw_capture_becomes_one_flat_verified_take(tmp_path: Path) -> None:
     }
     assert take.frame_count == 2
     assert take.archive.frame_count == 2
+    assert take.radar_height_m == 1.5
+    assert take.radar_tilt_deg == 90.0
     assert take.radar_time(1).lower_ns == 10_001_000
     assert take.sample_key(1) == (capture.session_id, 1)
     assert take.camera is not None
@@ -55,6 +60,34 @@ def test_radar_only_take_has_exactly_three_files(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("schema", "mmwcli.take.v1"), ("radar_tilt_deg", 89.0)],
+)
+def test_capture_rejects_old_or_non_upright_mount(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    root = _raw_capture(tmp_path / "raw", camera=False)
+    manifest_path = root / "session.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[field] = value
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        read_capture(root)
+
+
+def test_invalid_tilt_is_not_published(tmp_path: Path) -> None:
+    capture = read_capture(_raw_capture(tmp_path / "raw", camera=False))
+    target = tmp_path / "take"
+
+    with pytest.raises(ValueError):
+        write_take(replace(capture, radar_tilt_deg=89.0), target)
+
+    assert not target.exists()
+    assert not Path(f"{target}.part").exists()
+
+
 def _raw_capture(root: Path, *, camera: bool) -> Path:
     root.mkdir()
     adc = struct.pack("<16h", *range(16))
@@ -63,12 +96,13 @@ def _raw_capture(root: Path, *, camera: bool) -> Path:
     adc_record = _file("adc.bin", adc)
     config_record = _file("radar.cfg", _CONFIG)
     record: dict[str, object] = {
-        "schema": "mmwcli.take.v1",
+        "schema": "mmwcli.take.v2",
         "session_id": "123e4567-e89b-42d3-a456-426614174000",
         "frame_count": 2,
         "frame_period_ns": 10_000_000,
         "radar_start": {"lower_ns": 1_000, "upper_ns": 2_000},
         "radar_height_m": 1.5,
+        "radar_tilt_deg": 90.0,
         "radar": {
             "model": "iwr6843",
             "revision": "es2",

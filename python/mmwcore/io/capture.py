@@ -10,7 +10,7 @@ from pathlib import Path
 from mmwcore.config import RadarCaptureSpec, parse_ti_cli_capture_spec
 from mmwcore.core import ADCComplexLayout
 
-SCHEMA = "mmwcli.take.v1"
+SCHEMA = "mmwcli.take.v2"
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,7 @@ class Capture:
     frame_period_ns: int
     radar_start: HostTimeRange
     radar_height_m: float
+    radar_tilt_deg: float
     radar: RadarCaptureSpec
     adc: FileRecord
     config: FileRecord
@@ -75,6 +76,7 @@ def read_capture(path: str | Path) -> Capture:
             "frame_period_ns",
             "radar_start",
             "radar_height_m",
+            "radar_tilt_deg",
             "radar",
         },
         {"camera"},
@@ -86,6 +88,7 @@ def read_capture(path: str | Path) -> Capture:
     frame_count = _positive_int(session["frame_count"], "frame_count")
     frame_period_ns = _positive_int(session["frame_period_ns"], "frame_period_ns")
     radar_height_m = _positive_float(session["radar_height_m"], "radar_height_m")
+    radar_tilt_deg = _upright_tilt(session["radar_tilt_deg"])
     start_record = _object(session["radar_start"], "radar_start")
     _keys(start_record, {"lower_ns", "upper_ns"}, set(), "radar_start")
     radar_start = HostTimeRange(
@@ -122,6 +125,7 @@ def read_capture(path: str | Path) -> Capture:
         frame_period_ns=frame_period_ns,
         radar_start=radar_start,
         radar_height_m=radar_height_m,
+        radar_tilt_deg=radar_tilt_deg,
         radar=radar,
         adc=adc,
         config=config,
@@ -221,6 +225,14 @@ def _positive_float(value: object, label: str) -> float:
         raise ValueError(f"{label} must be positive")
     if value <= 0:
         raise ValueError(f"{label} must be positive")
+    return float(value)
+
+
+def _upright_tilt(value: object) -> float:
+    if type(value) is not int and type(value) is not float:
+        raise ValueError("radar_tilt_deg must be 90")
+    if float(value) != 90.0:
+        raise ValueError("radar_tilt_deg must be 90")
     return float(value)
 
 
