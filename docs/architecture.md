@@ -1,23 +1,20 @@
 # Architecture
 
-## Fixed research chain
+## Research chains
 
 ```text
-IWR6843 ES2 + DCA1000
-          |
-       mmwcli
-          |
-  finite completed capture
-          |
-  read_capture -> write_take -> session.json + radar.mmwa [+ camera files]
-                                      |
-                        ADC windows -> RT/RPC -> OpenMMW model
-                                      |
-                              tracking baseline
+finite:
+IWR6843 + DCA1000 -> mmwcli.take.v3 -> read_capture -> write_take
+                  -> openmmw.take.v3 -> RT/RPC -> OpenMMW model
+
+online:
+IWR6843 + DCA1000 -> mmwcli stream -> OpenMMW -> mmwcore DSP
+                  -> RPC/RT checkpoint -> Web
 ```
 
-mmwcore begins at completed files. It does not configure hardware, receive DCA packets, launch
-camera processes, train models, manage checkpoints, or serve results.
+mmwcore owns neither acquisition process. It does not configure hardware, receive DCA packets,
+launch camera processes, train models, manage checkpoints, or serve results. OpenMMW imports its
+DSP for both archived and in-memory ADC frames.
 
 ## Ownership
 
@@ -31,17 +28,21 @@ The Python layer composes Rust kernels.
 
 ## Data boundary
 
-`read_capture` accepts the fixed finite mmwcli take contract for IWR6843 ES2. `write_take` replaces
-raw `adc.bin` with indexed, lossless `radar.mmwa` and publishes the OpenMMW take. `open_take` is the
-normal dataset and inference entry point.
+`read_capture` accepts the fixed finite `mmwcli.take.v3` raw capture for IWR6843 ES2. `write_take`
+replaces `adc.bin` with indexed, lossless `radar.mmwa` and publishes `openmmw.take.v3`. `open_take`
+is the normal dataset and finite-inference entry point.
 
 A take has one radar stream and at most one directly recorded camera stream. Camera timestamps are
 delivery observations rather than exposure timestamps. OpenMMW owns the downstream pairing policy.
 
-The archive preserves fields that change scientific meaning: ADC layout and dimensions, frame
-count and period, waveform, TDM order, and exact logical bytes. Antenna geometry, calibration,
-axes, units, and coordinate frames remain explicit in recipes and products. See the
-[ADC archive format](adc-archive-format.md).
+Each raw and verified take references an immutable `mmwcli.snapshot.v1` `setup.json` by path, size,
+and SHA-256. `write_take` copies those bytes unchanged. The snapshot is the sole mount source and
+currently requires boresight pitch `0`; OpenMMW owns
+`p_level = p_sensor + [0, 0, height_m]` into the canonical `level_forward_lateral_up` frame.
+
+The archive preserves ADC layout and dimensions, frame count and period, waveform, TDM order, and
+exact logical bytes. Antenna geometry, calibration, axes, units, and coordinate frames remain
+explicit in recipes and products. See the [ADC archive format](adc-archive-format.md).
 
 ## Compute path
 

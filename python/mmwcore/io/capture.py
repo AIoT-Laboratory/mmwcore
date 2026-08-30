@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
 from mmwcore.config import RadarCaptureSpec, parse_ti_cli_capture_spec
 from mmwcore.core import ADCComplexLayout
 
-SCHEMA = "mmwcli.take.v2"
+SCHEMA = "mmwcli.take.v3"
+SETUP_SCHEMA = "mmwcli.snapshot.v1"
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,15 @@ class FileRecord:
 
 
 @dataclass(frozen=True)
+class SetupSnapshot:
+    path: Path
+    record: FileRecord
+    height_m: float
+    pitch_deg: float
+    has_camera: bool
+
+
+@dataclass(frozen=True)
 class CameraRecord:
     frames: int
     payload: FileRecord
@@ -46,8 +58,7 @@ class Capture:
     frame_count: int
     frame_period_ns: int
     radar_start: HostTimeRange
-    radar_height_m: float
-    radar_tilt_deg: float
+    setup: SetupSnapshot
     radar: RadarCaptureSpec
     adc: FileRecord
     config: FileRecord
@@ -60,6 +71,18 @@ class Capture:
     @property
     def config_path(self) -> Path:
         return self.root / self.config.path
+
+    @property
+    def setup_path(self) -> Path:
+        return self.setup.path
+
+    @property
+    def height_m(self) -> float:
+        return self.setup.height_m
+
+    @property
+    def pitch_deg(self) -> float:
+        return self.setup.pitch_deg
 
 
 def read_capture(path: str | Path) -> Capture:
@@ -75,8 +98,7 @@ def read_capture(path: str | Path) -> Capture:
             "frame_count",
             "frame_period_ns",
             "radar_start",
-            "radar_height_m",
-            "radar_tilt_deg",
+            "setup",
             "radar",
         },
         {"camera"},
@@ -87,8 +109,7 @@ def read_capture(path: str | Path) -> Capture:
     session_id = _text(session["session_id"], "session_id")
     frame_count = _positive_int(session["frame_count"], "frame_count")
     frame_period_ns = _positive_int(session["frame_period_ns"], "frame_period_ns")
-    radar_height_m = _positive_float(session["radar_height_m"], "radar_height_m")
-    radar_tilt_deg = _upright_tilt(session["radar_tilt_deg"])
+    setup = _read_setup_snapshot(root, session["setup"], "capture")
     start_record = _object(session["radar_start"], "radar_start")
     _keys(start_record, {"lower_ns", "upper_ns"}, set(), "radar_start")
     radar_start = HostTimeRange(
@@ -113,7 +134,9 @@ def read_capture(path: str | Path) -> Capture:
 
     camera_value = session.get("camera")
     camera = None if camera_value is None else _camera_record(root, camera_value)
-    expected_names = {"session.json", "adc.bin", "radar.cfg"}
+    if setup.has_camera != (camera is not None):
+        raise ValueError("capture camera disagrees with setup.json")
+    expected_names = {"session.json", "setup.json", "adc.bin", "radar.cfg"}
     if camera is not None:
         expected_names.update({camera.payload.path, camera.index.path})
     if {item.name for item in root.iterdir()} != expected_names:
@@ -124,8 +147,7 @@ def read_capture(path: str | Path) -> Capture:
         frame_count=frame_count,
         frame_period_ns=frame_period_ns,
         radar_start=radar_start,
-        radar_height_m=radar_height_m,
-        radar_tilt_deg=radar_tilt_deg,
+        setup=setup,
         radar=radar,
         adc=adc,
         config=config,
@@ -164,6 +186,85 @@ def _camera_record(root: Path, value: object) -> CameraRecord:
     return CameraRecord(frames=frames, payload=payload, index=index)
 
 
+def _read_setup_snapshot(root: Path, value: object, owner: str) -> SetupSnapshot:
+    file_record = _file_record(value, "setup.json", "setup")
+    payload = _verify_file(root, file_record, owner)
+    try:
+        snapshot = _object(json.loads(payload.decode("utf-8")), "setup")
+    except UnicodeDecodeError as error:
+        raise ValueError("setup.json must be UTF-8") from error
+    _keys(snapshot, {"schema", "radar", "dca", "mount", "camera"}, set(), "setup")
+    if snapshot["schema"] != SETUP_SCHEMA:
+        raise ValueError("setup schema is unsupported")
+
+    radar = _object(snapshot["radar"], "setup.radar")
+    _keys(
+        radar,
+        {"model", "revision", "port", "bss", "mss", "d2xx"},
+        set(),
+        "setup.radar",
+    )
+    if radar["model"] != "iwr6843" or radar["revision"] != "es2":
+        raise ValueError("setup must describe IWR6843 ES2")
+    _exact_text(radar["port"], "setup.radar.port")
+    _firmware_record(radar["bss"], "setup.radar.bss")
+    _firmware_record(radar["mss"], "setup.radar.mss")
+    _exact_text(radar["d2xx"], "setup.radar.d2xx")
+
+    dca = _object(snapshot["dca"], "setup.dca")
+    _keys(dca, {"host", "device", "delay_us"}, set(), "setup.dca")
+    _canonical_ipv4(dca["host"], "setup.dca.host")
+    _canonical_ipv4(dca["device"], "setup.dca.device")
+    delay_us = _uint(dca["delay_us"], "setup.dca.delay_us")
+    if not 5 <= delay_us <= 500:
+        raise ValueError("setup.dca.delay_us must be in 5..500")
+
+    mount = _object(snapshot["mount"], "setup.mount")
+    _keys(mount, {"height_m", "pitch_deg"}, set(), "setup.mount")
+    height_m = _positive_float(mount["height_m"], "setup.mount.height_m")
+    if height_m > 10:
+        raise ValueError("setup.mount.height_m must be in (0, 10]")
+    pitch_deg = _mount_pitch(mount["pitch_deg"])
+
+    camera_value = snapshot["camera"]
+    if camera_value is not None:
+        camera = _object(camera_value, "setup.camera")
+        _keys(
+            camera,
+            {"device", "width", "height", "fps", "max_bytes"},
+            set(),
+            "setup.camera",
+        )
+        _exact_text(camera["device"], "setup.camera.device")
+        width = _positive_int(camera["width"], "setup.camera.width")
+        height = _positive_int(camera["height"], "setup.camera.height")
+        fps = _positive_int(camera["fps"], "setup.camera.fps")
+        max_bytes = _positive_int(camera["max_bytes"], "setup.camera.max_bytes")
+        if width > 16_384 or height > 16_384:
+            raise ValueError("setup camera width and height must be in 1..16384")
+        if fps > 240:
+            raise ValueError("setup.camera.fps must be in 1..240")
+        if not 4 <= max_bytes <= 64 << 20:
+            raise ValueError("setup.camera.max_bytes must be in [4, 67108864]")
+    return SetupSnapshot(
+        path=root / file_record.path,
+        record=file_record,
+        height_m=height_m,
+        pitch_deg=pitch_deg,
+        has_camera=camera_value is not None,
+    )
+
+
+def _firmware_record(value: object, label: str) -> None:
+    record = _object(value, label)
+    _keys(record, {"name", "bytes", "sha256"}, set(), label)
+    name = _text(record["name"], f"{label}.name")
+    if name in {".", ".."} or "/" in name or "\\" in name:
+        raise ValueError(f"{label}.name must be a filename")
+    _positive_int(record["bytes"], f"{label}.bytes")
+    _sha256(record["sha256"], f"{label}.sha256")
+
+
 def _file_record(value: object, expected_path: str, label: str) -> FileRecord:
     record = _object(value, label)
     _keys(record, {"path", "bytes", "sha256"}, set(), label)
@@ -177,11 +278,11 @@ def _file_record(value: object, expected_path: str, label: str) -> FileRecord:
     return FileRecord(path=path, bytes=size, sha256=digest)
 
 
-def _verify_file(root: Path, record: FileRecord) -> bytes:
+def _verify_file(root: Path, record: FileRecord, owner: str = "capture") -> bytes:
     path = root / record.path
     payload = path.read_bytes()
     if len(payload) != record.bytes or hashlib.sha256(payload).hexdigest() != record.sha256:
-        raise ValueError(f"capture artifact does not match session.json: {record.path}")
+        raise ValueError(f"{owner} artifact does not match session.json: {record.path}")
     return payload
 
 
@@ -208,6 +309,24 @@ def _text(value: object, label: str) -> str:
     return value
 
 
+def _exact_text(value: object, label: str) -> str:
+    text = _text(value, label)
+    if text != text.strip() or "\0" in text:
+        raise ValueError(f"{label} must be an exact value")
+    return text
+
+
+def _canonical_ipv4(value: object, label: str) -> str:
+    text = _exact_text(value, label)
+    try:
+        address = ipaddress.IPv4Address(text)
+    except ipaddress.AddressValueError as error:
+        raise ValueError(f"{label} must be an IPv4 address") from error
+    if str(address) != text:
+        raise ValueError(f"{label} must be a canonical IPv4 address")
+    return text
+
+
 def _positive_int(value: object, label: str) -> int:
     if type(value) is not int or value <= 0:
         raise ValueError(f"{label} must be a positive integer")
@@ -223,17 +342,28 @@ def _uint(value: object, label: str) -> int:
 def _positive_float(value: object, label: str) -> float:
     if type(value) is not int and type(value) is not float:
         raise ValueError(f"{label} must be positive")
-    if value <= 0:
+    if value <= 0 or not math.isfinite(value):
         raise ValueError(f"{label} must be positive")
     return float(value)
 
 
-def _upright_tilt(value: object) -> float:
+def _mount_pitch(value: object) -> float:
     if type(value) is not int and type(value) is not float:
-        raise ValueError("radar_tilt_deg must be 90")
-    if float(value) != 90.0:
-        raise ValueError("radar_tilt_deg must be 90")
-    return float(value)
+        raise ValueError("setup.mount.pitch_deg must be 0 or 90")
+    pitch = float(value)
+    if pitch not in {0.0, 90.0}:
+        raise ValueError("setup.mount.pitch_deg must be 0 or 90")
+    return pitch
+
+
+def _sha256(value: object, label: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be lowercase SHA-256")
+    return value
 
 
 __all__ = [
@@ -242,5 +372,7 @@ __all__ = [
     "FileRecord",
     "HostTimeRange",
     "SCHEMA",
+    "SETUP_SCHEMA",
+    "SetupSnapshot",
     "read_capture",
 ]

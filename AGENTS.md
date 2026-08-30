@@ -1,39 +1,41 @@
-# mmwcore Agent Guide
+# mmwcore
 
-mmwcore is the storage and compute layer for mmWave AI research.
+This file records only stable repository contracts. Keep one-off task decisions out of it.
 
-## Boundary
+## Skills
 
-- Read completed mmwcli takes, explicit raw ADC files, and `.mmwa` archives.
-- Own ADC archive storage, deterministic DSP, classical tracking baselines, and quality benchmarks.
-- Do not add hardware control, DCA packet reception, sockets, process launch, custom live protocols,
-  experiment orchestration, model code, or web presentation.
-- Do not add hostile-input security work, compatibility shims, generic plugin systems, or repeated
-  validation without an observed research failure and explicit approval.
-- Keep scientific contracts strict where they change results: byte-exact archives, ADC/frame
-  geometry, timing, antenna geometry, calibration, axes, units, and lossless round trips.
+Use a matching `~/.codex/skills` skill only when it helps the current task. Common choices are
+`simplify` (`code-simplifier`), `grill-me`, `code-review` (when installed), and `prototype`; these
+are examples, not an allowlist. Read the selected `SKILL.md` first, and never run skills
+mechanically or turn one-off outputs into permanent constraints.
 
-## Responsibilities
+## Role
 
-- `crates/mmwcore`: deterministic Rust storage and compute kernels.
-- `crates/mmwcore-python`: checked PyO3/NumPy boundary.
-- `python/mmwcore`: explicit contracts, completed-file readers, DSP composition, and tracking.
-- `benchmarks`: reproducible storage and DSP regression gates.
+- Own byte-exact ADC archives, deterministic DSP, classical tracking, and quality benchmarks.
+- Accept completed `mmwcli.take.v3` captures, verified `openmmw.take.v3` takes, raw ADC files, and
+  `.mmwa` archives.
+- Expose Rust kernels through checked Python contracts. Acquisition, process control, models,
+  experiments, and Web belong to mmwcli or OpenMMW.
+- Online inference may reuse the DSP on in-memory frames; mmwcore does not own stream lifecycle.
 
-Do not add Python fallbacks for Rust-owned computation or hide lossy casts and ambiguous axes.
+## Preserve
 
-## Validation
+- ADC bytes and lossless archive round trips.
+- Frame geometry, timing, antenna geometry, calibration, axes, shapes, and units.
+- Explicit casts and contracts; Rust kernels remain the authoritative implementation.
 
-Use the narrowest relevant offline check while editing. Before handoff run:
+## Checks
+
+Run only checks affected by the change. The full gate is `.github/workflows/ci.yml`.
 
 ```text
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 uv run --no-sync ruff format --check python tests benchmarks examples
-uv run --no-sync ruff check python tests benchmarks examples
+uv run --no-sync ruff check --no-cache python tests benchmarks examples
 uv run --no-sync pyright
-uv run --no-sync pytest -q
+uv run --no-sync python -m pytest -p no:cacheprovider -q
 ```
 
-Do not access hardware, install dependencies, publish, push, tag, or discard user changes.
+For storage or DSP changes, also run the benchmark smoke command from CI.

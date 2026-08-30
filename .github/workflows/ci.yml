@@ -34,7 +34,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: uv run --python 3.12 ruff format --check python tests benchmarks examples
-      - run: uv run --python 3.12 ruff check python tests benchmarks examples
+      - run: uv run --python 3.12 ruff check --no-cache python tests benchmarks examples
       - run: uv run --python 3.12 pyright
-      - run: uv run --python 3.12 pytest -q
+      - run: uv run --python 3.12 python -m pytest -p no:cacheprovider -q
       - run: uv run --python 3.12 python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2

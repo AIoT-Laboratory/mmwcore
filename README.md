@@ -1,17 +1,19 @@
 # mmwcore
 
 mmwcore is the storage and deterministic compute layer in the local OpenMMW research workspace.
-It turns a completed finite IWR6843 take into repeatable radar tensors for neural-network research.
-It also retains classical tracking and benchmarks as quality controls.
+It verifies finite IWR6843 captures, writes lossless takes, and turns ADC frames into repeatable
+radar tensors. It also retains classical tracking and benchmarks as quality controls.
 
 ```text
-mmwcli capture -> completed take -> radar.mmwa -> RT/RPC -> OpenMMW model
-                                                   +-----> tracking baseline
+finite: mmwcli.take.v3 -> mmwcore -> openmmw.take.v3 -> RT/RPC -> OpenMMW
+online: mmwcli stream -> OpenMMW -> mmwcore DSP -> checkpoint -> Web
+quality: mmwcore DSP -> tracking baseline + benchmarks
 ```
 
 Hardware setup, DCA1000 reception, training loops, checkpoints, and visualization remain outside
-mmwcore. The maintained acquisition contract is IWR6843 ES2 with DCA1000; mmwcore starts only after
-mmwcli has published a complete take.
+mmwcore. The maintained acquisition contract is IWR6843 ES2 with DCA1000. Finite storage begins
+after mmwcli publishes a raw capture; online process and buffering remain in OpenMMW, which calls
+the same mmwcore DSP on in-memory frames.
 
 ## Local setup
 
@@ -24,18 +26,20 @@ kernels.
 
 ## Research path
 
-Convert a completed mmwcli capture into the fixed OpenMMW take:
+Convert a completed `mmwcli.take.v3` raw capture into the fixed `openmmw.take.v3` verified take:
 
 ```python
 from mmwcore.io import read_capture, write_take
 
-capture = read_capture("dataset/captures/subject/scene/action/take")
-take = write_take(capture, "dataset/takes/subject/scene/action/take")
+capture = read_capture("dataset/takes/subject/scene/action/take-001.capture")
+take = write_take(capture, "dataset/takes/subject/scene/action/take-001")
 ```
 
-The published take contains `session.json`, `radar.cfg`, and `radar.mmwa`, plus
-`camera.mjpeg` and `camera.index.bin` when a camera participated. Open it for dataset construction
-or inference:
+The published take contains `session.json`, the byte-exact immutable `setup.json`, `radar.cfg`, and
+`radar.mmwa`, plus `camera.mjpeg` and `camera.index.bin` when a camera participated. Mount height
+and boresight pitch come only from the setup snapshot. The current contract requires pitch `0`;
+OpenMMW uses `p_level = p_sensor + [0, 0, height_m]` to produce
+`level_forward_lateral_up`. Open the verified take for dataset construction or inference:
 
 ```python
 from mmwcore.io import open_take
@@ -76,9 +80,9 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 uv run --python 3.12 ruff format --check python tests benchmarks examples
-uv run --python 3.12 ruff check python tests benchmarks examples
+uv run --python 3.12 ruff check --no-cache python tests benchmarks examples
 uv run --python 3.12 pyright
-uv run --python 3.12 pytest -q
+uv run --python 3.12 python -m pytest -p no:cacheprovider -q
 uv run --python 3.12 python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
 ```
 

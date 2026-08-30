@@ -11,9 +11,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .adc_archive import ADCArchive, open_adc_archive, write_adc_archive
-from .capture import CameraRecord, Capture, FileRecord, HostTimeRange
+from .capture import (
+    CameraRecord,
+    Capture,
+    FileRecord,
+    HostTimeRange,
+    SetupSnapshot,
+    _read_setup_snapshot,
+)
 
-TAKE_SCHEMA = "openmmw.take.v2"
+TAKE_SCHEMA = "openmmw.take.v3"
 type SampleKey = tuple[str, int]
 
 _CAMERA_MAGIC = b"MMWCAM01"
@@ -58,11 +65,22 @@ class Take:
     frame_count: int
     frame_period_ns: int
     radar_start: HostTimeRange
-    radar_height_m: float
-    radar_tilt_deg: float
+    setup: SetupSnapshot
     archive: ADCArchive = field(repr=False)
     config_path: Path
     camera: Camera | None
+
+    @property
+    def setup_path(self) -> Path:
+        return self.setup.path
+
+    @property
+    def height_m(self) -> float:
+        return self.setup.height_m
+
+    @property
+    def pitch_deg(self) -> float:
+        return self.setup.pitch_deg
 
     def radar_time(self, index: int) -> HostTimeRange:
         if type(index) is not int or not 0 <= index < self.frame_count:
@@ -88,6 +106,7 @@ def write_take(capture: Capture, destination: str | Path) -> Take:
     target.parent.mkdir(parents=True, exist_ok=True)
     stage.mkdir()
     try:
+        _copy_verified_file(capture.setup_path, capture.setup.record, stage / "setup.json")
         config_path = stage / "radar.cfg"
         shutil.copyfile(capture.config_path, config_path)
         archive = write_adc_archive(
@@ -100,7 +119,7 @@ def write_take(capture: Capture, destination: str | Path) -> Take:
         camera_record = _copy_camera(capture, stage)
         session = _session_record(capture, archive, camera_record)
         _write_json(stage / "session.json", session)
-        _validate_names(stage, camera_record is not None)
+        open_take(stage)
         stage.rename(target)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
@@ -121,8 +140,7 @@ def open_take(path: str | Path) -> Take:
         "frame_count",
         "frame_period_ns",
         "radar_start",
-        "radar_height_m",
-        "radar_tilt_deg",
+        "setup",
         "radar",
     }
     if not required <= set(session) or set(session) - required - {"camera"}:
@@ -130,8 +148,7 @@ def open_take(path: str | Path) -> Take:
     session_id = _text(session["session_id"], "session_id")
     frame_count = _positive_int(session["frame_count"], "frame_count")
     frame_period_ns = _positive_int(session["frame_period_ns"], "frame_period_ns")
-    radar_height_m = _positive_float(session["radar_height_m"], "radar_height_m")
-    radar_tilt_deg = _upright_tilt(session["radar_tilt_deg"])
+    setup = _read_setup_snapshot(root, session["setup"], "take")
     start = _object(session["radar_start"], "radar_start")
     if set(start) != {"lower_ns", "upper_ns"}:
         raise ValueError("radar_start fields are invalid")
@@ -139,10 +156,30 @@ def open_take(path: str | Path) -> Take:
         _uint(start["lower_ns"], "radar_start.lower_ns"),
         _uint(start["upper_ns"], "radar_start.upper_ns"),
     )
-    radar = _object(session["radar"], "radar")
-    if set(radar) != {"archive", "config"}:
+    archive = _open_radar(root, session["radar"], frame_count, frame_period_ns)
+    camera_value = session.get("camera")
+    camera = None if camera_value is None else _open_camera(root, camera_value)
+    if setup.has_camera != (camera is not None):
+        raise ValueError("take camera disagrees with setup.json")
+    _validate_names(root, camera is not None)
+    return Take(
+        root=root,
+        session_id=session_id,
+        frame_count=frame_count,
+        frame_period_ns=frame_period_ns,
+        radar_start=radar_start,
+        setup=setup,
+        archive=archive,
+        config_path=root / "radar.cfg",
+        camera=camera,
+    )
+
+
+def _open_radar(root: Path, value: object, frame_count: int, frame_period_ns: int) -> ADCArchive:
+    record = _object(value, "radar")
+    if set(record) != {"archive", "config"}:
         raise ValueError("radar fields are invalid")
-    archive_record = _object(radar["archive"], "radar.archive")
+    archive_record = _object(record["archive"], "radar.archive")
     if set(archive_record) != {"path", "bytes", "capture_sha256", "adc_sha256"}:
         raise ValueError("radar archive fields are invalid")
     if archive_record["path"] != "radar.mmwa":
@@ -158,23 +195,9 @@ def open_take(path: str | Path) -> Take:
     period = archive.capture.frame_periodicity_s
     if period is None or round(period * 1_000_000_000) != frame_period_ns:
         raise ValueError("radar archive period disagrees with session.json")
-    config_record = _file_record(radar["config"], "radar.cfg", "radar.config")
+    config_record = _file_record(record["config"], "radar.cfg", "radar.config")
     _verify_file(root, config_record)
-    camera_value = session.get("camera")
-    camera = None if camera_value is None else _open_camera(root, camera_value)
-    _validate_names(root, camera is not None)
-    return Take(
-        root=root,
-        session_id=session_id,
-        frame_count=frame_count,
-        frame_period_ns=frame_period_ns,
-        radar_start=radar_start,
-        radar_height_m=radar_height_m,
-        radar_tilt_deg=radar_tilt_deg,
-        archive=archive,
-        config_path=root / "radar.cfg",
-        camera=camera,
-    )
+    return archive
 
 
 def _copy_camera(capture: Capture, stage: Path) -> CameraRecord | None:
@@ -200,8 +223,7 @@ def _session_record(
             "lower_ns": capture.radar_start.lower_ns,
             "upper_ns": capture.radar_start.upper_ns,
         },
-        "radar_height_m": capture.radar_height_m,
-        "radar_tilt_deg": _upright_tilt(capture.radar_tilt_deg),
+        "setup": _record(capture.setup.record),
         "radar": {
             "archive": {
                 "path": "radar.mmwa",
@@ -225,6 +247,13 @@ def _session_record(
 
 def _record(value: FileRecord) -> dict[str, object]:
     return {"path": value.path, "bytes": value.bytes, "sha256": value.sha256}
+
+
+def _copy_verified_file(source: Path, record: FileRecord, destination: Path) -> None:
+    payload = source.read_bytes()
+    if len(payload) != record.bytes or hashlib.sha256(payload).hexdigest() != record.sha256:
+        raise ValueError(f"capture artifact changed after validation: {record.path}")
+    destination.write_bytes(payload)
 
 
 def _open_camera(root: Path, value: object) -> Camera:
@@ -285,7 +314,7 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
 
 
 def _validate_names(root: Path, has_camera: bool) -> None:
-    expected = {"session.json", "radar.cfg", "radar.mmwa"}
+    expected = {"session.json", "setup.json", "radar.cfg", "radar.mmwa"}
     if has_camera:
         expected.update({"camera.mjpeg", "camera.index.bin"})
     if {item.name for item in root.iterdir()} != expected:
@@ -332,22 +361,6 @@ def _uint(value: object, label: str) -> int:
     if type(value) is not int or value < 0:
         raise ValueError(f"{label} must be a non-negative integer")
     return value
-
-
-def _positive_float(value: object, label: str) -> float:
-    if type(value) is not int and type(value) is not float:
-        raise ValueError(f"{label} must be positive")
-    if value <= 0:
-        raise ValueError(f"{label} must be positive")
-    return float(value)
-
-
-def _upright_tilt(value: object) -> float:
-    if type(value) is not int and type(value) is not float:
-        raise ValueError("radar_tilt_deg must be 90")
-    if float(value) != 90.0:
-        raise ValueError("radar_tilt_deg must be 90")
-    return float(value)
 
 
 def _sha256(value: object, label: str) -> str:
