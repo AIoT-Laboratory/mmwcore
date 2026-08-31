@@ -174,6 +174,7 @@ type NativePlanarCartesianFfiConfig = tuple[
     NativeGridShape,
     NativeGridCoordinates,
     NativeGridCoordinates,
+    tuple[float, float],
     NativePlanarAngleConfig,
 ]
 type NativeCartesianAxes = tuple[

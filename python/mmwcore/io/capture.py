@@ -399,10 +399,10 @@ def _positive_float(value: object, label: str) -> float:
 
 def _mount_pitch(value: object) -> float:
     if type(value) is not int and type(value) is not float:
-        raise ValueError("setup.mount.pitch_deg must be 0 or 90")
+        raise ValueError("setup.mount.pitch_deg must be 0, 30, or 90")
     pitch = float(value)
-    if pitch not in {0.0, 90.0}:
-        raise ValueError("setup.mount.pitch_deg must be 0 or 90")
+    if pitch not in {0.0, 30.0, 90.0}:
+        raise ValueError("setup.mount.pitch_deg must be 0, 30, or 90")
     return pitch
 
 

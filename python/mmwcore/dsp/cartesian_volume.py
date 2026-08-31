@@ -91,11 +91,12 @@ def _real_triplet(
 
 @dataclass(frozen=True)
 class CartesianProjector:
-    """Project one planar virtual array onto a metric DZYX magnitude grid.
+    """Project one mounted planar virtual array onto a level-frame DZYX magnitude grid.
 
     Source and target Doppler coordinates are physical radial velocities. The
     native kernel scatters the declared aperture, applies zero-padded planar
-    FFTs, and interpolates complex angle samples in direction-cosine space.
+    FFTs, maps the level grid into sensor coordinates, and interpolates complex
+    angle samples in direction-cosine space. Positive pitch is downward.
     """
 
     aperture_layout: PlanarApertureLayout
@@ -111,6 +112,8 @@ class CartesianProjector:
     grid_origin_xyz_m: tuple[float, float, float]
     grid_voxel_size_xyz_m: tuple[float, float, float]
     coordinate_frame: str
+    mount_height_m: float
+    mount_pitch_deg: float
     azimuth_n_fft: int = 128
     elevation_n_fft: int = 32
     aperture_spacing_wavelengths: float = 0.5
@@ -187,6 +190,16 @@ class CartesianProjector:
             name="CartesianProjector.grid_voxel_size_xyz_m",
             positive=True,
         )
+        mount_height_m = _positive_real(
+            self.mount_height_m,
+            name="CartesianProjector.mount_height_m",
+        )
+        mount_pitch_deg = _finite_real(
+            self.mount_pitch_deg,
+            name="CartesianProjector.mount_pitch_deg",
+        )
+        if mount_pitch_deg not in {0.0, 30.0, 90.0}:
+            raise ValueError("CartesianProjector.mount_pitch_deg must be 0, 30, or 90.")
         if not isinstance(self.coordinate_frame, str):
             raise TypeError("CartesianProjector.coordinate_frame must be a string.")
         frame = self.coordinate_frame.strip()
@@ -212,6 +225,8 @@ class CartesianProjector:
         object.__setattr__(self, "grid_origin_xyz_m", origin)
         object.__setattr__(self, "grid_voxel_size_xyz_m", voxel_size)
         object.__setattr__(self, "coordinate_frame", frame)
+        object.__setattr__(self, "mount_height_m", mount_height_m)
+        object.__setattr__(self, "mount_pitch_deg", mount_pitch_deg)
         object.__setattr__(
             self,
             "_native_projector",
@@ -305,6 +320,8 @@ class CartesianProjector:
                     "grid_shape_zyx": list(self.grid_shape_zyx),
                     "grid_origin_xyz_m": list(self.grid_origin_xyz_m),
                     "grid_voxel_size_xyz_m": list(self.grid_voxel_size_xyz_m),
+                    "mount_height_m": self.mount_height_m,
+                    "mount_pitch_deg": self.mount_pitch_deg,
                     "valid_spatial_voxel_fraction": spatial_valid_count / spatial_voxel_count,
                     "valid_target_doppler_fraction": doppler_valid_count / self.target_doppler_bins,
                     "source_selection": {
@@ -345,6 +362,8 @@ class CartesianProjector:
             "grid_shape_zyx": list(self.grid_shape_zyx),
             "grid_origin_xyz_m": list(self.grid_origin_xyz_m),
             "grid_voxel_size_xyz_m": list(self.grid_voxel_size_xyz_m),
+            "mount_height_m": self.mount_height_m,
+            "mount_pitch_deg": self.mount_pitch_deg,
             "angle_fft": [self.azimuth_n_fft, self.elevation_n_fft],
         }
 
@@ -360,6 +379,8 @@ class CartesianProjector:
             self.grid_shape_zyx,
             self.grid_origin_xyz_m,
             self.grid_voxel_size_xyz_m,
+            self.mount_height_m,
+            self.mount_pitch_deg,
             self.azimuth_n_fft,
             self.elevation_n_fft,
             self.aperture_spacing_wavelengths,

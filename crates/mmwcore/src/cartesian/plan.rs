@@ -336,6 +336,8 @@ fn spatial_samples(
     config: PlanarCartesianProjectionConfig,
     source_range_bins: usize,
 ) -> Result<(Vec<SpatialSample>, usize), CartesianProjectionError> {
+    let pitch_rad = config.mount_pitch_deg.to_radians();
+    let (pitch_sin, pitch_cos) = pitch_rad.sin_cos();
     let [z_size, y_size, x_size] = config.grid_shape_zyx;
     let sample_count = checked_product(&config.grid_shape_zyx)?;
     let mut samples = Vec::with_capacity(sample_count);
@@ -350,10 +352,24 @@ fn spatial_samples(
                 if !x.is_finite() || !y.is_finite() || !z.is_finite() {
                     return Err(CartesianProjectionError::NonFiniteGridCoordinate);
                 }
-                let radial_range = (x * x + y * y + z * z).sqrt();
+                // The declared grid is level forward/lateral/up. Rotate each fixed output
+                // coordinate back into sensor forward/lateral/up before radar sampling.
+                let sensor_x = pitch_cos * x - pitch_sin * (z - config.mount_height_m);
+                let sensor_y = y;
+                let sensor_z = pitch_sin * x + pitch_cos * (z - config.mount_height_m);
+                let radial_range =
+                    (sensor_x * sensor_x + sensor_y * sensor_y + sensor_z * sensor_z).sqrt();
                 let nonzero = radial_range > f32::EPSILON;
-                let azimuth_direction = if nonzero { y / radial_range } else { 0.0 };
-                let elevation_direction = if nonzero { z / radial_range } else { 0.0 };
+                let azimuth_direction = if nonzero {
+                    sensor_y / radial_range
+                } else {
+                    0.0
+                };
+                let elevation_direction = if nonzero {
+                    sensor_z / radial_range
+                } else {
+                    0.0
+                };
                 let range_index = radial_range / config.range_resolution_m;
                 let azimuth_index = azimuth_direction
                     * config.aperture_spacing_wavelengths
@@ -367,7 +383,7 @@ fn spatial_samples(
                     + elevation_direction * elevation_direction
                     <= 1.0 + 1.0e-6;
                 let valid = nonzero
-                    && x >= 0.0
+                    && sensor_x >= 0.0
                     && visible
                     && range_index >= 0.0
                     && range_index <= source_range_bins.saturating_sub(1) as f32
@@ -634,8 +650,10 @@ mod tests {
             target_velocity_start_mps,
             target_velocity_step_mps: 1.0,
             grid_shape_zyx: [1, 1, 1],
-            grid_origin_xyz_m: [1.0, 0.0, 0.0],
+            grid_origin_xyz_m: [1.0, 0.0, 1.0],
             grid_voxel_size_xyz_m: [0.5, 0.5, 0.5],
+            mount_height_m: 1.0,
+            mount_pitch_deg: 0.0,
             azimuth_n_fft: 4,
             elevation_n_fft: 4,
             aperture_spacing_wavelengths: 0.5,
@@ -677,6 +695,25 @@ mod tests {
         assert_eq!(result.doppler_start, 1);
         assert_eq!(result.doppler_stop, 3);
         assert!((result.magnitude_dzyx[0] - 8.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn downward_mount_samples_level_grid_at_supported_angles() {
+        let cases = [
+            (0.0_f32, 1.0_f32, 1.0_f32),
+            (30.0, 3.0_f32.sqrt() / 2.0, 0.5),
+            (90.0, 0.0, 0.0),
+        ];
+        for (pitch_deg, level_forward, level_up) in cases {
+            let mut mounted = config(0.0);
+            mounted.mount_pitch_deg = pitch_deg;
+            mounted.grid_origin_xyz_m = [level_forward, 0.0, level_up];
+            let plan = PlanarCartesianProjectionPlan::new(4, APERTURE, mounted).unwrap();
+            let result = plan.project(&broadside_source(), &[1, 3, 4, 4]).unwrap();
+
+            assert!((result.magnitude_dzyx[0] - 4.0).abs() < 1.0e-5);
+            assert_eq!((result.range_start, result.range_stop), (2, 3));
+        }
     }
 
     #[test]

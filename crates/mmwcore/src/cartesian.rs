@@ -21,6 +21,8 @@ pub struct PlanarCartesianProjectionConfig {
     pub grid_shape_zyx: [usize; 3],
     pub grid_origin_xyz_m: [f32; 3],
     pub grid_voxel_size_xyz_m: [f32; 3],
+    pub mount_height_m: f32,
+    pub mount_pitch_deg: f32,
     pub azimuth_n_fft: usize,
     pub elevation_n_fft: usize,
     pub aperture_spacing_wavelengths: f32,
@@ -67,6 +69,12 @@ impl PlanarCartesianProjectionConfig {
         {
             return Err(CartesianProjectionError::InvalidGridVoxelSize);
         }
+        if !self.mount_height_m.is_finite() || self.mount_height_m <= 0.0 {
+            return Err(CartesianProjectionError::InvalidMountHeight);
+        }
+        if !matches!(self.mount_pitch_deg, 0.0 | 30.0 | 90.0) {
+            return Err(CartesianProjectionError::InvalidMountPitch);
+        }
         Ok(())
     }
 }
@@ -98,6 +106,8 @@ pub enum CartesianProjectionError {
     InvalidGridShape,
     InvalidGridOrigin,
     InvalidGridVoxelSize,
+    InvalidMountHeight,
+    InvalidMountPitch,
     NoSpatialSupport,
     NoDopplerSupport,
     EmptySourceSelection,
@@ -156,6 +166,18 @@ impl fmt::Display for CartesianProjectionError {
                 formatter,
                 "Cartesian projection voxel sizes must be positive."
             ),
+            Self::InvalidMountHeight => {
+                write!(
+                    formatter,
+                    "Cartesian mount height must be finite and positive."
+                )
+            }
+            Self::InvalidMountPitch => {
+                write!(
+                    formatter,
+                    "Cartesian mount pitch must be 0, 30, or 90 degrees."
+                )
+            }
             Self::NoSpatialSupport => write!(
                 formatter,
                 "Cartesian target grid has no support in the source radar field of view."

@@ -37,8 +37,9 @@ delivery observations rather than exposure timestamps. OpenMMW owns the downstre
 
 Each raw and verified take references an immutable `mmwcli.snapshot.v1` `setup.json` by path, size,
 and SHA-256. `write_take` copies those bytes unchanged. The snapshot is the sole mount source and
-currently requires boresight pitch `0`; OpenMMW owns
-`p_level = p_sensor + [0, 0, height_m]` into the canonical `level_forward_lateral_up` frame.
+requires downward boresight pitch `0`, `30`, or `90` degrees. Cartesian projection maps its level
+grid into sensor coordinates while building the fixed sampling plan and emits the canonical
+`level_forward_lateral_up` frame directly.
 
 The archive preserves ADC layout and dimensions, frame count and period, waveform, TDM order, and
 exact logical bytes. Antenna geometry, calibration, axes, units, and coordinate frames remain

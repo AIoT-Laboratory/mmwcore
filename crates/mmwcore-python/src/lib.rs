@@ -352,6 +352,7 @@ type NativePlanarCartesianConfig = (
     NativeGridShape,
     NativeGridCoordinates,
     NativeGridCoordinates,
+    (f32, f32),
     NativePlanarAngleConfig,
 );
 type NativePlanarCartesianResult<'py> = (
@@ -425,11 +426,13 @@ fn planar_cartesian_config(config: NativePlanarCartesianConfig) -> PlanarCartesi
         grid_shape_zyx,
         grid_origin_xyz_m,
         grid_voxel_size_xyz_m,
+        mount,
         angle,
     ) = config;
     let (source_doppler_bins, source_velocity_start_mps, source_velocity_step_mps) = source_doppler;
     let (target_doppler_bins, target_velocity_start_mps, target_velocity_step_mps) = target_doppler;
     let (azimuth_n_fft, elevation_n_fft, aperture_spacing_wavelengths) = angle;
+    let (mount_height_m, mount_pitch_deg) = mount;
     PlanarCartesianProjectionConfig {
         range_resolution_m,
         source_doppler_bins,
@@ -449,6 +452,8 @@ fn planar_cartesian_config(config: NativePlanarCartesianConfig) -> PlanarCartesi
             grid_voxel_size_xyz_m.1,
             grid_voxel_size_xyz_m.2,
         ],
+        mount_height_m,
+        mount_pitch_deg,
         azimuth_n_fft,
         elevation_n_fft,
         aperture_spacing_wavelengths,

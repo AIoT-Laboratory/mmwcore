@@ -37,7 +37,8 @@ take = write_take(capture, "dataset/takes/subject/scene/action/take-001")
 
 The published take contains `session.json`, the byte-exact immutable `setup.json`, `radar.cfg`, and
 `radar.mmwa`, plus `camera.mjpeg` and `camera.index.bin` when a camera participated. Mount height
-and boresight pitch come only from the setup snapshot. The contract accepts pitch `0` or `90`;
+and boresight pitch come only from the setup snapshot. The contract accepts downward pitch `0`,
+`30`, or `90` degrees;
 OpenMMW applies the corresponding sensor-to-level transform. Open the verified take for dataset
 construction or inference:
 

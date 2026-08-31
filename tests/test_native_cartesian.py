@@ -12,7 +12,8 @@ _APERTURE = ((0, 0), (1, 0), (0, 1), (1, 1))
 def _config(
     *,
     target_velocity_start_mps: float = 0.0,
-    grid_origin_xyz_m: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    grid_origin_xyz_m: tuple[float, float, float] = (1.0, 0.0, 1.0),
+    mount_pitch_deg: float = 0.0,
 ) -> NativePlanarCartesianConfig:
     return (
         0.5,
@@ -25,6 +26,8 @@ def _config(
         (1, 1, 1),
         grid_origin_xyz_m,
         (0.5, 0.5, 0.5),
+        1.0,
+        mount_pitch_deg,
         4,
         4,
         0.5,
@@ -52,6 +55,8 @@ def _project(
         grid_shape_zyx,
         grid_origin_xyz_m,
         grid_voxel_size_xyz_m,
+        mount_height_m,
+        mount_pitch_deg,
         azimuth_n_fft,
         elevation_n_fft,
         aperture_spacing_wavelengths,
@@ -74,6 +79,7 @@ def _project(
             grid_shape_zyx,
             grid_origin_xyz_m,
             grid_voxel_size_xyz_m,
+            (mount_height_m, mount_pitch_deg),
             (azimuth_n_fft, elevation_n_fft, aperture_spacing_wavelengths),
         ),
     )
@@ -115,7 +121,7 @@ def test_native_cartesian_rejects_noncontiguous_input_and_unsupported_grid() -> 
     with pytest.raises(ValueError, match="source radar field"):
         _project(
             source,
-            _config(grid_origin_xyz_m=(0.0, 0.0, 0.0)),
+            _config(grid_origin_xyz_m=(-1.0, 0.0, 1.0)),
         )
 
 
@@ -132,8 +138,9 @@ def test_native_cartesian_plan_matches_locked_non_axis_reference() -> None:
             (7, -1.5, 0.5),
             (5, -1.25, 0.5),
             (2, 3, 4),
-            (0.6, -0.4, -0.2),
+            (0.6, -0.4, 0.8),
             (0.35, 0.3, 0.25),
+            (1.0, 0.0),
             (8, 8, 0.5),
         ),
     )

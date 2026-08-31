@@ -86,7 +86,7 @@ def test_capture_rejects_unsupported_pitch(tmp_path: Path) -> None:
     root = _raw_capture(tmp_path / "raw", camera=False)
     _set_pitch(root, 1.0)
 
-    with pytest.raises(ValueError, match="pitch_deg must be 0 or 90"):
+    with pytest.raises(ValueError, match="pitch_deg must be 0, 30, or 90"):
         read_capture(root)
 
 
@@ -95,6 +95,13 @@ def test_capture_accepts_downward_pitch(tmp_path: Path) -> None:
     _set_pitch(root, 90.0)
 
     assert read_capture(root).pitch_deg == 90.0
+
+
+def test_capture_accepts_thirty_degree_pitch(tmp_path: Path) -> None:
+    root = _raw_capture(tmp_path / "raw", camera=False)
+    _set_pitch(root, 30.0)
+
+    assert read_capture(root).pitch_deg == 30.0
 
 
 def test_capture_preserves_scene_roi(tmp_path: Path) -> None:

@@ -16,7 +16,8 @@ type PhysicalProjectorFactory = Callable[[object], CartesianProjector]
 
 def _projector(
     *,
-    grid_origin_xyz_m: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    grid_origin_xyz_m: tuple[float, float, float] = (1.0, 0.0, 1.0),
+    mount_pitch_deg: float = 0.0,
     target_velocity_mps: float = 0.0,
 ) -> CartesianProjector:
     return CartesianProjector(
@@ -36,6 +37,8 @@ def _projector(
         grid_origin_xyz_m=grid_origin_xyz_m,
         grid_voxel_size_xyz_m=(0.5, 0.5, 0.5),
         coordinate_frame="forward_lateral_up",
+        mount_height_m=1.0,
+        mount_pitch_deg=mount_pitch_deg,
         azimuth_n_fft=4,
         elevation_n_fft=4,
     )
@@ -102,6 +105,12 @@ _PROJECTOR_PHYSICAL_FIELDS: tuple[
         "aperture_spacing_wavelengths",
         lambda value: _projector_with(aperture_spacing_wavelengths=value),
         0.75,
+        True,
+    ),
+    (
+        "mount_height_m",
+        lambda value: _projector_with(mount_height_m=value),
+        1.5,
         True,
     ),
     *tuple(
@@ -366,6 +375,53 @@ def test_planar_cartesian_projector_normalizes_nonempty_coordinate_frame() -> No
         _projector_with(coordinate_frame=" 	 ")
 
 
+@pytest.mark.parametrize(
+    ("pitch_deg", "level_origin"),
+    [(0.0, (1.0, 0.0, 1.0)), (30.0, (np.sqrt(3.0) / 2.0, 0.0, 0.5)), (90.0, (0.0, 0.0, 0.0))],
+)
+def test_planar_cartesian_projector_accepts_supported_mount_pitch(
+    pitch_deg: float,
+    level_origin: tuple[float, float, float],
+) -> None:
+    projector = _projector(grid_origin_xyz_m=level_origin, mount_pitch_deg=pitch_deg)
+
+    assert projector.mount_pitch_deg == pitch_deg
+
+
+@pytest.mark.parametrize("pitch_deg", [-1.0, 15.0, 91.0])
+def test_planar_cartesian_projector_rejects_unsupported_mount_pitch(pitch_deg: float) -> None:
+    with pytest.raises(ValueError, match="mount_pitch_deg must be 0, 30, or 90"):
+        _projector_with(mount_pitch_deg=pitch_deg)
+
+
+@pytest.mark.parametrize(
+    ("pitch_deg", "level_forward_m", "level_up_m"),
+    [(0.0, 1.0, 1.0), (30.0, np.sqrt(3.0) / 2.0, 0.5), (90.0, 0.0, 0.0)],
+)
+def test_planar_cartesian_projector_samples_level_grid_for_downward_mount(
+    pitch_deg: float,
+    level_forward_m: float,
+    level_up_m: float,
+) -> None:
+    source = np.zeros((1, 3, 4, 4), dtype=np.complex64)
+    source[0, 1, :, 2] = 1.0 + 0.0j
+    projector = _projector(
+        grid_origin_xyz_m=(level_forward_m, 0.0, level_up_m),
+        mount_pitch_deg=pitch_deg,
+    )
+
+    projected = projector.project(
+        RadarCube(source, axes=("frame", "doppler_bin", "virtual_rx", "range_bin"))
+    )
+
+    assert projected.magnitude_dzyx[0, 0, 0, 0] == pytest.approx(4.0, rel=1e-5)
+    np.testing.assert_allclose(projected.x_m, [level_forward_m])
+    np.testing.assert_allclose(projected.z_m, [level_up_m])
+    metadata = projected.metadata["planar_cartesian_projection"]
+    assert metadata["mount_height_m"] == 1.0
+    assert metadata["mount_pitch_deg"] == pitch_deg
+
+
 def test_planar_cartesian_projector_maps_broadside_target_to_metric_voxel() -> None:
     source = np.zeros((1, 3, 4, 4), dtype=np.complex64)
     source[0, 1, :, 2] = 1.0 + 0.0j
@@ -384,7 +440,7 @@ def test_planar_cartesian_projector_maps_broadside_target_to_metric_voxel() -> N
     np.testing.assert_allclose(projected.doppler_velocity_mps, [0.0])
     np.testing.assert_allclose(projected.x_m, [1.0])
     np.testing.assert_allclose(projected.y_m, [0.0])
-    np.testing.assert_allclose(projected.z_m, [0.0])
+    np.testing.assert_allclose(projected.z_m, [1.0])
     assert projected.coordinate_frame == "forward_lateral_up"
     assert projected.frame_id == "frame-1"
     projection = projected.metadata["planar_cartesian_projection"]
@@ -409,7 +465,7 @@ def test_planar_cartesian_projector_preserves_off_axis_direction_cosines() -> No
         dtype=np.complex64,
     )
     projected = _projector(
-        grid_origin_xyz_m=(np.sqrt(0.5), 0.5, 0.5),
+        grid_origin_xyz_m=(np.sqrt(0.5), 0.5, 1.5),
     ).project(
         RadarCube(
             source,
@@ -420,7 +476,7 @@ def test_planar_cartesian_projector_preserves_off_axis_direction_cosines() -> No
     assert projected.magnitude_dzyx[0, 0, 0, 0] == pytest.approx(4.0, rel=1e-5)
     np.testing.assert_allclose(projected.x_m, [np.sqrt(0.5)])
     np.testing.assert_allclose(projected.y_m, [0.5])
-    np.testing.assert_allclose(projected.z_m, [0.5])
+    np.testing.assert_allclose(projected.z_m, [1.5])
 
 
 def test_planar_cartesian_projector_interpolates_physical_doppler_magnitude() -> None:
