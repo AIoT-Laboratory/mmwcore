@@ -40,6 +40,7 @@ def test_raw_capture_becomes_one_flat_verified_take(tmp_path: Path) -> None:
     assert take.archive.frame_count == 2
     assert take.height_m == 1.5
     assert take.pitch_deg == 0.0
+    assert take.roi is None
     assert take.setup_path.read_bytes() == (source / "setup.json").read_bytes()
     assert take.radar_time(1).lower_ns == 10_001_000
     assert take.sample_key(1) == (capture.session_id, 1)
@@ -94,6 +95,61 @@ def test_capture_accepts_downward_pitch(tmp_path: Path) -> None:
     _set_pitch(root, 90.0)
 
     assert read_capture(root).pitch_deg == 90.0
+
+
+def test_capture_preserves_scene_roi(tmp_path: Path) -> None:
+    root = _raw_capture(tmp_path / "raw", camera=False)
+    setup_path = root / "setup.json"
+    setup = json.loads(setup_path.read_text(encoding="utf-8"))
+    setup["roi"] = {
+        "frame": "level_forward_lateral_up",
+        "min_m": [0.5, -1.5, 0.0],
+        "max_m": [5.5, 1.5, 2.2],
+    }
+    setup_path.write_text(json.dumps(setup), encoding="utf-8")
+    session_path = root / "session.json"
+    session = json.loads(session_path.read_text(encoding="utf-8"))
+    session["setup"] = _file("setup.json", setup_path.read_bytes())
+    session_path.write_text(json.dumps(session), encoding="utf-8")
+
+    capture = read_capture(root)
+    take = write_take(capture, tmp_path / "take")
+
+    assert take.roi is not None
+    assert take.roi.frame == "level_forward_lateral_up"
+    assert take.roi.min_m == (0.5, -1.5, 0.0)
+    assert take.roi.max_m == (5.5, 1.5, 2.2)
+
+
+@pytest.mark.parametrize(
+    "roi",
+    [
+        {"frame": "radar", "min_m": [0, -1, 0], "max_m": [5, 1, 2]},
+        {
+            "frame": "level_forward_lateral_up",
+            "min_m": [5, -1, 0],
+            "max_m": [5, 1, 2],
+        },
+        {
+            "frame": "level_forward_lateral_up",
+            "min_m": [-1, -1, 0],
+            "max_m": [5, 1, 2],
+        },
+    ],
+)
+def test_capture_rejects_invalid_scene_roi(tmp_path: Path, roi: object) -> None:
+    root = _raw_capture(tmp_path / "raw", camera=False)
+    setup_path = root / "setup.json"
+    setup = json.loads(setup_path.read_text(encoding="utf-8"))
+    setup["roi"] = roi
+    setup_path.write_text(json.dumps(setup), encoding="utf-8")
+    session_path = root / "session.json"
+    session = json.loads(session_path.read_text(encoding="utf-8"))
+    session["setup"] = _file("setup.json", setup_path.read_bytes())
+    session_path.write_text(json.dumps(session), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="setup.roi"):
+        read_capture(root)
 
 
 def test_changed_setup_is_not_published(tmp_path: Path) -> None:

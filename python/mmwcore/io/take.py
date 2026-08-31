@@ -16,6 +16,7 @@ from .capture import (
     Capture,
     FileRecord,
     HostTimeRange,
+    SceneROI,
     SetupSnapshot,
     _read_setup_snapshot,
 )
@@ -81,6 +82,10 @@ class Take:
     @property
     def pitch_deg(self) -> float:
         return self.setup.pitch_deg
+
+    @property
+    def roi(self) -> SceneROI | None:
+        return self.setup.roi
 
     def radar_time(self, index: int) -> HostTimeRange:
         if type(index) is not int or not 0 <= index < self.frame_count:

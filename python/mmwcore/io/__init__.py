@@ -6,7 +6,7 @@ from .adc_archive import ADCArchive, ADCArchiveError, open_adc_archive, write_ad
 from .adc_archive_reader import ADCArchiveReader
 from .adc_file import ADCFileReader, load_adc_cube, load_adc_file
 from .adc_reader import ADCReader
-from .capture import Capture, SetupSnapshot, read_capture
+from .capture import Capture, SceneROI, SetupSnapshot, read_capture
 from .take import (
     TAKE_SCHEMA,
     Camera,
@@ -29,6 +29,7 @@ __all__ = [
     "Capture",
     "HostTimeRange",
     "SampleKey",
+    "SceneROI",
     "SetupSnapshot",
     "TAKE_SCHEMA",
     "Take",

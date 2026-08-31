@@ -36,11 +36,21 @@ class FileRecord:
 
 
 @dataclass(frozen=True)
+class SceneROI:
+    """Axis-aligned scene volume frozen with a capture setup."""
+
+    frame: str
+    min_m: tuple[float, float, float]
+    max_m: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
 class SetupSnapshot:
     path: Path
     record: FileRecord
     height_m: float
     pitch_deg: float
+    roi: SceneROI | None
     has_camera: bool
 
 
@@ -83,6 +93,10 @@ class Capture:
     @property
     def pitch_deg(self) -> float:
         return self.setup.pitch_deg
+
+    @property
+    def roi(self) -> SceneROI | None:
+        return self.setup.roi
 
 
 def read_capture(path: str | Path) -> Capture:
@@ -193,7 +207,7 @@ def _read_setup_snapshot(root: Path, value: object, owner: str) -> SetupSnapshot
         snapshot = _object(json.loads(payload.decode("utf-8")), "setup")
     except UnicodeDecodeError as error:
         raise ValueError("setup.json must be UTF-8") from error
-    _keys(snapshot, {"schema", "radar", "dca", "mount", "camera"}, set(), "setup")
+    _keys(snapshot, {"schema", "radar", "dca", "mount", "camera"}, {"roi"}, "setup")
     if snapshot["schema"] != SETUP_SCHEMA:
         raise ValueError("setup schema is unsupported")
 
@@ -226,6 +240,9 @@ def _read_setup_snapshot(root: Path, value: object, owner: str) -> SetupSnapshot
         raise ValueError("setup.mount.height_m must be in (0, 10]")
     pitch_deg = _mount_pitch(mount["pitch_deg"])
 
+    roi_value = snapshot.get("roi")
+    roi = None if roi_value is None else _scene_roi(roi_value)
+
     camera_value = snapshot["camera"]
     if camera_value is not None:
         camera = _object(camera_value, "setup.camera")
@@ -251,8 +268,41 @@ def _read_setup_snapshot(root: Path, value: object, owner: str) -> SetupSnapshot
         record=file_record,
         height_m=height_m,
         pitch_deg=pitch_deg,
+        roi=roi,
         has_camera=camera_value is not None,
     )
+
+
+def _scene_roi(value: object) -> SceneROI:
+    record = _object(value, "setup.roi")
+    _keys(record, {"frame", "min_m", "max_m"}, set(), "setup.roi")
+    if record["frame"] != "level_forward_lateral_up":
+        raise ValueError("setup.roi.frame must be level_forward_lateral_up")
+    lower = _finite_triplet(record["min_m"], "setup.roi.min_m")
+    upper = _finite_triplet(record["max_m"], "setup.roi.max_m")
+    if any(minimum >= maximum for minimum, maximum in zip(lower, upper, strict=True)):
+        raise ValueError("setup.roi min_m must be below max_m on every axis")
+    if lower[0] < 0.0 or lower[2] < 0.0:
+        raise ValueError("setup.roi forward and up minima must be non-negative")
+    return SceneROI(
+        frame="level_forward_lateral_up",
+        min_m=lower,
+        max_m=upper,
+    )
+
+
+def _finite_triplet(value: object, label: str) -> tuple[float, float, float]:
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError(f"{label} must contain three finite numbers")
+    normalized: list[float] = []
+    for item in value:
+        if type(item) is not int and type(item) is not float:
+            raise ValueError(f"{label} must contain three finite numbers")
+        number = float(item)
+        if not math.isfinite(number):
+            raise ValueError(f"{label} must contain three finite numbers")
+        normalized.append(number)
+    return normalized[0], normalized[1], normalized[2]
 
 
 def _firmware_record(value: object, label: str) -> None:
@@ -371,6 +421,7 @@ __all__ = [
     "Capture",
     "FileRecord",
     "HostTimeRange",
+    "SceneROI",
     "SCHEMA",
     "SETUP_SCHEMA",
     "SetupSnapshot",
