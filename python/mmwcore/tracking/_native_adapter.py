@@ -29,6 +29,9 @@ def native_tracker_config(spec: Tracker2DSpec) -> _native.NativeClusterTrackerCo
             spec.measurement_noise_m,
             spec.initial_velocity_std_mps,
             spec.extent_covariance_smoothing,
+            spec.angle_noise_rad,
+            spec.doppler_noise_mps,
+            spec.max_velocity_mps,
         ),
         (
             spec.gating.max_distance_m,
@@ -40,16 +43,25 @@ def native_tracker_config(spec: Tracker2DSpec) -> _native.NativeClusterTrackerCo
             spec.allocation.min_abs_radial_velocity_mps,
             spec.allocation.min_total_snr,
             spec.allocation.max_new_tracks_per_frame,
+            spec.allocation.min_separation_m,
         ),
         (
             spec.lifecycle.confirmation_hits,
             spec.lifecycle.tentative_max_misses,
             spec.lifecycle.confirmed_max_misses,
+            spec.lifecycle.min_update_points,
+            spec.lifecycle.static_max_misses,
+            spec.lifecycle.exit_max_misses,
+            spec.lifecycle.static_speed_threshold_mps,
         ),
         (
             [
                 (box.x_min_m, box.x_max_m, box.y_min_m, box.y_max_m)
                 for box in spec.scenery.boundary_boxes
+            ],
+            [
+                (box.x_min_m, box.x_max_m, box.y_min_m, box.y_max_m)
+                for box in spec.scenery.static_boxes
             ],
             spec.scenery.outside_max_frames,
         ),

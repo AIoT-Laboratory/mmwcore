@@ -12,8 +12,8 @@ from mmwcore.tracking._native_adapter import (
 )
 
 
-class PointTracker2D:
-    """Advance one Rust-owned measurement tracker per point-cloud frame."""
+class GTrack2D:
+    """Advance one Rust-owned GTRACK 2D unit set per point-cloud frame."""
 
     def __init__(
         self,
@@ -37,12 +37,7 @@ class PointTracker2D:
                 required=self._requires_velocity(),
                 requirement="configured tracking velocity constraints",
             ),
-            _point_channel(
-                point_cloud,
-                "snr",
-                required=self.spec.allocation.min_total_snr is not None,
-                requirement="AllocationSpec.min_total_snr",
-            ),
+            _linear_snr(point_cloud, required=self.spec.allocation.min_total_snr is not None),
         )
         return track_frame(
             result,
@@ -51,7 +46,7 @@ class PointTracker2D:
             source=point_cloud.source,
             coordinate_frame=point_cloud.coordinate_frame,
             metadata=point_cloud.metadata,
-            model="constant_velocity_2d_measurement",
+            model="gtrack_2d",
         )
 
     def _requires_velocity(self) -> bool:
@@ -60,6 +55,32 @@ class PointTracker2D:
             or self.spec.allocation.min_abs_radial_velocity_mps > 0
             or self.allocation_clustering.velocity_scale_s > 0
         )
+
+
+def _linear_snr(point_cloud: PointCloudFrame, *, required: bool) -> np.ndarray:
+    """Return linear power ratio; convert the common DSP dB channel at the boundary."""
+
+    if "snr" in point_cloud.channels:
+        return _point_channel(
+            point_cloud,
+            "snr",
+            required=required,
+            requirement="AllocationSpec.min_total_snr",
+        )
+    if "snr_db" in point_cloud.channels:
+        snr_db = _point_channel(
+            point_cloud,
+            "snr_db",
+            required=True,
+            requirement="GTRACK SNR",
+        )
+        return np.ascontiguousarray(np.power(10.0, snr_db / 10.0), dtype=np.float32)
+    if required:
+        raise ValueError(
+            'PointCloudFrame must include an "snr" or "snr_db" channel for '
+            "AllocationSpec.min_total_snr."
+        )
+    return np.zeros(point_cloud.num_points, dtype=np.float32)
 
 
 def _point_channel(
@@ -78,3 +99,6 @@ def _point_channel(
             ) from None
         return np.zeros(point_cloud.num_points, dtype=np.float32)
     return np.ascontiguousarray(point_cloud.points[:, index], dtype=np.float32)
+
+
+PointTracker2D = GTrack2D

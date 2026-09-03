@@ -35,16 +35,21 @@ impl ClusterTracker2D {
 
         let mut associations = vec![-1_i64; cluster_count];
         let (matched_tracks, matched_clusters) = self.associate(measurements, cluster_count)?;
+        let mut updated_tracks = Vec::with_capacity(matched_tracks.len());
         for (&track_index, &cluster_index) in matched_tracks.iter().zip(&matched_clusters) {
             let center = cluster_center(measurements.centers, cluster_index);
             let extent_covariance = cluster_extent_covariance(measurements.extents, cluster_index);
             let point_count = cluster_point_count(measurements.point_counts, cluster_index)?;
+            if !self.state.supports_update(point_count) {
+                continue;
+            }
             self.state
                 .update_track(track_index, center, extent_covariance, point_count)?;
             associations[cluster_index] = self.state.tracks[track_index].track_id;
+            updated_tracks.push(track_index);
         }
 
-        self.state.miss_unmatched(&matched_tracks);
+        self.state.miss_unmatched(&updated_tracks);
         let expired_ids = self.state.delete_expired();
         if !expired_ids.is_empty() {
             for association in &mut associations {
@@ -108,12 +113,14 @@ impl ClusterTracker2D {
                 let distance = (track.state[0] - center[0]).hypot(track.state[1] - center[1]);
                 let mut accepted = distance <= self.state.config.gating.max_distance_m
                     && self.state.config.scenery.contains(center[0], center[1]);
+                let mut score = distance;
                 if accepted && let Some(limit) = self.state.config.gating.max_mahalanobis_distance {
-                    accepted = self
+                    let mahalanobis = self
                         .state
                         .filter
-                        .mahalanobis_distance(track, [center[0], center[1]])?
-                        <= limit;
+                        .mahalanobis_distance(track, [center[0], center[1]])?;
+                    accepted = mahalanobis <= limit;
+                    score = mahalanobis;
                 }
                 if accepted
                     && let Some(limit) = self.state.config.gating.max_radial_velocity_difference_mps
@@ -126,7 +133,7 @@ impl ClusterTracker2D {
                 let index = track_index * cluster_count + cluster_index;
                 valid[index] = accepted;
                 if accepted {
-                    costs[index] = distance;
+                    costs[index] = score;
                     has_valid_match = true;
                 }
             }
@@ -252,8 +259,8 @@ mod tests {
         Tracker2DConfig::new(
             TrackerDynamicsConfig::new(0.1, [2.0, 2.0], 0.2, 2.0, 0.2).unwrap(),
             TrackGatingConfig::new(0.5, None, None).unwrap(),
-            TrackAllocationConfig::new(1, 0.0, None, None).unwrap(),
-            TrackLifecycleConfig::new(3, 2, 3).unwrap(),
+            TrackAllocationConfig::new(1, 0.0, None, None, None).unwrap(),
+            TrackLifecycleConfig::new(3, 2, 3, 1).unwrap(),
             TrackSceneryConfig::new(Vec::new(), 5).unwrap(),
             200,
         )

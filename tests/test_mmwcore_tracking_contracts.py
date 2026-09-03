@@ -38,9 +38,12 @@ _INTEGER_SPEC_FIELDS: tuple[tuple[IntegerTrackingSpec, str], ...] = (
     (DBSCANSpec(eps_m=0.5, min_samples=2), "min_samples"),
     (AllocationSpec(), "min_points"),
     (AllocationSpec(), "max_new_tracks_per_frame"),
+    (LifecycleSpec(), "min_update_points"),
     (LifecycleSpec(), "confirmation_hits"),
     (LifecycleSpec(), "tentative_max_misses"),
     (LifecycleSpec(), "confirmed_max_misses"),
+    (LifecycleSpec(static_max_misses=5, static_speed_threshold_mps=0.1), "static_max_misses"),
+    (LifecycleSpec(exit_max_misses=2), "exit_max_misses"),
     (ScenerySpec(), "outside_max_frames"),
     (
         Tracker2DSpec(
@@ -91,6 +94,10 @@ _PHYSICAL_SPEC_FIELDS: tuple[tuple[str, PhysicalSpecFactory], ...] = (
         lambda value: AllocationSpec(min_total_snr=value),
     ),
     (
+        "AllocationSpec.min_separation_m",
+        lambda value: AllocationSpec(min_separation_m=value),
+    ),
+    (
         "Box2D.x_min_m",
         lambda value: Box2D(value, 1.0, -1.0, 1.0),
     ),
@@ -126,12 +133,28 @@ _PHYSICAL_SPEC_FIELDS: tuple[tuple[str, PhysicalSpecFactory], ...] = (
         lambda value: _tracker_spec_with(extent_covariance_smoothing=value),
     ),
     (
+        "Tracker2DSpec.angle_noise_rad",
+        lambda value: _tracker_spec_with(angle_noise_rad=value),
+    ),
+    (
+        "Tracker2DSpec.doppler_noise_mps",
+        lambda value: _tracker_spec_with(doppler_noise_mps=value),
+    ),
+    (
+        "Tracker2DSpec.max_velocity_mps",
+        lambda value: _tracker_spec_with(max_velocity_mps=value),
+    ),
+    (
         "Tracker2DSpec.max_acceleration_mps2",
         lambda value: _tracker_spec_with(max_acceleration_mps2=(value, 2.0)),
     ),
     (
         "Tracker2DSpec.max_acceleration_mps2",
         lambda value: _tracker_spec_with(max_acceleration_mps2=(2.0, value)),
+    ),
+    (
+        "LifecycleSpec.static_speed_threshold_mps",
+        lambda value: LifecycleSpec(static_speed_threshold_mps=value),
     ),
 )
 
@@ -473,3 +496,23 @@ def test_tracking_scenery_accepts_any_configured_boundary_box() -> None:
     assert scenery.contains(0.0, 1.0)
     assert scenery.contains(2.5, 4.5)
     assert not scenery.contains(0.0, 3.0)
+
+
+def test_tracking_scenery_marks_static_regions_separately() -> None:
+    scenery = ScenerySpec(
+        boundary_boxes=(Box2D(-2.0, 2.0, 0.0, 4.0),),
+        static_boxes=(Box2D(-1.0, 1.0, 0.0, 3.0),),
+    )
+
+    assert scenery.contains_static(0.0, 1.0)
+    assert not scenery.contains_static(1.5, 1.0)
+
+
+def test_static_lifecycle_requires_a_positive_speed_threshold() -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        LifecycleSpec(static_max_misses=10)
+
+
+def test_gtrack_angle_noise_must_be_below_a_right_angle() -> None:
+    with pytest.raises(ValueError, match="below pi / 2"):
+        _tracker_spec_with(angle_noise_rad=np.pi / 2)

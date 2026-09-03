@@ -59,8 +59,8 @@ class TiGTrack2DVectorFrame:
         points = np.zeros((self.measurements.shape[0], 5), dtype=np.float32)
         ranges = self.measurements[:, 0]
         angles = self.measurements[:, 1]
-        points[:, 0] = ranges * np.sin(angles)
-        points[:, 1] = ranges * np.cos(angles)
+        points[:, 0] = ranges * np.cos(angles)
+        points[:, 1] = ranges * np.sin(angles)
         points[:, 3:] = self.measurements[:, 2:]
         return points
 
@@ -161,7 +161,7 @@ def ti_people_counting_2d_benchmark_spec() -> TiGTrack2DBenchmarkSpec:
                 confirmed_max_misses=50,
             ),
             scenery=ScenerySpec(
-                boundary_boxes=(Box2D(-4.0, 4.0, 0.5, 7.5),),
+                boundary_boxes=(Box2D(0.5, 7.5, -4.0, 4.0),),
                 outside_max_frames=5,
             ),
             max_tracks=20,
@@ -375,7 +375,8 @@ def _parse_ground_truth(payload: memoryview) -> TrackingGroundTruthFrame:
         raise ValueError("TI GTRACK target TLV length is not a whole record count.")
     records = np.frombuffer(payload, dtype=_REFERENCE)
     positions = np.zeros((records.size, 3), dtype=np.float32)
-    positions[:, :2] = records["state"][:, :2]
+    positions[:, 0] = records["state"][:, 1]
+    positions[:, 1] = records["state"][:, 0]
     return TrackingGroundTruthFrame(
         track_ids=records["track_id"].astype(np.int64),
         positions=positions,

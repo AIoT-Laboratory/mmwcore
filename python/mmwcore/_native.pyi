@@ -84,12 +84,33 @@ type NativeClusterResult = tuple[
     NDArray[np.float32],
     NDArray[np.int64],
 ]
-type NativeTrackerDynamicsConfig = tuple[float, tuple[float, float], float, float, float]
+type NativeTrackerDynamicsConfig = tuple[
+    float,
+    tuple[float, float],
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+]
 type NativeTrackerGatingConfig = tuple[float, float | None, float | None]
-type NativeTrackerAllocationConfig = tuple[int, float, float | None, int | None]
-type NativeTrackerLifecycleConfig = tuple[int, int, int]
+type NativeTrackerAllocationConfig = tuple[int, float, float | None, int | None, float | None]
+type NativeTrackerLifecycleConfig = tuple[
+    int,
+    int,
+    int,
+    int,
+    int | None,
+    int | None,
+    float,
+]
 type NativeTrackingBox = tuple[float, float, float, float]
-type NativeTrackerSceneryConfig = tuple[list[NativeTrackingBox], int]
+type NativeTrackerSceneryConfig = tuple[
+    list[NativeTrackingBox],
+    list[NativeTrackingBox],
+    int,
+]
 type NativeClusterTrackerConfig = tuple[
     NativeTrackerDynamicsConfig,
     NativeTrackerGatingConfig,

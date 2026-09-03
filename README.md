@@ -61,6 +61,18 @@ windows, models, training, evaluation, and presentation.
 `mmwcore.tracking` is a deterministic classical baseline for learned temporal models. Keep it for
 comparable association, state-estimation, and metric results.
 
+`PointTracker2D` implements GTRACK 2D: Cartesian `[x, y, vx, vy]` state is updated from native
+`[range, azimuth, radial velocity]` measurements with an EKF. Point-to-unit assignment uses
+group dispersion, measurement noise, and competitive Mahalanobis bidding. Doppler is unwrapped
+around each predicted unit; unassigned points use lead-point proximity for allocation rather than
+being treated as already-formed targets. Points first pass explicit position and optional
+Doppler gates, then compete using position likelihood and an optional normalized Doppler residual.
+Each update uses a prediction-anchored robust center, while missing point support increases its
+uncertainty. Partial groups may correct position but do not indefinitely refresh a confirmed
+target; consecutive spatial support confirms a motion-allocated target. Optional static and exit
+regions give indoor scenes different coasting limits. This is a compact classical baseline, not a
+TI GTRACK implementation or a claim of TI People Tracking equivalence.
+
 `benchmarks/pipeline.py` is the performance and regression gate for the fixed IWR6843 workload. It
 uses deterministic synthetic ADC and requires no hardware or private data. See
 [benchmarking](docs/benchmarking.md).

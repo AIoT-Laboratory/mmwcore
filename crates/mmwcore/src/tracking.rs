@@ -12,7 +12,7 @@ use crate::assignment::AssignmentError;
 use crate::clustering::ClusterError;
 
 pub use cluster::ClusterTracker2D;
-pub use measurement::PointTracker2D;
+pub use measurement::{GTrack2D, PointTracker2D};
 pub use metrics::{
     TrackObservationMetrics, TrackingMetricsError, TrackingMetricsInput, TrackingSequenceMetrics,
     summarize_tracking_metrics,
@@ -61,6 +61,7 @@ pub struct TrackAllocationConfig {
     pub(crate) min_abs_radial_velocity_mps: f64,
     pub(crate) min_total_snr: Option<f64>,
     pub(crate) max_new_tracks_per_frame: Option<usize>,
+    pub(crate) min_separation_m: Option<f64>,
 }
 
 impl TrackAllocationConfig {
@@ -70,6 +71,7 @@ impl TrackAllocationConfig {
         min_abs_radial_velocity_mps: f64,
         min_total_snr: Option<f64>,
         max_new_tracks_per_frame: Option<usize>,
+        min_separation_m: Option<f64>,
     ) -> Result<Self, TrackingError> {
         if min_points == 0 {
             return Err(TrackingError::InvalidConfiguration("min_points"));
@@ -87,21 +89,29 @@ impl TrackAllocationConfig {
                 "max_new_tracks_per_frame",
             ));
         }
+        if !optional_positive_finite(min_separation_m) {
+            return Err(TrackingError::InvalidConfiguration("min_separation_m"));
+        }
         Ok(Self {
             min_points,
             min_abs_radial_velocity_mps,
             min_total_snr,
             max_new_tracks_per_frame,
+            min_separation_m,
         })
     }
 }
 
 /// Hit and miss limits that control a track lifecycle.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TrackLifecycleConfig {
+    pub(crate) min_update_points: usize,
     pub(crate) confirmation_hits: usize,
     pub(crate) tentative_max_misses: usize,
     pub(crate) confirmed_max_misses: usize,
+    pub(crate) static_max_misses: Option<usize>,
+    pub(crate) exit_max_misses: Option<usize>,
+    pub(crate) static_speed_threshold_mps: f64,
 }
 
 impl TrackLifecycleConfig {
@@ -110,7 +120,11 @@ impl TrackLifecycleConfig {
         confirmation_hits: usize,
         tentative_max_misses: usize,
         confirmed_max_misses: usize,
+        min_update_points: usize,
     ) -> Result<Self, TrackingError> {
+        if min_update_points == 0 {
+            return Err(TrackingError::InvalidConfiguration("min_update_points"));
+        }
         if confirmation_hits == 0 {
             return Err(TrackingError::InvalidConfiguration("confirmation_hits"));
         }
@@ -121,10 +135,41 @@ impl TrackLifecycleConfig {
             return Err(TrackingError::InvalidConfiguration("confirmed_max_misses"));
         }
         Ok(Self {
+            min_update_points,
             confirmation_hits,
             tentative_max_misses,
             confirmed_max_misses,
+            static_max_misses: None,
+            exit_max_misses: None,
+            static_speed_threshold_mps: 0.0,
         })
+    }
+
+    /// Use separate coasting limits for slow static-region tracks and exit-region tracks.
+    pub fn with_scene_miss_limits(
+        mut self,
+        static_max_misses: Option<usize>,
+        exit_max_misses: Option<usize>,
+        static_speed_threshold_mps: f64,
+    ) -> Result<Self, TrackingError> {
+        if static_max_misses == Some(0) {
+            return Err(TrackingError::InvalidConfiguration("static_max_misses"));
+        }
+        if exit_max_misses == Some(0) {
+            return Err(TrackingError::InvalidConfiguration("exit_max_misses"));
+        }
+        if !static_speed_threshold_mps.is_finite()
+            || static_speed_threshold_mps < 0.0
+            || (static_max_misses.is_some() && static_speed_threshold_mps == 0.0)
+        {
+            return Err(TrackingError::InvalidConfiguration(
+                "static_speed_threshold_mps",
+            ));
+        }
+        self.static_max_misses = static_max_misses;
+        self.exit_max_misses = exit_max_misses;
+        self.static_speed_threshold_mps = static_speed_threshold_mps;
+        Ok(self)
     }
 }
 
@@ -171,6 +216,7 @@ impl Box2D {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrackSceneryConfig {
     pub(crate) boundary_boxes: Vec<Box2D>,
+    pub(crate) static_boxes: Vec<Box2D>,
     pub(crate) outside_max_frames: usize,
 }
 
@@ -185,8 +231,15 @@ impl TrackSceneryConfig {
         }
         Ok(Self {
             boundary_boxes,
+            static_boxes: Vec::new(),
             outside_max_frames,
         })
+    }
+
+    /// Mark interior regions where a slow target may coast longer.
+    pub fn with_static_boxes(mut self, static_boxes: Vec<Box2D>) -> Self {
+        self.static_boxes = static_boxes;
+        self
     }
 
     pub(crate) fn contains(&self, x_m: f64, y_m: f64) -> bool {
@@ -196,6 +249,13 @@ impl TrackSceneryConfig {
                 .iter()
                 .copied()
                 .any(|boundary| boundary.contains(x_m, y_m))
+    }
+
+    pub(crate) fn contains_static(&self, x_m: f64, y_m: f64) -> bool {
+        self.static_boxes
+            .iter()
+            .copied()
+            .any(|region| region.contains(x_m, y_m))
     }
 }
 
@@ -207,6 +267,9 @@ pub struct TrackerDynamicsConfig {
     pub(crate) measurement_noise_m: f64,
     pub(crate) initial_velocity_std_mps: f64,
     pub(crate) extent_covariance_smoothing: f64,
+    pub(crate) angle_noise_rad: f64,
+    pub(crate) doppler_noise_mps: f64,
+    pub(crate) max_velocity_mps: f64,
 }
 
 impl TrackerDynamicsConfig {
@@ -249,7 +312,35 @@ impl TrackerDynamicsConfig {
             measurement_noise_m,
             initial_velocity_std_mps,
             extent_covariance_smoothing,
+            angle_noise_rad: 3.0_f64.to_radians(),
+            doppler_noise_mps: 0.2,
+            max_velocity_mps: 5.0,
         })
+    }
+
+    /// Configure the polar measurement noise and unambiguous radial-velocity limit used by GTRACK.
+    pub fn with_polar_measurement(
+        mut self,
+        angle_noise_rad: f64,
+        doppler_noise_mps: f64,
+        max_velocity_mps: f64,
+    ) -> Result<Self, TrackingError> {
+        for (name, value) in [
+            ("angle_noise_rad", angle_noise_rad),
+            ("doppler_noise_mps", doppler_noise_mps),
+            ("max_velocity_mps", max_velocity_mps),
+        ] {
+            if !is_positive_finite(value) {
+                return Err(TrackingError::InvalidConfiguration(name));
+            }
+        }
+        if angle_noise_rad >= std::f64::consts::FRAC_PI_2 {
+            return Err(TrackingError::InvalidConfiguration("angle_noise_rad"));
+        }
+        self.angle_noise_rad = angle_noise_rad;
+        self.doppler_noise_mps = doppler_noise_mps;
+        self.max_velocity_mps = max_velocity_mps;
+        Ok(self)
     }
 }
 

@@ -8,11 +8,11 @@ from mmwcore import _native
 
 def _config() -> _native.NativeClusterTrackerConfig:
     return (
-        (0.1, (2.0, 2.0), 0.2, 2.0, 0.2),
+        (0.1, (2.0, 2.0), 0.2, 2.0, 0.2, 0.05235987755982989, 0.2, 5.0),
         (0.5, None, None),
-        (1, 0.0, None, None),
-        (3, 2, 3),
-        ([], 5),
+        (1, 0.0, None, None, None),
+        (3, 2, 3, 1, None, None, 0.0),
+        ([], [], 5),
         200,
     )
 

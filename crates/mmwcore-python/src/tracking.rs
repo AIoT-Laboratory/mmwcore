@@ -283,13 +283,34 @@ fn native_tracker_config(config: NativeClusterTrackerConfig) -> PyResult<Tracker
         measurement_noise_m,
         initial_velocity_std_mps,
         extent_covariance_smoothing,
+        angle_noise_rad,
+        doppler_noise_mps,
+        max_velocity_mps,
     ) = dynamics;
     let (max_distance_m, max_radial_velocity_difference_mps, max_mahalanobis_distance) = gating;
-    let (min_points, min_abs_radial_velocity_mps, min_total_snr, max_new_tracks_per_frame) =
-        allocation;
-    let (confirmation_hits, tentative_max_misses, confirmed_max_misses) = lifecycle;
-    let (boundary_boxes, outside_max_frames) = scenery;
+    let (
+        min_points,
+        min_abs_radial_velocity_mps,
+        min_total_snr,
+        max_new_tracks_per_frame,
+        min_separation_m,
+    ) = allocation;
+    let (
+        confirmation_hits,
+        tentative_max_misses,
+        confirmed_max_misses,
+        min_update_points,
+        static_max_misses,
+        exit_max_misses,
+        static_speed_threshold_mps,
+    ) = lifecycle;
+    let (boundary_boxes, static_boxes, outside_max_frames) = scenery;
     let boundary_boxes = boundary_boxes
+        .into_iter()
+        .map(|(x_min_m, x_max_m, y_min_m, y_max_m)| Box2D::new(x_min_m, x_max_m, y_min_m, y_max_m))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(tracking_error)?;
+    let static_boxes = static_boxes
         .into_iter()
         .map(|(x_min_m, x_max_m, y_min_m, y_max_m)| Box2D::new(x_min_m, x_max_m, y_min_m, y_max_m))
         .collect::<Result<Vec<_>, _>>()
@@ -301,6 +322,9 @@ fn native_tracker_config(config: NativeClusterTrackerConfig) -> PyResult<Tracker
         initial_velocity_std_mps,
         extent_covariance_smoothing,
     )
+    .and_then(|dynamics| {
+        dynamics.with_polar_measurement(angle_noise_rad, doppler_noise_mps, max_velocity_mps)
+    })
     .map_err(tracking_error)?;
     let gating = TrackGatingConfig::new(
         max_distance_m,
@@ -313,16 +337,26 @@ fn native_tracker_config(config: NativeClusterTrackerConfig) -> PyResult<Tracker
         min_abs_radial_velocity_mps,
         min_total_snr,
         max_new_tracks_per_frame,
+        min_separation_m,
     )
     .map_err(tracking_error)?;
     let lifecycle = TrackLifecycleConfig::new(
         confirmation_hits,
         tentative_max_misses,
         confirmed_max_misses,
+        min_update_points,
     )
+    .and_then(|lifecycle| {
+        lifecycle.with_scene_miss_limits(
+            static_max_misses,
+            exit_max_misses,
+            static_speed_threshold_mps,
+        )
+    })
     .map_err(tracking_error)?;
-    let scenery =
-        TrackSceneryConfig::new(boundary_boxes, outside_max_frames).map_err(tracking_error)?;
+    let scenery = TrackSceneryConfig::new(boundary_boxes, outside_max_frames)
+        .map_err(tracking_error)?
+        .with_static_boxes(static_boxes);
     Tracker2DConfig::new(dynamics, gating, allocation, lifecycle, scenery, max_tracks)
         .map_err(tracking_error)
 }
@@ -471,12 +505,20 @@ fn optional_usize_to_i64(value: Option<usize>, name: &str) -> PyResult<i64> {
     value.map_or(Ok(-1), |value| usize_to_i64(value, name))
 }
 
-type NativeTrackerDynamicsConfig = (f64, (f64, f64), f64, f64, f64);
+type NativeTrackerDynamicsConfig = (f64, (f64, f64), f64, f64, f64, f64, f64, f64);
 type NativeTrackerGatingConfig = (f64, Option<f64>, Option<f64>);
-type NativeTrackerAllocationConfig = (usize, f64, Option<f64>, Option<usize>);
-type NativeTrackerLifecycleConfig = (usize, usize, usize);
+type NativeTrackerAllocationConfig = (usize, f64, Option<f64>, Option<usize>, Option<f64>);
+type NativeTrackerLifecycleConfig = (
+    usize,
+    usize,
+    usize,
+    usize,
+    Option<usize>,
+    Option<usize>,
+    f64,
+);
 type NativeTrackingBox = (f64, f64, f64, f64);
-type NativeTrackerSceneryConfig = (Vec<NativeTrackingBox>, usize);
+type NativeTrackerSceneryConfig = (Vec<NativeTrackingBox>, Vec<NativeTrackingBox>, usize);
 type NativeClusterTrackerConfig = (
     NativeTrackerDynamicsConfig,
     NativeTrackerGatingConfig,

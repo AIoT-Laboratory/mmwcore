@@ -109,12 +109,61 @@ def test_cluster_tracker_deletes_unconfirmed_track_after_misses() -> None:
     assert frame.num_tracks == 0
 
 
+def test_cluster_tracker_requires_consecutive_hits_for_confirmation() -> None:
+    tracker = ClusterTracker2D(
+        Tracker2DSpec(
+            frame_period_s=0.1,
+            gating=GatingSpec(max_distance_m=1.0),
+            lifecycle=LifecycleSpec(
+                confirmation_hits=3,
+                tentative_max_misses=2,
+                confirmed_max_misses=3,
+            ),
+        )
+    )
+
+    tracker.step(_clusters((0.0, 1.0, 0.0), frame_id=0))
+    tracker.step(_clusters(frame_id=1))
+    tracker.step(_clusters((0.0, 1.0, 0.0), frame_id=2))
+    before_confirmation = tracker.step(_clusters((0.0, 1.0, 0.0), frame_id=3))
+    confirmed = tracker.step(_clusters((0.0, 1.0, 0.0), frame_id=4))
+
+    assert before_confirmation.statuses == (TrackStatus.TENTATIVE,)
+    assert confirmed.statuses == (TrackStatus.CONFIRMED,)
+
+
+def test_cluster_tracker_reconfirms_coasting_track_after_one_hit() -> None:
+    tracker = ClusterTracker2D(
+        Tracker2DSpec(
+            frame_period_s=0.1,
+            gating=GatingSpec(max_distance_m=1.0),
+            lifecycle=LifecycleSpec(
+                confirmation_hits=3,
+                tentative_max_misses=2,
+                confirmed_max_misses=3,
+            ),
+        )
+    )
+    for frame_id in range(3):
+        tracker.step(_clusters((0.0, 1.0, 0.0), frame_id=frame_id))
+
+    coasting = tracker.step(_clusters(frame_id=3))
+    recovered = tracker.step(_clusters((0.0, 1.0, 0.0), frame_id=4))
+
+    assert coasting.statuses == (TrackStatus.COASTING,)
+    assert recovered.statuses == (TrackStatus.CONFIRMED,)
+
+
 def test_cluster_tracker_uses_global_one_to_one_association() -> None:
     tracker = ClusterTracker2D(
         Tracker2DSpec(
             frame_period_s=0.1,
             gating=GatingSpec(max_distance_m=1.0),
-            lifecycle=LifecycleSpec(1, 1, 2),
+            lifecycle=LifecycleSpec(
+                confirmation_hits=1,
+                tentative_max_misses=1,
+                confirmed_max_misses=2,
+            ),
         )
     )
     tracker.step(_clusters((0.0, 1.0, 0.0), (2.0, 1.0, 0.0)))

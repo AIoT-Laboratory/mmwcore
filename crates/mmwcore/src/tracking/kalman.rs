@@ -103,16 +103,13 @@ impl ConstantVelocity2DFilter {
         &self,
         track: &mut CvTrackState,
         measurement: [f64; 2],
-        centroid_covariance: Option<[[f64; 2]; 2]>,
+        centroid_covariance: [[f64; 2]; 2],
     ) -> Result<(), TrackingError> {
         let innovation = [
             measurement[0] - track.state[0],
             measurement[1] - track.state[1],
         ];
-        let measurement_covariance = matrix_add(
-            self.measurement_noise,
-            centroid_covariance.unwrap_or([[0.0; 2]; 2]),
-        );
+        let measurement_covariance = matrix_add(self.measurement_noise, centroid_covariance);
         let innovation_covariance =
             matrix_add(top_left_2x2(track.covariance), measurement_covariance);
         let gain = product(
@@ -143,6 +140,14 @@ impl ConstantVelocity2DFilter {
         track: &CvTrackState,
         measurement: [f64; 2],
     ) -> Result<f64, TrackingError> {
+        Ok(self.position_association(track, measurement)?.0)
+    }
+
+    pub(crate) fn position_association(
+        &self,
+        track: &CvTrackState,
+        measurement: [f64; 2],
+    ) -> Result<(f64, f64), TrackingError> {
         let covariance = matrix_add(
             matrix_add(top_left_2x2(track.covariance), self.measurement_noise),
             track.extent_covariance,
@@ -153,7 +158,12 @@ impl ConstantVelocity2DFilter {
         ];
         let solved = matrix_vector_product(&inverse_2x2(covariance)?, innovation);
         let squared_distance = innovation[0] * solved[0] + innovation[1] * solved[1];
-        Ok(squared_distance.max(0.0).sqrt())
+        let squared_distance = squared_distance.max(0.0);
+        let determinant = covariance[0][0] * covariance[1][1] - covariance[0][1] * covariance[1][0];
+        if !determinant.is_finite() || determinant <= f64::EPSILON {
+            return Err(TrackingError::SingularInnovationCovariance);
+        }
+        Ok((squared_distance.sqrt(), determinant.ln() + squared_distance))
     }
 }
 

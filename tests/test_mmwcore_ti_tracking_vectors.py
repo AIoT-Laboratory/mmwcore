@@ -44,11 +44,11 @@ def test_read_ti_gtrack_2d_vectors_parses_measurements_and_targets(tmp_path) -> 
     np.testing.assert_allclose(frames[1].measurements, [[2.0, np.pi / 2, -0.5, 12.0]])
     np.testing.assert_allclose(
         frames[1].cartesian_points(),
-        [[2.0, 0.0, 0.0, -0.5, 12.0]],
+        [[0.0, 2.0, 0.0, -0.5, 12.0]],
         atol=1e-6,
     )
     assert frames[1].ground_truth.track_ids.tolist() == [7]
-    np.testing.assert_allclose(frames[1].ground_truth.positions, [[2.0, 3.0, 0.0]])
+    np.testing.assert_allclose(frames[1].ground_truth.positions, [[3.0, 2.0, 0.0]])
 
 
 def test_ti_people_counting_benchmark_spec_is_explicit() -> None:

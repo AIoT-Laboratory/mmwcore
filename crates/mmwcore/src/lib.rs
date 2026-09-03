@@ -84,7 +84,7 @@ pub use sparsification::{
     CartesianSparsificationResult, sparsify,
 };
 pub use tracking::{
-    Box2D, ClusterMeasurements, ClusterTracker2D, NativeTrackStatus, PointMeasurements,
+    Box2D, ClusterMeasurements, ClusterTracker2D, GTrack2D, NativeTrackStatus, PointMeasurements,
     PointTracker2D, TrackAllocationConfig, TrackGatingConfig, TrackLifecycleConfig,
     TrackObservationMetrics, TrackSceneryConfig, TrackStepResult, Tracker2DConfig,
     TrackerDynamicsConfig, TrackingError, TrackingMetricsError, TrackingMetricsInput,

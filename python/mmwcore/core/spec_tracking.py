@@ -114,12 +114,13 @@ class GatingSpec:
 
 @dataclass(frozen=True)
 class AllocationSpec:
-    """Minimum cluster support required to allocate a tentative track."""
+    """Minimum cluster support, with optional linear-SNR sum, for track allocation."""
 
     min_points: int = 1
     min_abs_radial_velocity_mps: float = 0.0
     min_total_snr: float | None = None
     max_new_tracks_per_frame: int | None = None
+    min_separation_m: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -145,26 +146,55 @@ class AllocationSpec:
                     name="AllocationSpec.max_new_tracks_per_frame",
                 ),
             )
+        if self.min_separation_m is not None:
+            _require_finite_positive(
+                self.min_separation_m,
+                name="AllocationSpec.min_separation_m",
+            )
 
 
 @dataclass(frozen=True)
 class LifecycleSpec:
-    """Explicit hit/miss counts for track confirmation and deletion."""
+    """Support and hit/miss counts for track confirmation and deletion."""
 
     confirmation_hits: int = 4
     tentative_max_misses: int = 4
     confirmed_max_misses: int = 11
+    min_update_points: int = 1
+    static_max_misses: int | None = None
+    exit_max_misses: int | None = None
+    static_speed_threshold_mps: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in (
             ("confirmation_hits", self.confirmation_hits),
             ("tentative_max_misses", self.tentative_max_misses),
             ("confirmed_max_misses", self.confirmed_max_misses),
+            ("min_update_points", self.min_update_points),
         ):
             object.__setattr__(
                 self,
                 name,
                 _positive_integer(value, name=f"LifecycleSpec.{name}"),
+            )
+        for name, value in (
+            ("static_max_misses", self.static_max_misses),
+            ("exit_max_misses", self.exit_max_misses),
+        ):
+            if value is not None:
+                object.__setattr__(
+                    self,
+                    name,
+                    _positive_integer(value, name=f"LifecycleSpec.{name}"),
+                )
+        _require_finite_non_negative(
+            self.static_speed_threshold_mps,
+            name="LifecycleSpec.static_speed_threshold_mps",
+        )
+        if self.static_max_misses is not None and self.static_speed_threshold_mps == 0.0:
+            raise ValueError(
+                "LifecycleSpec.static_speed_threshold_mps must be positive when "
+                "static_max_misses is configured."
             )
 
 
@@ -200,24 +230,30 @@ class ScenerySpec:
     """Scene regions that constrain association, allocation, and track lifetime."""
 
     boundary_boxes: tuple[Box2D, ...] = ()
+    static_boxes: tuple[Box2D, ...] = ()
     outside_max_frames: int = 5
 
     def __post_init__(self) -> None:
         boxes = tuple(self.boundary_boxes)
+        static_boxes = tuple(self.static_boxes)
         outside_max_frames = _positive_integer(
             self.outside_max_frames,
             name="ScenerySpec.outside_max_frames",
         )
         object.__setattr__(self, "boundary_boxes", boxes)
+        object.__setattr__(self, "static_boxes", static_boxes)
         object.__setattr__(self, "outside_max_frames", outside_max_frames)
 
     def contains(self, x_m: float, y_m: float) -> bool:
         return not self.boundary_boxes or any(box.contains(x_m, y_m) for box in self.boundary_boxes)
 
+    def contains_static(self, x_m: float, y_m: float) -> bool:
+        return any(box.contains(x_m, y_m) for box in self.static_boxes)
+
 
 @dataclass(frozen=True)
 class Tracker2DSpec:
-    """Configuration for stateful two-dimensional target tracking."""
+    """Configuration shared by 2D cluster tracking and polar-measurement GTRACK."""
 
     frame_period_s: float
     gating: GatingSpec
@@ -229,6 +265,9 @@ class Tracker2DSpec:
     measurement_noise_m: float = 0.2
     initial_velocity_std_mps: float = 2.0
     extent_covariance_smoothing: float = 0.2
+    angle_noise_rad: float = 0.05235987755982989
+    doppler_noise_mps: float = 0.2
+    max_velocity_mps: float = 5.0
 
     def __post_init__(self) -> None:
         _require_finite_positive(self.frame_period_s, name="Tracker2DSpec.frame_period_s")
@@ -248,6 +287,20 @@ class Tracker2DSpec:
         _require_finite_unit_smoothing(
             self.extent_covariance_smoothing,
             name="Tracker2DSpec.extent_covariance_smoothing",
+        )
+        _require_finite_positive(
+            self.angle_noise_rad,
+            name="Tracker2DSpec.angle_noise_rad",
+        )
+        if self.angle_noise_rad >= 1.5707963267948966:
+            raise ValueError("Tracker2DSpec.angle_noise_rad must be below pi / 2.")
+        _require_finite_positive(
+            self.doppler_noise_mps,
+            name="Tracker2DSpec.doppler_noise_mps",
+        )
+        _require_finite_positive(
+            self.max_velocity_mps,
+            name="Tracker2DSpec.max_velocity_mps",
         )
         raw_acceleration = tuple(self.max_acceleration_mps2)
         if len(raw_acceleration) != 2:

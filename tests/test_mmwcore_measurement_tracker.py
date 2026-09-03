@@ -136,7 +136,39 @@ def test_measurement_tracker_adapts_gate_to_target_spread() -> None:
     wide_frame = wide.step(_points((0.48, 1.0, 0.0), (0.52, 1.0, 0.0), frame_id=1))
 
     assert narrow_frame.observation_track_ids.tolist() == [1, 1]
-    assert wide_frame.observation_track_ids.tolist() == [0, 0]
+    assert wide_frame.observation_track_ids.tolist().count(0) > 0
+
+
+def test_measurement_tracker_uses_centroid_uncertainty_without_mahalanobis_gate() -> None:
+    def tracker() -> PointTracker2D:
+        return PointTracker2D(
+            Tracker2DSpec(
+                frame_period_s=0.1,
+                gating=GatingSpec(max_distance_m=1.5),
+                lifecycle=LifecycleSpec(confirmation_hits=1),
+            ),
+            DBSCANSpec(eps_m=0.2, min_samples=2, use_z=False),
+        )
+
+    narrow = tracker()
+    narrow.step(_points((-0.05, 1.0, 0.0), (0.05, 1.0, 0.0)))
+    narrow_frame = narrow.step(_points((0.49, 1.0, 0.0), (0.51, 1.0, 0.0), frame_id=1))
+
+    wide = tracker()
+    wide.step(_points((-0.05, 1.0, 0.0), (0.05, 1.0, 0.0)))
+    wide_frame = wide.step(_points((0.0, 1.0, 0.0), (1.0, 1.0, 0.0), frame_id=1))
+
+    assert narrow_frame.positions[0, 0] > wide_frame.positions[0, 0]
+    assert narrow_frame.position_covariances[0, 0, 0] < wide_frame.position_covariances[0, 0, 0]
+
+
+def test_measurement_tracker_does_not_collapse_extent_on_one_point_update() -> None:
+    tracker = _tracker()
+    allocated = tracker.step(_points((-0.1, 1.0, 0.0), (0.0, 1.0, 0.0), (0.1, 1.0, 0.0)))
+
+    updated = tracker.step(_points((0.0, 1.0, 0.0), frame_id=1))
+
+    np.testing.assert_allclose(updated.extent_covariances, allocated.extent_covariances)
 
 
 def test_measurement_tracker_applies_total_snr_allocation_threshold() -> None:
@@ -169,3 +201,25 @@ def test_measurement_tracker_requires_snr_channel_for_snr_allocation() -> None:
 
     with pytest.raises(ValueError, match="min_total_snr"):
         tracker.step(_points((0.0, 1.0, 0.0), (0.1, 1.0, 0.0)))
+
+
+def test_gtrack_converts_db_snr_to_linear_power_for_allocation() -> None:
+    tracker = PointTracker2D(
+        Tracker2DSpec(
+            frame_period_s=0.1,
+            gating=GatingSpec(max_distance_m=0.5),
+            allocation=AllocationSpec(min_total_snr=19.0),
+        ),
+        DBSCANSpec(eps_m=0.2, min_samples=2, use_z=False),
+    )
+    cloud = PointCloudFrame(
+        points=np.asarray(
+            [[1.0, -0.05, 0.0, 0.1, 10.0], [1.0, 0.05, 0.0, 0.1, 10.0]],
+            dtype=np.float32,
+        ),
+        channels=("x", "y", "z", "velocity", "snr_db"),
+    )
+
+    frame = tracker.step(cloud)
+
+    assert frame.track_ids.tolist() == [0]

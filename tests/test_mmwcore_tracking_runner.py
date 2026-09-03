@@ -119,5 +119,5 @@ def test_iter_adc_measurement_track_frames_reports_point_associations(tmp_path) 
     )
 
     assert len(frames) == 2
-    assert frames[0].metadata["tracker"]["model"] == "constant_velocity_2d_measurement"
+    assert frames[0].metadata["tracker"]["model"] == "gtrack_2d"
     assert frames[0].observation_track_ids.size > 0
