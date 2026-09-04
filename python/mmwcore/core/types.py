@@ -322,6 +322,8 @@ class TrackFrame:
             ("extent_covariances", extent_covariances),
         ):
             _validate_track_covariances(name, covariances, count=count)
+        if position_covariances.shape != extent_covariances.shape:
+            raise ValueError("TrackFrame position and extent covariance shapes must match.")
         _validate_track_lifecycle(statuses, ages, missed, count=count)
         _validate_track_associations(associations, track_ids)
         _validate_track_state_values(positions, velocities)
@@ -407,8 +409,8 @@ def _validate_track_state_shapes(
 
 
 def _validate_track_covariances(name: str, covariances: np.ndarray, *, count: int) -> None:
-    if covariances.shape != (count, 2, 2):
-        raise ValueError(f"TrackFrame.{name} must have shape (N, 2, 2).")
+    if covariances.shape not in {(count, 2, 2), (count, 3, 3)}:
+        raise ValueError(f"TrackFrame.{name} must have shape (N, 2, 2) or (N, 3, 3).")
     if not np.isfinite(covariances).all():
         raise ValueError(f"TrackFrame.{name} contains NaN or Inf values.")
     if not np.allclose(covariances, covariances.transpose(0, 2, 1), atol=1e-6):

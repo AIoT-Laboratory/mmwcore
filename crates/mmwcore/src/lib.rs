@@ -84,9 +84,10 @@ pub use sparsification::{
     CartesianSparsificationResult, sparsify,
 };
 pub use tracking::{
-    Box2D, ClusterMeasurements, ClusterTracker2D, GTrack2D, NativeTrackStatus, PointMeasurements,
-    PointTracker2D, TrackAllocationConfig, TrackGatingConfig, TrackLifecycleConfig,
-    TrackObservationMetrics, TrackSceneryConfig, TrackStepResult, Tracker2DConfig,
+    Box2D, Box3D, ClusterMeasurements, ClusterTracker2D, GTrack2D, GTrack3D, GTrack3DDiagnostics,
+    NativeTrackStatus, PointMeasurements, PointTracker2D, TrackAllocationConfig, TrackGatingConfig,
+    TrackLifecycleConfig, TrackObservationMetrics, TrackScenery3DConfig, TrackSceneryConfig,
+    TrackStepResult, Tracker2DConfig, Tracker3DConfig, TrackerDynamics3DConfig,
     TrackerDynamicsConfig, TrackingError, TrackingMetricsError, TrackingMetricsInput,
     TrackingSequenceMetrics, summarize_tracking_metrics,
 };

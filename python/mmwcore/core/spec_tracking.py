@@ -54,8 +54,7 @@ def _require_finite_unit_smoothing(value: float, *, name: str) -> None:
         raise ValueError(f"{name} must be finite and in (0, 1].")
 
 
-def _positive_acceleration(value: object) -> float:
-    name = "Tracker2DSpec.max_acceleration_mps2"
+def _positive_acceleration(value: object, *, name: str) -> float:
     if isinstance(value, bool):
         raise TypeError(f"{name} values must be real numbers, not bool.")
     if not isinstance(value, Real):
@@ -226,6 +225,45 @@ class Box2D:
 
 
 @dataclass(frozen=True)
+class Box3D:
+    """Inclusive Cartesian tracking region in three dimensions."""
+
+    x_min_m: float
+    x_max_m: float
+    y_min_m: float
+    y_max_m: float
+    z_min_m: float
+    z_max_m: float
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("x_min_m", self.x_min_m),
+            ("x_max_m", self.x_max_m),
+            ("y_min_m", self.y_min_m),
+            ("y_max_m", self.y_max_m),
+            ("z_min_m", self.z_min_m),
+            ("z_max_m", self.z_max_m),
+        ):
+            if isinstance(value, bool):
+                raise TypeError(f"Box3D.{name} must be a real number, not bool.")
+            if not isfinite(value):
+                raise ValueError(f"Box3D.{name} must be finite.")
+        if (
+            self.x_min_m >= self.x_max_m
+            or self.y_min_m >= self.y_max_m
+            or self.z_min_m >= self.z_max_m
+        ):
+            raise ValueError("Box3D minimum bounds must be below maximum bounds.")
+
+    def contains(self, x_m: float, y_m: float, z_m: float) -> bool:
+        return (
+            self.x_min_m <= x_m <= self.x_max_m
+            and self.y_min_m <= y_m <= self.y_max_m
+            and self.z_min_m <= z_m <= self.z_max_m
+        )
+
+
+@dataclass(frozen=True)
 class ScenerySpec:
     """Scene regions that constrain association, allocation, and track lifetime."""
 
@@ -249,6 +287,35 @@ class ScenerySpec:
 
     def contains_static(self, x_m: float, y_m: float) -> bool:
         return any(box.contains(x_m, y_m) for box in self.static_boxes)
+
+
+@dataclass(frozen=True)
+class Scenery3DSpec:
+    """Three-dimensional scene regions for GTrack3D."""
+
+    boundary_boxes: tuple[Box3D, ...] = ()
+    static_boxes: tuple[Box3D, ...] = ()
+    outside_max_frames: int = 5
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "boundary_boxes", tuple(self.boundary_boxes))
+        object.__setattr__(self, "static_boxes", tuple(self.static_boxes))
+        object.__setattr__(
+            self,
+            "outside_max_frames",
+            _positive_integer(
+                self.outside_max_frames,
+                name="Scenery3DSpec.outside_max_frames",
+            ),
+        )
+
+    def contains(self, x_m: float, y_m: float, z_m: float) -> bool:
+        return not self.boundary_boxes or any(
+            box.contains(x_m, y_m, z_m) for box in self.boundary_boxes
+        )
+
+    def contains_static(self, x_m: float, y_m: float, z_m: float) -> bool:
+        return any(box.contains(x_m, y_m, z_m) for box in self.static_boxes)
 
 
 @dataclass(frozen=True)
@@ -307,5 +374,69 @@ class Tracker2DSpec:
             raise ValueError(
                 "Tracker2DSpec.max_acceleration_mps2 must contain two finite positive values."
             )
-        acceleration = tuple(_positive_acceleration(value) for value in raw_acceleration)
+        acceleration = tuple(
+            _positive_acceleration(
+                value,
+                name="Tracker2DSpec.max_acceleration_mps2",
+            )
+            for value in raw_acceleration
+        )
+        object.__setattr__(self, "max_acceleration_mps2", acceleration)
+
+
+@dataclass(frozen=True)
+class Tracker3DSpec:
+    """Configuration for spherical-measurement GTrack3D."""
+
+    frame_period_s: float
+    gating: GatingSpec
+    allocation: AllocationSpec = AllocationSpec()
+    lifecycle: LifecycleSpec = LifecycleSpec()
+    scenery: Scenery3DSpec = Scenery3DSpec()
+    max_tracks: int = 200
+    max_acceleration_mps2: tuple[float, float, float] = (2.0, 2.0, 2.0)
+    measurement_noise_m: float = 0.2
+    initial_velocity_std_mps: float = 2.0
+    extent_covariance_smoothing: float = 0.2
+    angle_noise_rad: float = 0.05235987755982989
+    elevation_noise_rad: float = 0.05235987755982989
+    doppler_noise_mps: float = 0.2
+    max_velocity_mps: float = 5.0
+
+    def __post_init__(self) -> None:
+        _require_finite_positive(self.frame_period_s, name="Tracker3DSpec.frame_period_s")
+        object.__setattr__(
+            self,
+            "max_tracks",
+            _positive_integer(self.max_tracks, name="Tracker3DSpec.max_tracks"),
+        )
+        for name in (
+            "measurement_noise_m",
+            "initial_velocity_std_mps",
+            "angle_noise_rad",
+            "elevation_noise_rad",
+            "doppler_noise_mps",
+            "max_velocity_mps",
+        ):
+            _require_finite_positive(getattr(self, name), name=f"Tracker3DSpec.{name}")
+        _require_finite_unit_smoothing(
+            self.extent_covariance_smoothing,
+            name="Tracker3DSpec.extent_covariance_smoothing",
+        )
+        if self.angle_noise_rad >= 1.5707963267948966:
+            raise ValueError("Tracker3DSpec.angle_noise_rad must be below pi / 2.")
+        if self.elevation_noise_rad >= 1.5707963267948966:
+            raise ValueError("Tracker3DSpec.elevation_noise_rad must be below pi / 2.")
+        raw_acceleration = tuple(self.max_acceleration_mps2)
+        if len(raw_acceleration) != 3:
+            raise ValueError(
+                "Tracker3DSpec.max_acceleration_mps2 must contain three finite positive values."
+            )
+        acceleration = tuple(
+            _positive_acceleration(
+                value,
+                name="Tracker3DSpec.max_acceleration_mps2",
+            )
+            for value in raw_acceleration
+        )
         object.__setattr__(self, "max_acceleration_mps2", acceleration)

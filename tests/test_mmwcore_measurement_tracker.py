@@ -5,13 +5,16 @@ import pytest
 
 from mmwcore.core import (
     AllocationSpec,
+    Box3D,
     DBSCANSpec,
     GatingSpec,
     LifecycleSpec,
     PointCloudFrame,
+    Scenery3DSpec,
     Tracker2DSpec,
+    Tracker3DSpec,
 )
-from mmwcore.tracking import PointTracker2D
+from mmwcore.tracking import GTrack3D, PointTracker2D
 
 
 def _points(*points: tuple[float, ...], frame_id: int = 0) -> PointCloudFrame:
@@ -41,6 +44,50 @@ def _tracker(*, velocity_gate: float | None = None) -> PointTracker2D:
         ),
         DBSCANSpec(eps_m=0.2, min_samples=2, use_z=False),
     )
+
+
+def test_gtrack3d_reports_full_state_and_covariance() -> None:
+    tracker = GTrack3D(
+        Tracker3DSpec(
+            frame_period_s=0.1,
+            gating=GatingSpec(max_distance_m=0.8),
+            lifecycle=LifecycleSpec(confirmation_hits=1),
+            scenery=Scenery3DSpec(
+                boundary_boxes=(Box3D(0.1, 5.0, -2.0, 2.0, -2.0, 2.0),),
+            ),
+        ),
+        DBSCANSpec(eps_m=0.7, min_samples=2, use_z=True),
+    )
+    frame = tracker.step(
+        _points(
+            (1.95, -0.05, -0.25, 0.2),
+            (2.05, 0.05, 0.25, 0.2),
+        )
+    )
+
+    assert frame.track_ids.tolist() == [0]
+    assert frame.positions.shape == (1, 3)
+    assert frame.velocities.shape == (1, 3)
+    assert frame.position_covariances.shape == (1, 3, 3)
+    assert frame.extent_covariances.shape == (1, 3, 3)
+    assert frame.coordinate_frame == "radar"
+    assert frame.metadata["tracker"]["model"] == "gtrack_3d"
+    assert frame.metadata["tracker"]["diagnostics"] == {
+        "frames": 1,
+        "points": 2,
+        "outside_points": 0,
+        "distance_gate_misses": 0,
+        "doppler_gate_misses": 0,
+        "mahalanobis_gate_misses": 0,
+        "empty_updates": 0,
+        "partial_updates": 0,
+        "allocations": 1,
+        "confirmations": 1,
+        "reactivations": 0,
+        "tentative_deletions": 0,
+        "coasting_deletions": 0,
+        "outside_deletions": 0,
+    }
 
 
 def test_measurement_tracker_associates_multiple_points_to_one_track() -> None:
