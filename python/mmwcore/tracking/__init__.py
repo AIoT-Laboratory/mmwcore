@@ -8,7 +8,7 @@ from .benchmark import (
     TrackingGroundTruthFrame,
     evaluate_track_frames,
 )
-from .measurement_tracker import GTrack2D, PointTracker2D
+from .measurement_tracker import GTrack2D, GTrack3D, PointTracker2D
 from .metrics import TrackingSequenceSummary, TrackObservationSummary, summarize_track_frames
 from .runners import iter_adc_cluster_track_frames, iter_adc_measurement_track_frames
 from .ti_vectors import (
@@ -32,6 +32,7 @@ from .tracker import ClusterTracker2D
 __all__ = [
     "ClusterTracker2D",
     "GTrack2D",
+    "GTrack3D",
     "IdentitySwitchEvent",
     "PointTracker2D",
     "TrackObservationSummary",

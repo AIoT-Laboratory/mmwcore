@@ -6,7 +6,7 @@ radar tensors. It also retains classical tracking and benchmarks as quality cont
 
 ```text
 finite: mmwcli.take.v3 -> mmwcore -> openmmw.take.v3 -> RT/RPC -> OpenMMW
-online: mmwcli stream -> OpenMMW -> mmwcore DSP -> checkpoint -> Web
+online: mmwcli stream -> OpenMMW -> mmwcore DSP + tracking -> Web
 quality: mmwcore DSP -> tracking baseline + benchmarks
 ```
 
@@ -61,17 +61,20 @@ windows, models, training, evaluation, and presentation.
 `mmwcore.tracking` is a deterministic classical baseline for learned temporal models. Keep it for
 comparable association, state-estimation, and metric results.
 
-`PointTracker2D` implements GTRACK 2D: Cartesian `[x, y, vx, vy]` state is updated from native
-`[range, azimuth, radial velocity]` measurements with an EKF. Point-to-unit assignment uses
-group dispersion, measurement noise, and competitive Mahalanobis bidding. Doppler is unwrapped
-around each predicted unit; unassigned points use lead-point proximity for allocation rather than
-being treated as already-formed targets. Points first pass explicit position and optional
-Doppler gates, then compete using position likelihood and an optional normalized Doppler residual.
-Each update uses a prediction-anchored robust center, while missing point support increases its
-uncertainty. Partial groups may correct position but do not indefinitely refresh a confirmed
-target; consecutive spatial support confirms a motion-allocated target. Optional static and exit
-regions give indoor scenes different coasting limits. This is a compact classical baseline, not a
-TI GTRACK implementation or a claim of TI People Tracking equivalence.
+`GTrack2D` keeps the TI-compatible 2D benchmark path. `GTrack3D` tracks sensor-frame
+`[x,y,z,vx,vy,vz]` state from `[range,azimuth,elevation,radial velocity]` with an EKF. Both use
+group dispersion, measurement noise, competitive Mahalanobis bidding, Doppler unwrapping,
+lead-point allocation, and explicit tentative/confirmed/coasting lifecycles. GTrack3D reports full
+3D position, velocity, position covariance, and reflection-extent covariance. Installation-pose
+transforms belong at the application boundary because radial Doppler is defined about the radar,
+not the room origin. These are compact, inspectable GTRACK implementations, not TI binary-library
+or complete TI People Tracking equivalence claims.
+
+For GTrack3D, the Cartesian distance gate bounds every association before the spherical
+Mahalanobis/Doppler gate. A single associated point may conservatively correct a mature unit, but it
+cannot confirm, reactivate, or keep a unit alive. Lifecycle evidence requires the configured
+multi-point support. When a static-speed threshold is configured, a coasting unit additionally
+requires renewed radial motion evidence before it can reactivate.
 
 `benchmarks/pipeline.py` is the performance and regression gate for the fixed IWR6843 workload. It
 uses deterministic synthetic ADC and requires no hardware or private data. See

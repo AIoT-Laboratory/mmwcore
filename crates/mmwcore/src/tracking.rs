@@ -3,6 +3,7 @@
 mod cluster;
 mod kalman;
 mod measurement;
+mod measurement3d;
 mod metrics;
 mod state;
 
@@ -13,6 +14,7 @@ use crate::clustering::ClusterError;
 
 pub use cluster::ClusterTracker2D;
 pub use measurement::{GTrack2D, PointTracker2D};
+pub use measurement3d::{GTrack3D, GTrack3DDiagnostics};
 pub use metrics::{
     TrackObservationMetrics, TrackingMetricsError, TrackingMetricsInput, TrackingSequenceMetrics,
     summarize_tracking_metrics,
@@ -259,6 +261,103 @@ impl TrackSceneryConfig {
     }
 }
 
+/// Inclusive Cartesian tracking region in three dimensions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Box3D {
+    pub(crate) x_min_m: f64,
+    pub(crate) x_max_m: f64,
+    pub(crate) y_min_m: f64,
+    pub(crate) y_max_m: f64,
+    pub(crate) z_min_m: f64,
+    pub(crate) z_max_m: f64,
+}
+
+impl Box3D {
+    /// Construct one finite, non-empty tracking boundary.
+    pub fn new(
+        x_min_m: f64,
+        x_max_m: f64,
+        y_min_m: f64,
+        y_max_m: f64,
+        z_min_m: f64,
+        z_max_m: f64,
+    ) -> Result<Self, TrackingError> {
+        if [x_min_m, x_max_m, y_min_m, y_max_m, z_min_m, z_max_m]
+            .iter()
+            .any(|value| !value.is_finite())
+            || x_min_m >= x_max_m
+            || y_min_m >= y_max_m
+            || z_min_m >= z_max_m
+        {
+            return Err(TrackingError::InvalidConfiguration("boundary_boxes"));
+        }
+        Ok(Self {
+            x_min_m,
+            x_max_m,
+            y_min_m,
+            y_max_m,
+            z_min_m,
+            z_max_m,
+        })
+    }
+
+    pub(crate) fn contains(self, x_m: f64, y_m: f64, z_m: f64) -> bool {
+        self.x_min_m <= x_m
+            && x_m <= self.x_max_m
+            && self.y_min_m <= y_m
+            && y_m <= self.y_max_m
+            && self.z_min_m <= z_m
+            && z_m <= self.z_max_m
+    }
+}
+
+/// Three-dimensional scene regions that constrain allocation and track lifetime.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackScenery3DConfig {
+    pub(crate) boundary_boxes: Vec<Box3D>,
+    pub(crate) static_boxes: Vec<Box3D>,
+    pub(crate) outside_max_frames: usize,
+}
+
+impl TrackScenery3DConfig {
+    /// Construct validated three-dimensional tracking scenery.
+    pub fn new(
+        boundary_boxes: Vec<Box3D>,
+        outside_max_frames: usize,
+    ) -> Result<Self, TrackingError> {
+        if outside_max_frames == 0 {
+            return Err(TrackingError::InvalidConfiguration("outside_max_frames"));
+        }
+        Ok(Self {
+            boundary_boxes,
+            static_boxes: Vec::new(),
+            outside_max_frames,
+        })
+    }
+
+    /// Mark interior regions where a slow target may coast longer.
+    pub fn with_static_boxes(mut self, static_boxes: Vec<Box3D>) -> Self {
+        self.static_boxes = static_boxes;
+        self
+    }
+
+    pub(crate) fn contains(&self, x_m: f64, y_m: f64, z_m: f64) -> bool {
+        self.boundary_boxes.is_empty()
+            || self
+                .boundary_boxes
+                .iter()
+                .copied()
+                .any(|boundary| boundary.contains(x_m, y_m, z_m))
+    }
+
+    pub(crate) fn contains_static(&self, x_m: f64, y_m: f64, z_m: f64) -> bool {
+        self.static_boxes
+            .iter()
+            .copied()
+            .any(|region| region.contains(x_m, y_m, z_m))
+    }
+}
+
 /// Constant-velocity state dynamics for a two-dimensional tracker.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TrackerDynamicsConfig {
@@ -344,6 +443,99 @@ impl TrackerDynamicsConfig {
     }
 }
 
+/// Constant-velocity state dynamics and spherical measurement noise for GTrack3D.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TrackerDynamics3DConfig {
+    pub(crate) frame_period_s: f64,
+    pub(crate) max_acceleration_mps2: [f64; 3],
+    pub(crate) measurement_noise_m: f64,
+    pub(crate) initial_velocity_std_mps: f64,
+    pub(crate) extent_covariance_smoothing: f64,
+    pub(crate) angle_noise_rad: f64,
+    pub(crate) elevation_noise_rad: f64,
+    pub(crate) doppler_noise_mps: f64,
+    pub(crate) max_velocity_mps: f64,
+}
+
+impl TrackerDynamics3DConfig {
+    /// Construct validated three-dimensional constant-velocity dynamics.
+    pub fn new(
+        frame_period_s: f64,
+        max_acceleration_mps2: [f64; 3],
+        measurement_noise_m: f64,
+        initial_velocity_std_mps: f64,
+        extent_covariance_smoothing: f64,
+    ) -> Result<Self, TrackingError> {
+        if !is_positive_finite(frame_period_s) {
+            return Err(TrackingError::InvalidConfiguration("frame_period_s"));
+        }
+        if max_acceleration_mps2
+            .iter()
+            .any(|&value| !is_positive_finite(value))
+        {
+            return Err(TrackingError::InvalidConfiguration("max_acceleration_mps2"));
+        }
+        if !is_positive_finite(measurement_noise_m) {
+            return Err(TrackingError::InvalidConfiguration("measurement_noise_m"));
+        }
+        if !is_positive_finite(initial_velocity_std_mps) {
+            return Err(TrackingError::InvalidConfiguration(
+                "initial_velocity_std_mps",
+            ));
+        }
+        if !(extent_covariance_smoothing.is_finite()
+            && 0.0 < extent_covariance_smoothing
+            && extent_covariance_smoothing <= 1.0)
+        {
+            return Err(TrackingError::InvalidConfiguration(
+                "extent_covariance_smoothing",
+            ));
+        }
+        Ok(Self {
+            frame_period_s,
+            max_acceleration_mps2,
+            measurement_noise_m,
+            initial_velocity_std_mps,
+            extent_covariance_smoothing,
+            angle_noise_rad: 3.0_f64.to_radians(),
+            elevation_noise_rad: 3.0_f64.to_radians(),
+            doppler_noise_mps: 0.2,
+            max_velocity_mps: 5.0,
+        })
+    }
+
+    /// Configure spherical measurement noise and the unambiguous radial-velocity limit.
+    pub fn with_spherical_measurement(
+        mut self,
+        angle_noise_rad: f64,
+        elevation_noise_rad: f64,
+        doppler_noise_mps: f64,
+        max_velocity_mps: f64,
+    ) -> Result<Self, TrackingError> {
+        for (name, value) in [
+            ("angle_noise_rad", angle_noise_rad),
+            ("elevation_noise_rad", elevation_noise_rad),
+            ("doppler_noise_mps", doppler_noise_mps),
+            ("max_velocity_mps", max_velocity_mps),
+        ] {
+            if !is_positive_finite(value) {
+                return Err(TrackingError::InvalidConfiguration(name));
+            }
+        }
+        if angle_noise_rad >= std::f64::consts::FRAC_PI_2 {
+            return Err(TrackingError::InvalidConfiguration("angle_noise_rad"));
+        }
+        if elevation_noise_rad >= std::f64::consts::FRAC_PI_2 {
+            return Err(TrackingError::InvalidConfiguration("elevation_noise_rad"));
+        }
+        self.angle_noise_rad = angle_noise_rad;
+        self.elevation_noise_rad = elevation_noise_rad;
+        self.doppler_noise_mps = doppler_noise_mps;
+        self.max_velocity_mps = max_velocity_mps;
+        Ok(self)
+    }
+}
+
 /// Complete native configuration for a two-dimensional tracker.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tracker2DConfig {
@@ -363,6 +555,41 @@ impl Tracker2DConfig {
         allocation: TrackAllocationConfig,
         lifecycle: TrackLifecycleConfig,
         scenery: TrackSceneryConfig,
+        max_tracks: usize,
+    ) -> Result<Self, TrackingError> {
+        if max_tracks == 0 {
+            return Err(TrackingError::InvalidConfiguration("max_tracks"));
+        }
+        Ok(Self {
+            dynamics,
+            gating,
+            allocation,
+            lifecycle,
+            scenery,
+            max_tracks,
+        })
+    }
+}
+
+/// Complete native configuration for a three-dimensional measurement tracker.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tracker3DConfig {
+    pub(crate) dynamics: TrackerDynamics3DConfig,
+    pub(crate) gating: TrackGatingConfig,
+    pub(crate) allocation: TrackAllocationConfig,
+    pub(crate) lifecycle: TrackLifecycleConfig,
+    pub(crate) scenery: TrackScenery3DConfig,
+    pub(crate) max_tracks: usize,
+}
+
+impl Tracker3DConfig {
+    /// Construct one validated native GTrack3D configuration.
+    pub fn new(
+        dynamics: TrackerDynamics3DConfig,
+        gating: TrackGatingConfig,
+        allocation: TrackAllocationConfig,
+        lifecycle: TrackLifecycleConfig,
+        scenery: TrackScenery3DConfig,
         max_tracks: usize,
     ) -> Result<Self, TrackingError> {
         if max_tracks == 0 {

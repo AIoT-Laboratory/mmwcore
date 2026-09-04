@@ -28,11 +28,14 @@ from .spec_pointcloud import SparsifySpec
 from .spec_tracking import (
     AllocationSpec,
     Box2D,
+    Box3D,
     DBSCANSpec,
     GatingSpec,
     LifecycleSpec,
+    Scenery3DSpec,
     ScenerySpec,
     Tracker2DSpec,
+    Tracker3DSpec,
     TrackStatus,
 )
 from .types import (
@@ -60,6 +63,7 @@ __all__ = [
     "CFARMode",
     "ClusterFrame",
     "Tracker2DSpec",
+    "Tracker3DSpec",
     "DBSCANSpec",
     "DetectionFrame",
     "DetectionQualitySpec",
@@ -86,8 +90,10 @@ __all__ = [
     "GatingSpec",
     "LifecycleSpec",
     "ScenerySpec",
+    "Scenery3DSpec",
     "TrackStatus",
     "Box2D",
+    "Box3D",
     "VirtualAntennaLayout",
     "VirtualChannelCalibration",
     "VirtualSubarraySpec",
