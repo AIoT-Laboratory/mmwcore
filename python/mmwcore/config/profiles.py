@@ -118,6 +118,7 @@ class RadarProfile:
     def to_point_cloud_projection_spec(
         self,
         *,
+        doppler_sign: int = 1,
         center_doppler: bool = True,
         doppler_bins: int | None = None,
         doppler_fftshifted: bool = False,
@@ -128,6 +129,7 @@ class RadarProfile:
         return PointCloudProjectionSpec(
             range_resolution_m=self.range_resolution_m,
             doppler_resolution_mps=self.velocity_resolution_mps,
+            doppler_sign=doppler_sign,
             center_doppler=center_doppler,
             doppler_bins=bins if center_doppler else doppler_bins,
             doppler_fftshifted=doppler_fftshifted,

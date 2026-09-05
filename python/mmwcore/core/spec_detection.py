@@ -220,10 +220,11 @@ class DetectionQualitySpec:
 
 @dataclass(frozen=True)
 class PointCloudProjectionSpec:
-    """Projection from calibrated range-Doppler-angle detections to Cartesian points."""
+    """Projection to Cartesian points whose positive radial velocity points away."""
 
     range_resolution_m: float = 1.0
     doppler_resolution_mps: float = 1.0
+    doppler_sign: int = 1
     center_doppler: bool = False
     doppler_bins: int | None = None
     doppler_fftshifted: bool = False
@@ -237,6 +238,13 @@ class PointCloudProjectionSpec:
             self.doppler_resolution_mps,
             name="PointCloudProjectionSpec.doppler_resolution_mps",
         )
+        doppler_sign = _platform_integer(
+            self.doppler_sign,
+            name="PointCloudProjectionSpec.doppler_sign",
+        )
+        if doppler_sign not in {-1, 1}:
+            raise ValueError("PointCloudProjectionSpec.doppler_sign must be -1 or 1")
+        object.__setattr__(self, "doppler_sign", doppler_sign)
         if self.doppler_bins is not None:
             object.__setattr__(
                 self,

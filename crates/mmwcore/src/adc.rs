@@ -11,6 +11,7 @@ pub enum AdcComplexLayout {
     SampleIThenQ = 1,
     Group2IThenQ = 2,
     Group4IThenQ = 3,
+    Group2QThenI = 4,
 }
 
 impl TryFrom<u8> for AdcComplexLayout {
@@ -22,6 +23,7 @@ impl TryFrom<u8> for AdcComplexLayout {
             1 => Ok(Self::SampleIThenQ),
             2 => Ok(Self::Group2IThenQ),
             3 => Ok(Self::Group4IThenQ),
+            4 => Ok(Self::Group2QThenI),
             _ => Err(AdcDecodeError::UnsupportedLayout(value)),
         }
     }
@@ -119,7 +121,7 @@ impl fmt::Display for AdcDecodeError {
             Self::NoCompleteFrames => write!(formatter, "No complete ADC frames are available."),
             Self::Group2RequiresEvenSamples { num_samples } => write!(
                 formatter,
-                "GROUP2_I_THEN_Q requires even num_samples; got {num_samples}."
+                "GROUP2_I_THEN_Q / GROUP2_Q_THEN_I requires even num_samples; got {num_samples}."
             ),
             Self::Group4RequiresAlignedFrame {
                 num_chirps,
@@ -184,7 +186,11 @@ pub fn decode_adc_i16(
         .num_chirps
         .checked_mul(complex_values_per_chirp)
         .ok_or(AdcDecodeError::FrameSizeOverflow)?;
-    if spec.layout == AdcComplexLayout::Group2IThenQ && !spec.num_samples.is_multiple_of(2) {
+    if matches!(
+        spec.layout,
+        AdcComplexLayout::Group2IThenQ | AdcComplexLayout::Group2QThenI
+    ) && !spec.num_samples.is_multiple_of(2)
+    {
         return Err(AdcDecodeError::Group2RequiresEvenSamples {
             num_samples: spec.num_samples,
         });
@@ -215,7 +221,7 @@ pub fn decode_adc_i16(
         AdcComplexLayout::SampleIThenQ => {
             decode_sample_i_then_q(complete_samples, &mut data, num_frames, spec)
         }
-        AdcComplexLayout::Group2IThenQ => {
+        AdcComplexLayout::Group2IThenQ | AdcComplexLayout::Group2QThenI => {
             decode_group2_i_then_q(complete_samples, &mut data, num_frames, spec)
         }
         AdcComplexLayout::Group4IThenQ => decode_group4_i_then_q(
@@ -265,6 +271,11 @@ fn decode_group2_i_then_q(
     spec: AdcFrameSpec,
 ) {
     let groups_per_rx = spec.num_samples / 2;
+    let (i_offset, q_offset) = if spec.layout == AdcComplexLayout::Group2QThenI {
+        (2, 0)
+    } else {
+        (0, 2)
+    };
     for frame in 0..num_frames {
         for chirp in 0..spec.num_chirps {
             for rx in 0..spec.num_rx {
@@ -275,12 +286,12 @@ fn decode_group2_i_then_q(
                         * 4;
                     let sample_start = group * 2;
                     data[cube_index(frame, chirp, rx, sample_start, spec)] = Complex32::new(
-                        f32::from(samples[group_start]),
-                        f32::from(samples[group_start + 2]),
+                        f32::from(samples[group_start + i_offset]),
+                        f32::from(samples[group_start + q_offset]),
                     );
                     data[cube_index(frame, chirp, rx, sample_start + 1, spec)] = Complex32::new(
-                        f32::from(samples[group_start + 1]),
-                        f32::from(samples[group_start + 3]),
+                        f32::from(samples[group_start + i_offset + 1]),
+                        f32::from(samples[group_start + q_offset + 1]),
                     );
                 }
             }

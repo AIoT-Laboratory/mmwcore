@@ -178,7 +178,7 @@ def _radar_capture(
         raise ValueError("radar.cfg must be UTF-8") from error
     return parse_ti_cli_capture_spec(
         text,
-        layout=ADCComplexLayout.GROUP2_I_THEN_Q,
+        layout=ADCComplexLayout.GROUP2_Q_THEN_I,
     )
 
 

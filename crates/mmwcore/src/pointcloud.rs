@@ -27,6 +27,7 @@ pub struct DetectionPointCloudInput<'a> {
 pub struct DetectionPointCloudConfig {
     pub range_resolution_m: f32,
     pub doppler_resolution_mps: f32,
+    pub doppler_sign: i8,
     pub center_doppler: bool,
     pub doppler_bins: Option<usize>,
     pub doppler_fftshifted: bool,
@@ -39,6 +40,9 @@ impl DetectionPointCloudConfig {
         }
         if !self.doppler_resolution_mps.is_finite() || self.doppler_resolution_mps <= 0.0 {
             return Err(DetectionPointCloudError::InvalidDopplerResolution);
+        }
+        if !matches!(self.doppler_sign, -1 | 1) {
+            return Err(DetectionPointCloudError::InvalidDopplerSign);
         }
         if self.doppler_bins == Some(0) {
             return Err(DetectionPointCloudError::InvalidDopplerBins);
@@ -77,6 +81,7 @@ pub enum DetectionPointCloudError {
     },
     InvalidRangeResolution,
     InvalidDopplerResolution,
+    InvalidDopplerSign,
     InvalidDopplerBins,
     CenteredDopplerRequiresBins,
     NonPhysicalDirection {
@@ -117,6 +122,12 @@ impl fmt::Display for DetectionPointCloudError {
                 formatter,
                 "Detection point-cloud doppler_resolution_mps must be finite and positive."
             ),
+            Self::InvalidDopplerSign => {
+                write!(
+                    formatter,
+                    "Detection point-cloud doppler_sign must be -1 or 1."
+                )
+            }
             Self::InvalidDopplerBins => write!(
                 formatter,
                 "Detection point-cloud doppler_bins must be positive when provided."
@@ -275,7 +286,7 @@ fn doppler_velocity(doppler_bin: f32, config: DetectionPointCloudConfig) -> f32 
             (doppler_bin + doppler_bins / 2.0).rem_euclid(doppler_bins) - doppler_bins / 2.0
         }
     };
-    centered_bin * config.doppler_resolution_mps
+    centered_bin * config.doppler_resolution_mps * f32::from(config.doppler_sign)
 }
 
 #[cfg(test)]
@@ -289,6 +300,7 @@ mod tests {
         DetectionPointCloudConfig {
             range_resolution_m: 0.5,
             doppler_resolution_mps: 0.25,
+            doppler_sign: 1,
             center_doppler: false,
             doppler_bins: None,
             doppler_fftshifted: false,
@@ -350,6 +362,33 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.points[3], -0.25);
+    }
+
+    #[test]
+    fn applies_physical_doppler_sign() {
+        let input = [0.0, 1.0, 2.0, 0.0, 0.0, 3.0];
+        let result = project_detection_point_cloud(
+            DetectionPointCloudInput {
+                detections: &input,
+                shape: [1, 6],
+                columns: DetectionPointCloudColumns {
+                    range_bin: 1,
+                    doppler_bin: 2,
+                    magnitude: 5,
+                    azimuth_bin: 3,
+                    azimuth_rad: 4,
+                    elevation: None,
+                    passthrough: &[],
+                },
+            },
+            DetectionPointCloudConfig {
+                doppler_sign: -1,
+                ..config()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.points[3], -0.5);
     }
 
     #[test]

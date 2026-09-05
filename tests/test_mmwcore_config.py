@@ -82,6 +82,7 @@ def test_radar_profile_builds_point_cloud_projection_spec() -> None:
     assert isinstance(spec, PointCloudProjectionSpec)
     assert spec.range_resolution_m == profile.range_resolution_m
     assert spec.doppler_resolution_mps == profile.velocity_resolution_mps
+    assert spec.doppler_sign == 1
     assert spec.center_doppler is True
     assert spec.doppler_bins == 16
 
@@ -385,6 +386,7 @@ def test_iwr6843_isk_elevation_subarray_tracks_displaced_row() -> None:
 def test_iwr6843_3d_recipe_declares_paired_elevation_row() -> None:
     recipe = iwr6843_isk_3d_point_cloud_pipeline(100.0, tx_order=(0, 1, 2))
 
+    assert recipe.projection.doppler_sign == 1
     assert recipe.detection.virtual_subarray == iwr6843_isk_azimuth_subarray(tx_order=(0, 1, 2))
     assert recipe.detection.elevation_subarray == iwr6843_isk_elevation_subarray(tx_order=(0, 1, 2))
 

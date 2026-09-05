@@ -200,13 +200,14 @@ def test_iwr6843_static_clutter_removal_removes_stationary_target() -> None:
 
 @pytest.mark.parametrize("tx_order", [(0, 2, 1), (0, 1, 2)])
 @pytest.mark.parametrize(
-    ("doppler_bin", "shifted_doppler_bin"),
-    [(1, 5), (-1, 3)],
+    ("doppler_bin", "shifted_doppler_bin", "physical_velocity_sign"),
+    [(1, 5, 1), (-1, 3, -1)],
 )
 def test_iwr6843_point_cloud_recipe_recovers_synthetic_target_coordinates(
     tx_order: tuple[int, ...],
     doppler_bin: int,
     shifted_doppler_bin: int,
+    physical_velocity_sign: int,
 ) -> None:
     profile = _small_isk_profile()
     azimuth = np.pi / 6
@@ -240,7 +241,9 @@ def test_iwr6843_point_cloud_recipe_recovers_synthetic_target_coordinates(
     assert cloud.num_points == 1
     assert cloud.points[0, 0] == pytest.approx(expected_range * np.sin(azimuth))
     assert cloud.points[0, 1] == pytest.approx(expected_range * np.cos(azimuth))
-    assert cloud.points[0, 3] == pytest.approx(doppler_bin * profile.velocity_resolution_mps)
+    assert cloud.points[0, 3] == pytest.approx(
+        physical_velocity_sign * profile.velocity_resolution_mps
+    )
     assert cloud.frame_id == "synthetic-isk"
     assert cloud.source == "synthetic"
 

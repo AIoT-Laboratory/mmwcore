@@ -56,6 +56,7 @@ _INTEGER_SPEC_FIELDS: tuple[tuple[DetectionSpec, str, int], ...] = (
     (PeakGroupingSpec(), "range_radius", 0),
     (PeakGroupingSpec(), "doppler_radius", 0),
     (PointCloudProjectionSpec(), "doppler_bins", 1),
+    (PointCloudProjectionSpec(), "doppler_sign", -1),
 )
 
 _PHYSICAL_SPEC_FIELDS: tuple[tuple[str, PhysicalSpecFactory, float], ...] = (
@@ -107,6 +108,13 @@ _BOOL_SPEC_FIELDS: tuple[tuple[DetectionSpec, str], ...] = (
     (PointCloudProjectionSpec(), "center_doppler"),
     (PointCloudProjectionSpec(), "doppler_fftshifted"),
 )
+
+
+@pytest.mark.parametrize("value", [0, 2])
+def test_point_cloud_projection_rejects_invalid_doppler_sign(value: int) -> None:
+    with pytest.raises(ValueError, match="doppler_sign"):
+        PointCloudProjectionSpec(doppler_sign=value)
+
 
 _AGGREGATE_SPEC_FIELDS: tuple[tuple[DetectionSpec, str], ...] = (
     (PeakDetectionSpec(threshold=0.0), "aggregate_rx"),

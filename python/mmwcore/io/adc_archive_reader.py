@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import operator
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Self
 
 import numpy as np
 
 from mmwcore.config import RadarCaptureSpec
-from mmwcore.core import ADCFrame, ADCFrameSpec
+from mmwcore.core import ADCComplexLayout, ADCFrame, ADCFrameSpec
 
 from .adc_archive import ADCArchive, open_adc_archive
+from .capture import _radar_capture
+
+if TYPE_CHECKING:
+    from .take import Take
 
 
 class ADCArchiveReader:
@@ -32,6 +36,30 @@ class ADCArchiveReader:
         self._archive = open_adc_archive(path)
         self._capture = self._archive.capture
         self._metadata = {"tx_order": list(self._capture.tx_order), **(metadata or {})}
+
+    @classmethod
+    def from_take(cls, take: Take) -> Self:
+        """Use a verified take's CFG to correct the historical Q-first layout label.
+
+        The embedded archive contract and raw bytes remain unchanged. Standalone
+        archives have no CFG evidence and keep their original decoding contract.
+        """
+        reader = cls(take.archive.path)
+        effective = _radar_capture(take.config_path.read_bytes())
+        stored = reader.capture
+        if stored != effective:
+            corrected = replace(
+                stored, adc=replace(stored.adc, layout=ADCComplexLayout.GROUP2_Q_THEN_I)
+            )
+            if stored.adc.layout is not ADCComplexLayout.GROUP2_I_THEN_Q or corrected != effective:
+                raise ValueError("Take radar CFG disagrees with the archive capture contract.")
+            reader._capture = effective
+            reader._metadata["adc_layout_correction"] = {
+                "stored": stored.adc.layout.value,
+                "effective": effective.adc.layout.value,
+                "source": "verified_take_radar_cfg_iq_swap_1",
+            }
+        return reader
 
     @property
     def archive(self) -> ADCArchive:

@@ -154,7 +154,12 @@ def iwr6843_isk_range_doppler_pipeline(
     channel_calibration: VirtualChannelCalibration | None = None,
     tx_order: tuple[int, ...] = (0, 2, 1),
 ) -> RangeDopplerPipeline:
-    """Build the standard ISK ADC-to-range-Doppler recipe."""
+    """Build the ISK recipe for correctly ordered complex ADC samples.
+
+    With a positive chirp slope, positive slow-time FFT frequency is increasing
+    range (receding). Decode the actual IQ order before either FFT; do not repair
+    swapped IQ by negating only the projected point velocity.
+    """
 
     radar = profile or iwr6843_profile()
     _require_isk_shape(radar, tx_order=tx_order)
@@ -255,7 +260,10 @@ def iwr6843_isk_point_cloud_pipeline(
             channel_calibration=channel_calibration,
             tx_order=tx_order,
         ),
-        projection=radar.to_point_cloud_projection_spec(doppler_fftshifted=True),
+        projection=radar.to_point_cloud_projection_spec(
+            doppler_sign=1,
+            doppler_fftshifted=True,
+        ),
     )
 
 
@@ -342,7 +350,10 @@ def iwr6843_isk_cfar_point_cloud_pipeline(
             ),
             virtual_subarray=subarray,
         ),
-        projection=radar.to_point_cloud_projection_spec(doppler_fftshifted=True),
+        projection=radar.to_point_cloud_projection_spec(
+            doppler_sign=1,
+            doppler_fftshifted=True,
+        ),
     )
 
 

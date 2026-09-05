@@ -65,3 +65,16 @@ Tracking remains a classical reference for learned temporal perception. Tests pr
 round trips, tensor shapes and axes, numerical behavior, take semantics, and tracking results.
 Benchmarks detect storage and DSP regressions on a fixed IWR6843 workload. Neither adds another
 workflow or hardware path.
+
+## IQ and radial velocity
+
+Radial velocity is `dr/dt`: approaching is negative, receding is positive. Correctly ordered
+positive-slope FMCW ADC uses the same sign as the centered forward Doppler FFT bin. Swapped IQ
+must be decoded correctly before the FFTs; negating only RPC velocity cannot repair it.
+
+The fixed mmwcli IWR6843 configuration uses `iqSwapSel=1`, so its two-lane raw layout is
+`GROUP2_Q_THEN_I` (`Q1 Q2 I1 I2`). New captures record that layout. Generic I-first decoders retain
+their existing meaning. `ADCArchiveReader.from_take(take)` checks the verified take CFG and
+corrects the historical I-first archive label only in the effective reader contract. It records
+that correction in frame metadata and preserves every stored byte/hash. All other capture
+mismatches are rejected; standalone archives continue to use their embedded contract.

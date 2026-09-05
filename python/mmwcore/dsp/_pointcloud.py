@@ -37,6 +37,7 @@ def project_detection_point_cloud(
         (
             spec.range_resolution_m,
             spec.doppler_resolution_mps,
+            spec.doppler_sign,
             spec.center_doppler,
             spec.doppler_bins,
             spec.doppler_fftshifted,

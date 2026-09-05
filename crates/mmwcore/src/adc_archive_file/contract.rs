@@ -105,7 +105,11 @@ fn validate_capture(capture: &CaptureRecord) -> Result<(), AdcArchiveFileError> 
     }
     if !matches!(
         capture.adc.layout.as_str(),
-        "iq_interleaved" | "sample_i_then_q" | "group2_i_then_q" | "group4_i_then_q"
+        "iq_interleaved"
+            | "sample_i_then_q"
+            | "group2_i_then_q"
+            | "group4_i_then_q"
+            | "group2_q_then_i"
     ) {
         return Err(error("ADC archive capture ADC layout is unsupported."));
     }

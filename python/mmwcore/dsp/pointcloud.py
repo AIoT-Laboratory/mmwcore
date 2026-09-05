@@ -91,6 +91,7 @@ def detections_to_point_cloud(
             "pointcloud_projection": {
                 "range_resolution_m": projection.range_resolution_m,
                 "doppler_resolution_mps": projection.doppler_resolution_mps,
+                "doppler_sign": projection.doppler_sign,
                 "center_doppler": projection.center_doppler,
                 "doppler_bins": projection.doppler_bins,
                 "doppler_fftshifted": projection.doppler_fftshifted,

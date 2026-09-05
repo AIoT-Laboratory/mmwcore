@@ -234,8 +234,11 @@ def _capture_spec(
         num_rx=rx_mask.bit_count(),
     )
     adc = profile.to_adc_frame_spec(layout=layout)
-    if adc.layout is ADCComplexLayout.GROUP2_I_THEN_Q and profile.num_adc_samples % 2:
-        raise ValueError("GROUP2_I_THEN_Q capture requires an even numAdcSamples value.")
+    if (
+        adc.layout in {ADCComplexLayout.GROUP2_I_THEN_Q, ADCComplexLayout.GROUP2_Q_THEN_I}
+        and profile.num_adc_samples % 2
+    ):
+        raise ValueError("Grouped two-lane IQ capture requires an even numAdcSamples value.")
 
     return RadarCaptureSpec(
         profile=profile,

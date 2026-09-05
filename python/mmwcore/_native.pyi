@@ -261,7 +261,7 @@ type NativeDetectionPointCloudColumns = tuple[
     tuple[int, int] | None,
     list[int],
 ]
-type NativeDetectionPointCloudConfig = tuple[float, float, bool, int | None, bool]
+type NativeDetectionPointCloudConfig = tuple[float, float, int, bool, int | None, bool]
 type NativeCandidateCubeAxes = tuple[int, int, int, int]
 type NativeCandidateIndexColumns = tuple[int, int, int]
 type NativeCandidateElevationColumns = tuple[int, int, int, int, int]

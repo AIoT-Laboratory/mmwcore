@@ -394,7 +394,7 @@ type NativeDetectionPointCloudColumns = (
     Option<(usize, usize)>,
     Vec<usize>,
 );
-type NativeDetectionPointCloudConfig = (f32, f32, bool, Option<usize>, bool);
+type NativeDetectionPointCloudConfig = (f32, f32, i8, bool, Option<usize>, bool);
 type NativeCandidateCubeAxes = (usize, usize, usize, usize);
 type NativeCandidateIndexColumns = (usize, usize, usize);
 type NativeCandidateElevationColumns = (usize, usize, usize, usize, usize);
@@ -497,6 +497,7 @@ fn detection_point_cloud_config(
     let (
         range_resolution_m,
         doppler_resolution_mps,
+        doppler_sign,
         center_doppler,
         doppler_bins,
         doppler_fftshifted,
@@ -504,6 +505,7 @@ fn detection_point_cloud_config(
     DetectionPointCloudConfig {
         range_resolution_m,
         doppler_resolution_mps,
+        doppler_sign,
         center_doppler,
         doppler_bins,
         doppler_fftshifted,

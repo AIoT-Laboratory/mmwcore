@@ -6,7 +6,7 @@ import pytest
 from mmwcore import _native
 
 type _Columns = tuple[int, int, int, int, int, tuple[int, int] | None, list[int]]
-type _Config = tuple[float, float, bool, int | None, bool]
+type _Config = tuple[float, float, int, bool, int | None, bool]
 
 
 def _columns() -> _Columns:
@@ -14,7 +14,7 @@ def _columns() -> _Columns:
 
 
 def _config() -> _Config:
-    return (0.5, 0.25, False, None, False)
+    return (0.5, 0.25, 1, False, None, False)
 
 
 def test_native_detection_point_cloud_projects_3d_rows_and_passthrough() -> None:
@@ -44,7 +44,7 @@ def test_native_detection_point_cloud_projects_3d_rows_and_passthrough() -> None
 def test_native_detection_point_cloud_centers_unshifted_doppler_bins() -> None:
     detections = np.array([[0.0, 1.0, 7.0, 0.0, 0.0, 3.0]], dtype=np.float32)
     columns: _Columns = (1, 2, 5, 3, 4, None, [])
-    config: _Config = (1.0, 0.5, True, 8, False)
+    config: _Config = (1.0, 0.5, 1, True, 8, False)
 
     points = _native.project_detection_point_cloud(detections, columns, config)
 

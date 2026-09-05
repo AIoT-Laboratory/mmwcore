@@ -51,4 +51,6 @@ def _layout_code(layout: ADCComplexLayout) -> int:
         return 2
     if layout is ADCComplexLayout.GROUP4_I_THEN_Q:
         return 3
+    if layout is ADCComplexLayout.GROUP2_Q_THEN_I:
+        return 4
     raise ValueError(f"Unsupported ADC layout: {layout}")  # pragma: no cover

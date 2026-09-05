@@ -315,3 +315,55 @@ def _raw_capture(root: Path, *, camera: bool) -> Path:
 
 def _file(path: str, payload: bytes) -> dict[str, object]:
     return {"path": path, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+
+
+@pytest.mark.parametrize("legacy_label", [False, True])
+def test_take_reader_corrects_only_legacy_layout_without_changing_bytes(
+    tmp_path: Path, legacy_label: bool
+) -> None:
+    import numpy as np
+
+    from mmwcore.core import ADCComplexLayout
+    from mmwcore.dsp import organize_adc_samples
+    from mmwcore.io import ADCArchiveReader
+
+    capture = read_capture(_raw_capture(tmp_path / "raw", camera=False))
+    assert capture.radar.adc.layout is ADCComplexLayout.GROUP2_Q_THEN_I
+    if legacy_label:
+        capture = replace(
+            capture,
+            radar=replace(
+                capture.radar,
+                adc=replace(capture.radar.adc, layout=ADCComplexLayout.GROUP2_I_THEN_Q),
+            ),
+        )
+    take = write_take(capture, tmp_path / "take")
+    before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in take.root.iterdir()}
+    reader = ADCArchiveReader.from_take(take)
+    assert reader.spec.layout is ADCComplexLayout.GROUP2_Q_THEN_I
+    assert reader.archive.capture == capture.radar
+    assert ADCArchiveReader(take.archive.path).capture == capture.radar
+    raw = reader.read_frame(0)
+    np.testing.assert_array_equal(raw.samples, np.arange(8, dtype=np.int16))
+    cube = organize_adc_samples(raw, reader.spec)
+    np.testing.assert_array_equal(cube.data.ravel(), [2 + 0j, 3 + 1j, 6 + 4j, 7 + 5j])
+    assert ("adc_layout_correction" in raw.metadata) is legacy_label
+    reader.verify_all()
+    assert before == {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in take.root.iterdir()
+    }
+
+
+def test_take_reader_rejects_non_layout_contract_mismatch(tmp_path: Path) -> None:
+    from mmwcore.io import ADCArchiveReader
+
+    capture = read_capture(_raw_capture(tmp_path / "raw", camera=False))
+    capture = replace(
+        capture,
+        radar=replace(
+            capture.radar, profile=replace(capture.radar.profile, adc_sample_rate_hz=10e6)
+        ),
+    )
+    take = write_take(capture, tmp_path / "take")
+    with pytest.raises(ValueError, match="CFG disagrees"):
+        ADCArchiveReader.from_take(take)
