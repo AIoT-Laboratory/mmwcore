@@ -11,6 +11,14 @@ from .benchmark import (
 from .measurement_tracker import GTrack2D, GTrack3D, PointTracker2D
 from .metrics import TrackingSequenceSummary, TrackObservationSummary, summarize_track_frames
 from .runners import iter_adc_cluster_track_frames, iter_adc_measurement_track_frames
+from .ti_gtrack import (
+    TiGTrack3D,
+    TiGTrack3DSpec,
+    TiGTrackAllocation,
+    TiGTrackGating,
+    TiGTrackLifecycle,
+    TiGTrackScenery,
+)
 from .ti_vectors import (
     TiGTrack2DBenchmarkReport,
     TiGTrack2DBenchmarkRun,
@@ -33,6 +41,12 @@ __all__ = [
     "ClusterTracker2D",
     "GTrack2D",
     "GTrack3D",
+    "TiGTrack3D",
+    "TiGTrack3DSpec",
+    "TiGTrackAllocation",
+    "TiGTrackGating",
+    "TiGTrackLifecycle",
+    "TiGTrackScenery",
     "IdentitySwitchEvent",
     "PointTracker2D",
     "TrackObservationSummary",

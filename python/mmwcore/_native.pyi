@@ -3,6 +3,18 @@ from collections.abc import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+class NativeTiGTrack3D:
+    def __init__(self, manifest_path: str, config_json: str) -> None: ...
+    def step(
+        self,
+        points: NDArray[np.float32],
+        variances: NDArray[np.float32] | None = None,
+        *,
+        cartesian: bool = False,
+    ) -> str: ...
+    def provenance_json(self) -> str: ...
+    def close(self) -> None: ...
+
 def encode_adc_archive_chunk(
     data: bytes,
     frame_bytes: int,

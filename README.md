@@ -62,6 +62,11 @@ windows, models, training, evaluation, and presentation.
 
 ## Tracking and benchmarks
 
+`TiGTrack3D` runs the complete pinned IWR6843 **TI 3DA nine-state** source through a separately
+built local plugin. It preserves original association, allocation, update, lifecycle and full
+point/target reports. See [complete TI API, source provenance and validation](docs/ti-gtrack.md).
+The plugin retains the TI-device-only license and is not bundled with the Apache package.
+
 `mmwcore.tracking` is a deterministic classical baseline for learned temporal models. Keep it for
 comparable association, state-estimation, and metric results.
 

@@ -2,6 +2,7 @@
 members = [
     "crates/mmwcore",
     "crates/mmwcore-python",
+    "crates/mmwcore-ti-gtrack",
 ]
 resolver = "3"
 
