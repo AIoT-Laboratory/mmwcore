@@ -8,6 +8,7 @@ from .adc_file import ADCFileReader, load_adc_cube, load_adc_file
 from .adc_reader import ADCReader
 from .capture import Capture, SceneROI, SetupSnapshot, read_capture
 from .take import (
+    LEGACY_TAKE_SCHEMA,
     TAKE_SCHEMA,
     Camera,
     CameraFrame,
@@ -31,6 +32,7 @@ __all__ = [
     "SampleKey",
     "SceneROI",
     "SetupSnapshot",
+    "LEGACY_TAKE_SCHEMA",
     "TAKE_SCHEMA",
     "Take",
     "load_adc_cube",

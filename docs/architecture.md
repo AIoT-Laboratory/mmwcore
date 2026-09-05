@@ -4,8 +4,8 @@
 
 ```text
 finite:
-IWR6843 + DCA1000 -> mmwcli.take.v3 -> read_capture -> write_take
-                  -> openmmw.take.v3 -> RT/RPC -> OpenMMW model
+IWR6843 + DCA1000 -> mmwcli.take.v3 -> read_capture -> write_take + context
+                  -> openmmw.take.v4 -> RT/RPC -> OpenMMW
 
 online:
 IWR6843 + DCA1000 -> mmwcli stream -> OpenMMW -> mmwcore DSP
@@ -29,14 +29,16 @@ The Python layer composes Rust kernels.
 ## Data boundary
 
 `read_capture` accepts the fixed finite `mmwcli.take.v3` raw capture for IWR6843 ES2. `write_take`
-replaces `adc.bin` with indexed, lossless `radar.mmwa` and publishes `openmmw.take.v3`. `open_take`
+replaces `adc.bin` with indexed, lossless `radar.mmwa` and publishes `openmmw.take.v4` when a
+research context is supplied. `open_take`
 is the normal dataset and finite-inference entry point.
 
 A take has one radar stream and at most one directly recorded camera stream. Camera timestamps are
 delivery observations rather than exposure timestamps. OpenMMW owns the downstream pairing policy.
 
 Each raw and verified take references an immutable `mmwcli.snapshot.v1` `setup.json` by path, size,
-and SHA-256. `write_take` copies those bytes unchanged. The snapshot is the sole mount source and
+and SHA-256. `write_take` copies those bytes unchanged. It also hashes `context.json` into v4 while
+remaining able to read legacy v3 takes. The snapshot is the sole mount source and
 requires downward boresight pitch `0`, `30`, or `90` degrees. Cartesian projection maps its level
 grid into sensor coordinates while building the fixed sampling plan and emits the canonical
 `level_forward_lateral_up` frame directly.

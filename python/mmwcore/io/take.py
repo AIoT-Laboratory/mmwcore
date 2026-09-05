@@ -21,7 +21,8 @@ from .capture import (
     _read_setup_snapshot,
 )
 
-TAKE_SCHEMA = "openmmw.take.v3"
+TAKE_SCHEMA = "openmmw.take.v4"
+LEGACY_TAKE_SCHEMA = "openmmw.take.v3"
 type SampleKey = tuple[str, int]
 
 _CAMERA_MAGIC = b"MMWCAM01"
@@ -70,6 +71,7 @@ class Take:
     archive: ADCArchive = field(repr=False)
     config_path: Path
     camera: Camera | None
+    context_path: Path | None
 
     @property
     def setup_path(self) -> Path:
@@ -101,7 +103,12 @@ class Take:
         return (self.session_id, index)
 
 
-def write_take(capture: Capture, destination: str | Path) -> Take:
+def write_take(
+    capture: Capture,
+    destination: str | Path,
+    *,
+    context: bytes | None = None,
+) -> Take:
     if not isinstance(capture, Capture):
         raise TypeError("capture must be a Capture")
     target = Path(destination).resolve(strict=False)
@@ -122,7 +129,8 @@ def write_take(capture: Capture, destination: str | Path) -> Take:
         )
         archive.verify_all()
         camera_record = _copy_camera(capture, stage)
-        session = _session_record(capture, archive, camera_record)
+        context_record = _write_context(context, stage)
+        session = _session_record(capture, archive, camera_record, context_record)
         _write_json(stage / "session.json", session)
         open_take(stage)
         stage.rename(target)
@@ -137,8 +145,12 @@ def open_take(path: str | Path) -> Take:
     if not root.is_dir():
         raise ValueError(f"take is not a directory: {root}")
     session = json.loads((root / "session.json").read_text(encoding="utf-8"))
-    if not isinstance(session, dict) or session.get("schema") != TAKE_SCHEMA:
+    if not isinstance(session, dict) or session.get("schema") not in {
+        TAKE_SCHEMA,
+        LEGACY_TAKE_SCHEMA,
+    }:
         raise ValueError("take schema is unsupported")
+    schema = session["schema"]
     required = {
         "schema",
         "session_id",
@@ -148,7 +160,10 @@ def open_take(path: str | Path) -> Take:
         "setup",
         "radar",
     }
-    if not required <= set(session) or set(session) - required - {"camera"}:
+    optional = {"camera"}
+    if schema == TAKE_SCHEMA:
+        required.add("context")
+    if not required <= set(session) or set(session) - required - optional:
         raise ValueError("take fields are invalid")
     session_id = _text(session["session_id"], "session_id")
     frame_count = _positive_int(session["frame_count"], "frame_count")
@@ -164,9 +179,10 @@ def open_take(path: str | Path) -> Take:
     archive = _open_radar(root, session["radar"], frame_count, frame_period_ns)
     camera_value = session.get("camera")
     camera = None if camera_value is None else _open_camera(root, camera_value)
+    context_path = None if schema == LEGACY_TAKE_SCHEMA else _open_context(root, session["context"])
     if setup.has_camera != (camera is not None):
         raise ValueError("take camera disagrees with setup.json")
-    _validate_names(root, camera is not None)
+    _validate_names(root, camera is not None, context_path is not None)
     return Take(
         root=root,
         session_id=session_id,
@@ -177,6 +193,7 @@ def open_take(path: str | Path) -> Take:
         archive=archive,
         config_path=root / "radar.cfg",
         camera=camera,
+        context_path=context_path,
     )
 
 
@@ -218,9 +235,10 @@ def _session_record(
     capture: Capture,
     archive: ADCArchive,
     camera: CameraRecord | None,
+    context: FileRecord | None,
 ) -> dict[str, object]:
     record: dict[str, object] = {
-        "schema": TAKE_SCHEMA,
+        "schema": TAKE_SCHEMA if context is not None else LEGACY_TAKE_SCHEMA,
         "session_id": capture.session_id,
         "frame_count": capture.frame_count,
         "frame_period_ns": capture.frame_period_ns,
@@ -247,7 +265,29 @@ def _session_record(
             "payload": _record(camera.payload),
             "index": _record(camera.index),
         }
+    if context is not None:
+        record["context"] = _record(context)
     return record
+
+
+def _write_context(payload: bytes | None, stage: Path) -> FileRecord | None:
+    if payload is None:
+        return None
+    if type(payload) is not bytes or not payload:
+        raise ValueError("context must be non-empty bytes")
+    path = stage / "context.json"
+    path.write_bytes(payload)
+    return FileRecord(
+        path="context.json",
+        bytes=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+
+def _open_context(root: Path, value: object) -> Path:
+    record = _file_record(value, "context.json", "context")
+    _verify_file(root, record)
+    return root / record.path
 
 
 def _record(value: FileRecord) -> dict[str, object]:
@@ -318,10 +358,12 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
         os.fsync(output.fileno())
 
 
-def _validate_names(root: Path, has_camera: bool) -> None:
+def _validate_names(root: Path, has_camera: bool, has_context: bool) -> None:
     expected = {"session.json", "setup.json", "radar.cfg", "radar.mmwa"}
     if has_camera:
         expected.update({"camera.mjpeg", "camera.index.bin"})
+    if has_context:
+        expected.add("context.json")
     if {item.name for item in root.iterdir()} != expected:
         raise ValueError("take directory contains unexpected files")
 
@@ -382,6 +424,7 @@ __all__ = [
     "Camera",
     "CameraFrame",
     "HostTimeRange",
+    "LEGACY_TAKE_SCHEMA",
     "SampleKey",
     "TAKE_SCHEMA",
     "Take",

@@ -71,6 +71,26 @@ def test_radar_only_take_has_exactly_four_files(tmp_path: Path) -> None:
     }
 
 
+def test_context_is_hashed_and_published_atomically(tmp_path: Path) -> None:
+    capture = read_capture(_raw_capture(tmp_path / "raw", camera=False))
+    context = b'{"schema":"openmmw.capture-context.v1"}\n'
+
+    take = write_take(capture, tmp_path / "take", context=context)
+
+    context_path = take.context_path
+    assert context_path == take.root / "context.json"
+    assert context_path is not None
+    assert context_path.read_bytes() == context
+    session = json.loads((take.root / "session.json").read_text(encoding="utf-8"))
+    assert session["schema"] == "openmmw.take.v4"
+    assert session["context"] == _file("context.json", context)
+    assert open_take(take.root).context_path == take.context_path
+
+    context_path.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="context.json"):
+        open_take(take.root)
+
+
 def test_capture_rejects_old_schema(tmp_path: Path) -> None:
     root = _raw_capture(tmp_path / "raw", camera=False)
     manifest_path = root / "session.json"

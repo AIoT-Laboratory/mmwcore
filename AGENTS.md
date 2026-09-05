@@ -12,7 +12,8 @@ mechanically or turn one-off outputs into permanent constraints.
 ## Role
 
 - Own byte-exact ADC archives, deterministic DSP, classical tracking, and quality benchmarks.
-- Accept completed `mmwcli.take.v3` captures, verified `openmmw.take.v3` takes, raw ADC files, and
+- Accept completed `mmwcli.take.v3` captures, current `openmmw.take.v4` and legacy v3 verified takes,
+  raw ADC files, and
   `.mmwa` archives.
 - Expose Rust kernels through checked Python contracts. Acquisition, process control, models,
   experiments, and Web belong to mmwcli or OpenMMW.

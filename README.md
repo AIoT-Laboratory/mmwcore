@@ -5,7 +5,7 @@ It verifies finite IWR6843 captures, writes lossless takes, and turns ADC frames
 radar tensors. It also retains classical tracking and benchmarks as quality controls.
 
 ```text
-finite: mmwcli.take.v3 -> mmwcore -> openmmw.take.v3 -> RT/RPC -> OpenMMW
+finite: mmwcli.take.v3 -> mmwcore -> openmmw.take.v4 -> RT/RPC -> OpenMMW
 online: mmwcli stream -> OpenMMW -> mmwcore DSP + tracking -> Web
 quality: mmwcore DSP -> tracking baseline + benchmarks
 ```
@@ -26,16 +26,20 @@ kernels.
 
 ## Research path
 
-Convert a completed `mmwcli.take.v3` raw capture into the fixed `openmmw.take.v3` verified take:
+Convert a completed `mmwcli.take.v3` raw capture into a verified take with immutable research context:
 
 ```python
+from pathlib import Path
+
 from mmwcore.io import read_capture, write_take
 
 capture = read_capture("dataset/takes/subject/scene/action/take-001.capture")
-take = write_take(capture, "dataset/takes/subject/scene/action/take-001")
+context = Path("context.json").read_bytes()
+take = write_take(capture, "dataset/takes/dataset/scenario/c01/take-001", context=context)
 ```
 
-The published take contains `session.json`, the byte-exact immutable `setup.json`, `radar.cfg`, and
+The published v4 take contains `session.json`, hashed `context.json`, the byte-exact immutable
+`setup.json`, `radar.cfg`, and
 `radar.mmwa`, plus `camera.mjpeg` and `camera.index.bin` when a camera participated. Mount height
 and boresight pitch come only from the setup snapshot. The contract accepts downward pitch `0`,
 `30`, or `90` degrees;
@@ -45,7 +49,7 @@ construction or inference:
 ```python
 from mmwcore.io import open_take
 
-take = open_take("dataset/takes/subject/scene/action/take")
+take = open_take("dataset/takes/dataset/scenario/c01/take-001")
 frames = take.archive.read_frames(0, 4)
 ```
 
