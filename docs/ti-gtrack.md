@@ -118,6 +118,14 @@ labels (0–199 slots; 254 outside/filtered, 255 unassociated; other reserved va
 `point_tid` maps only to surviving reported units, using -1 otherwise. A slot can still be present
 on a point after its track was deleted during Update, so -1 alone is not proof of association failure.
 
+`point_static` preserves module `isStaticIndex`, a **Score-stage association bookkeeping flag**.
+It is not the point's zero-Doppler classification or a reliable final target-state label.
+Pinned Update defines dynamic points using `abs(doppler) > FLT_EPSILON` after Score's unrolling;
+good/reliable points are dynamic and unique. For surviving units, combine membership,
+`updated_doppler` and `point_unique` to interpret that criterion, rather than `!point_static`.
+Non-unique dynamic points can still support ACTIVE lifecycle hits without entering the good-point
+centroid; static-target lifecycle and confidence also have separate point-use rules.
+
 Raw state 2 maps to tentative, state 3 to confirmed/coasting; coasting is the application label
 when TI `active2freeCount` is nonzero, not an additional native state. Counter order is
 detect2active, detect2free, active2free, sleep2free, outside2free, static-point history.
