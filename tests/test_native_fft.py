@@ -49,7 +49,7 @@ def test_native_fft_rejects_invalid_direct_boundary_inputs() -> None:
     with pytest.raises(ValueError, match="positive"):
         _native.fft_complex_axis(data, 0, 0, 0, 0)
     with pytest.raises(ValueError, match="Unsupported native FFT window"):
-        _native.fft_complex_axis(data, 0, 2, 3, 0)
+        _native.fft_complex_axis(data, 0, 2, 255, 0)
     with pytest.raises(ValueError, match="Unsupported native FFT flags"):
         _native.fft_complex_axis(data, 0, 2, 0, 0b1000)
 

@@ -21,6 +21,7 @@ class FFTWindow(StrEnum):
     NONE = "none"
     HANN = "hann"
     HAMMING = "hamming"
+    BLACKMAN = "blackman"
 
 
 class DetectionMethod(StrEnum):

@@ -11,6 +11,13 @@ from .aoa import (
     planar_angle_fft,
 )
 from .calibration import apply_time_domain_channel_calibration, apply_virtual_channel_calibration
+from .capon import (
+    CaponDetection,
+    CaponFrame,
+    IskCaponSpec,
+    isk_capon_from_range_cube,
+    isk_capon_point_cloud,
+)
 from .cartesian_pointcloud import sparsify
 from .cartesian_volume import CartesianProjector
 from .cfar import CFAR1DResult, detect_cfar, detect_cfar_1d, detect_range_doppler_cfar
@@ -38,6 +45,11 @@ from .virtual_array import (
 )
 
 __all__ = [
+    "CaponDetection",
+    "CaponFrame",
+    "IskCaponSpec",
+    "isk_capon_from_range_cube",
+    "isk_capon_point_cloud",
     "angle_fft",
     "apply_virtual_channel_calibration",
     "apply_time_domain_channel_calibration",

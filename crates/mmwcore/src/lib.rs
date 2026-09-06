@@ -8,6 +8,7 @@ pub mod adc_archive_file;
 pub mod angle;
 pub mod assignment;
 pub mod candidate_aoa;
+pub mod capon;
 pub mod cartesian;
 pub mod cfar;
 pub mod clustering;

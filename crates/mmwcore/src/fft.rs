@@ -13,6 +13,7 @@ pub enum FftWindow {
     None,
     Hann,
     Hamming,
+    Blackman,
 }
 
 impl TryFrom<u8> for FftWindow {
@@ -23,6 +24,7 @@ impl TryFrom<u8> for FftWindow {
             0 => Ok(Self::None),
             1 => Ok(Self::Hann),
             2 => Ok(Self::Hamming),
+            3 => Ok(Self::Blackman),
             _ => Err(FftTransformError::UnsupportedWindow { window: value }),
         }
     }
@@ -196,6 +198,16 @@ fn window_coefficients(size: usize, window: FftWindow) -> Option<Vec<f32>> {
         FftWindow::None => None,
         FftWindow::Hann => Some(cosine_window(size, 0.5, 0.5)),
         FftWindow::Hamming => Some(cosine_window(size, 0.54, 0.46)),
+        FftWindow::Blackman => Some(if size == 1 {
+            vec![1.0]
+        } else {
+            (0..size)
+                .map(|i| {
+                    let phase = 2.0 * PI * i as f32 / (size - 1) as f32;
+                    0.42 - 0.5 * phase.cos() + 0.08 * (2.0 * phase).cos()
+                })
+                .collect()
+        }),
     }
 }
 

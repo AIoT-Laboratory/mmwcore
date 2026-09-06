@@ -3,6 +3,13 @@ from collections.abc import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+def isk_capon_complex(
+    data: NDArray[np.complex64],
+    range_resolution_m: float,
+    velocity_resolution_mps: float,
+    doppler_bins: int,
+) -> tuple[NDArray[np.float32], str]: ...
+
 class NativeTiGTrack3D:
     def __init__(self, manifest_path: str, config_json: str) -> None: ...
     def step(

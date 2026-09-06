@@ -60,6 +60,11 @@ DSP composition lives in `mmwcore.dsp`: ADC decoding, range/Doppler processing, 
 mapping, Cartesian projection, and bounded sparsification. OpenMMW owns dataset policy, RT/RPC
 windows, models, training, evaluation, and presentation.
 
+An opt-in native [ISK dynamic Capon frontend](docs/isk-capon.md) provides the
+complete default RA-Capon/CFAR/elevation/weighted-Doppler chain from ADC.
+It retains stage diagnostics and source-specific behavior without changing
+the existing RPC pipeline; host arithmetic is not TI DSP bit emulation.
+
 ## Tracking and benchmarks
 
 `TiGTrack3D` runs the complete pinned IWR6843 **TI 3DA nine-state** source through a separately

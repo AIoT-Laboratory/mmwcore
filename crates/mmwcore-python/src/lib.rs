@@ -72,6 +72,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 mod adc_archive;
+mod capon;
 mod capture;
 mod cartesian;
 mod cube;
@@ -88,6 +89,7 @@ const FFT_FLAGS_MASK: u8 = FFT_REMOVE_DC_FLAG | FFT_SHIFT_FLAG | FFT_ONE_SIDED_F
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     capture::register(module)?;
+    capon::register(module)?;
     cartesian::register(module)?;
     cube::register(module)?;
     detection::register(module)?;

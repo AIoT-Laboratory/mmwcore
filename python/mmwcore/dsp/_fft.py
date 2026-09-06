@@ -37,6 +37,8 @@ def _window_code(window: FFTWindow) -> int:
         return 1
     if window is FFTWindow.HAMMING:
         return 2
+    if window is FFTWindow.BLACKMAN:
+        return 3
     raise ValueError(f"Unsupported FFT window: {window}")
 
 
