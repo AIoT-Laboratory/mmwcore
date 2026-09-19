@@ -255,3 +255,152 @@ def test_native_nonfinite_result_requires_reset(manifest) -> None:
             tracker.step_spherical(_group(2, 0.3))
         with pytest.raises(ValueError, match="reset"):
             tracker.step_spherical(np.empty((0, 5), np.float32))
+
+
+def _cartesian_cloud(spherical: np.ndarray) -> PointCloudFrame:
+    r, a, e = spherical[:, 0], spherical[:, 1], spherical[:, 2]
+    values = np.column_stack(
+        (r * np.cos(e) * np.cos(a), r * np.cos(e) * np.sin(a), r * np.sin(e), spherical[:, 3:])
+    )
+    return PointCloudFrame(
+        values.astype(np.float32),
+        channels=("x", "y", "z", "velocity", "snr"),
+        coordinate_frame="sensor_forward_right_up",
+    )
+
+
+@pytest.mark.parametrize("point_count", [1, 6])
+def test_static_support_keeps_existing_id_without_rpc_then_recovers_and_releases(
+    manifest, point_count
+):
+    empty = _cartesian_cloud(np.empty((0, 5), np.float32))
+    static = _cartesian_cloud(_group(2.2, 0)).xyz()[:point_count]
+    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+        for k in range(6):
+            tracked = tracker.step(_cartesian_cloud(_group(2 + 0.03 * k, 0.3)))
+        tid = tracked.track_ids.tolist()
+        assert tracked.statuses == (TrackStatus.CONFIRMED,)
+        # Static observations alone exceed both normal miss and sleep lifetimes.
+        for _ in range(80):
+            tracked = tracker.step(empty, static_positions=static)
+            assert tracked.track_ids.tolist() == tid
+            assert tracked.observation_track_ids.size == 0
+            assert tracker.last_report is not None
+            assert tracker.last_report["static_support"]["assigned_count"] > 0
+        assert tracker.last_report is not None
+        assert tracker.last_report["targets"][0]["is_static"] == 1
+        assert tracker.last_report["targets"][0]["counters"][2] == 0
+        for k in range(6):
+            tracked = tracker.step(
+                _cartesian_cloud(_group(2.2 + 0.03 * k, 0.3)), static_positions=static
+            )
+            assert tracked.track_ids.tolist() == tid
+            assert tracker.last_report is not None
+            assert tracker.last_report["static_support"]["assigned_count"] == 0
+        assert tracker.last_report is not None
+        assert tracker.last_report["targets"][0]["is_static"] == 0
+        for _ in range(80):
+            tracked = tracker.step(empty, static_positions=np.empty((0, 3)))
+        assert tracked.track_ids.size == 0
+
+
+def test_static_support_cannot_birth_or_confirm_candidate(manifest):
+    empty = _cartesian_cloud(np.empty((0, 5), np.float32))
+    static = _cartesian_cloud(_group(2.2, 0)).xyz()
+    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+        for _ in range(20):
+            assert tracker.step(empty, static_positions=static).track_ids.size == 0
+        tracker.step(_cartesian_cloud(_group(2.2, 0.3)))
+        for _ in range(5):
+            result = tracker.step(empty, static_positions=static)
+            assert TrackStatus.CONFIRMED not in result.statuses
+        assert result.track_ids.size == 0
+
+
+def test_static_support_preserves_rpc_reports_and_original_point_labels(manifest):
+    static = _cartesian_cloud(_group(2.2, 0)).xyz()
+    with (
+        TiGTrack3D(_spec(), plugin_manifest=manifest) as baseline,
+        TiGTrack3D(_spec(), plugin_manifest=manifest) as supported,
+    ):
+        for k in range(12):
+            cloud = _cartesian_cloud(_group(2 + 0.03 * k, 0.3))
+            expected = baseline.step(cloud)
+            actual = supported.step(cloud, static_positions=static)
+            np.testing.assert_array_equal(
+                actual.observation_track_ids, expected.observation_track_ids
+            )
+            first, second = baseline.last_report, supported.last_report
+            assert first is not None and second is not None
+            for key in ("targets", "sensor_targets", "presence"):
+                assert first[key] == second[key]
+            for key in (
+                "point_uid",
+                "point_tid",
+                "point_unique",
+                "point_static",
+                "point_score",
+                "updated_doppler",
+            ):
+                assert first[key] == second[key][: len(cloud.points)]
+
+
+def test_static_support_inside_roi_exit_zone_and_outside_release(manifest):
+    spec = replace(
+        _spec(), scenery=replace(_spec().scenery, static_boxes=(Box3D(0, 1, -1, 1, -1, 1),))
+    )
+    empty = _cartesian_cloud(np.empty((0, 5), np.float32))
+    static = _cartesian_cloud(_group(2.2, 0)).xyz()
+    with TiGTrack3D(spec, plugin_manifest=manifest) as tracker:
+        for k in range(6):
+            result = tracker.step(_cartesian_cloud(_group(2 + 0.03 * k, 0.3)))
+        tid = result.track_ids.tolist()
+        for _ in range(40):
+            result = tracker.step(empty, static_positions=static)
+            assert result.track_ids.tolist() == tid
+        outside = static + [20, 0, 0]
+        for _ in range(40):
+            result = tracker.step(empty, static_positions=outside)
+            assert tracker.last_report is not None
+            assert tracker.last_report["static_support"]["assigned_count"] == 0
+        assert result.track_ids.size == 0
+
+
+def test_one_person_can_lose_rpc_while_another_keeps_moving(manifest):
+    spec = replace(_spec(), max_tracks=2, max_points=32)
+
+    def group(side, frame, velocity):
+        points = _group(2 + 0.01 * frame, velocity)
+        points[:, 1] += side
+        return points
+
+    with TiGTrack3D(spec, plugin_manifest=manifest) as tracker:
+        for k in range(6):
+            cloud = _cartesian_cloud(np.concatenate((group(-0.5, k, 0.1), group(0.5, k, 0.1))))
+            result = tracker.step(cloud)
+        assert result.statuses == (TrackStatus.CONFIRMED, TrackStatus.CONFIRMED)
+        original_ids = set(result.track_ids.tolist())
+        stopped_id = int(result.observation_track_ids[0])
+        moving_id = int(result.observation_track_ids[6])
+        static = _cartesian_cloud(group(-0.5, 6, 0)).xyz()[:1]
+        for k in range(6, 36):
+            result = tracker.step(_cartesian_cloud(group(0.5, k, 0.1)), static_positions=static)
+            assert set(result.track_ids.tolist()) == original_ids
+            assert set(result.observation_track_ids.tolist()) == {moving_id}
+            assert tracker.last_report is not None
+            assert tracker.last_report["point_tid"][-1] == stopped_id
+
+
+def test_invalid_static_support_does_not_advance_or_leak_to_next_step(manifest):
+    cloud = _cartesian_cloud(_group(2, 0.3))
+    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+        for invalid in (np.zeros((2, 2)), np.array([[np.nan, 0, 0]])):
+            with pytest.raises(ValueError, match="finite.*sensor XYZ"):
+                tracker.step(cloud, static_positions=invalid)
+        with pytest.raises(ValueError, match="max_points"):
+            tracker.step(cloud, static_positions=np.tile([2, 0.4, 0.3], (11, 1)))
+        with pytest.raises(ValueError, match="zero Doppler"):
+            tracker._tracker.step(_group(2, 0.3), static_start=0)
+        tracker.step(cloud)
+        assert tracker.last_report is not None
+        assert tracker.last_report["targets"][0]["age"] == 1

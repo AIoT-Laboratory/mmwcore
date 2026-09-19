@@ -31,6 +31,30 @@ the TI numerical sources and step order are unchanged.
 
 ## Capability coverage
 
+Optional `step(point_cloud, static_positions=xyz)` supplies `(M,3)` sensor
+forward/right/up positions to support existing tracks during RPC loss. Requires
+the local plugin capability `static_support_v1`; the ordinary step is unchanged.
+The host associates RPC first, then uses the original TI gate for static candidates.
+Only a candidate matching exactly one existing ACTIVE track with no RPC association
+can support it; both prediction and candidate must be inside the full boundary ROI.
+The narrower static box does not reject these supplemental observations. Ambiguous,
+unmatched and tentative-track candidates cannot allocate or update a position centroid.
+The appended zero-speed rows use unit SNR solely as an inert ABI placeholder.
+
+TI still decides the moving/static transition. Once static, a fresh accepted support
+resets the independent sleep counter before the original event logic; otherwise
+its integer fine-motion point history can expire a unit even with one static point
+every frame. No observation means the original miss/sleep/exit rules apply. This is
+an explicit host extension, not claimed as unmodified TI association/lifecycle behavior.
+It establishes an integration mechanism, not human attribution or field performance.
+
+`observation_track_ids` retains the RPC prefix. The full native report retains all
+rows and adds `static_support` (`rpc_count`, sensor XYZ `positions`, `assigned_count`).
+Combined capacity is checked without truncation; explicit mixed RPC variances are
+currently rejected. Static candidates are not new RPC measurements or accurate velocity
+measurements. The host uses GNU linker wrapping of Associate/Event, with thread-local
+context scoped to one locked step; numerical TI sources and source hashes stay intact.
+
 | Stage | Maintained source behavior |
 |---|---|
 | Predict | 9D position/velocity/acceleration CA model, full 9×9 covariance, four-dimensional spherical measurement prediction |
@@ -94,7 +118,7 @@ configuration fields. Defaults follow the pinned **ISK_6m_default.cfg tracking l
 
 These remain **mmwcore API defaults**. OpenMMW now explicitly loads its versioned
 [RPC v1 application profile](../../openmmw/openmmw/configs/ti_gtrack_rpc_v1.json) for the local
-10 Hz sparse-RPC pipeline. Its [baseline record](../../openmmw/docs/research/ti-gtrack-rpc-baseline-v1.md)
+10 Hz sparse-RPC pipeline. Its [baseline record](../../openmmw/docs/research/baseline.md#ti-gtrack-rpc-baseline-v1)
 documents parameter choices, a fixed replay and unresolved cases. It does not change these defaults
 or the pinned TI numerical source.
 

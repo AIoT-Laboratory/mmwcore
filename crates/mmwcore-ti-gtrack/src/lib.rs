@@ -229,6 +229,7 @@ type Step = unsafe extern "C" fn(
 pub struct Engine {
     handle: *mut c_void,
     step_fn: Step,
+    static_start_fn: Option<unsafe extern "C" fn(*mut c_void, u32) -> i32>,
     delete_fn: Delete,
     config: Config,
     provenance: serde_json::Value,
@@ -238,7 +239,8 @@ pub struct Engine {
 }
 
 // Each engine owns one independent TI module. Calls require &mut self; no C mutable
-// globals are used (the pinned defaults are const). Python additionally uses Mutex.
+// shared mutable state is used (the optional host context is thread-local).
+// Python additionally uses Mutex.
 unsafe impl Send for Engine {}
 
 impl Engine {
@@ -289,6 +291,10 @@ impl Engine {
             let step_fn = *library
                 .get::<Step>(b"mmw_ti_step\0")
                 .map_err(|e| e.to_string())?;
+            let static_start_fn = library
+                .get::<unsafe extern "C" fn(*mut c_void, u32) -> i32>(b"mmw_ti_static_start\0")
+                .ok()
+                .map(|symbol| *symbol);
             let mut error = 0;
             let handle = create(&config, &mut error);
             if handle.is_null() {
@@ -297,6 +303,7 @@ impl Engine {
             Ok(Self {
                 handle,
                 step_fn,
+                static_start_fn,
                 delete_fn,
                 config,
                 provenance: manifest,
@@ -316,6 +323,15 @@ impl Engine {
         points: &[[f32; 5]],
         variances: Option<&[[f32; 4]]>,
     ) -> Result<Report, String> {
+        self.step_cartesian_with_static(points, variances, None)
+    }
+
+    pub fn step_cartesian_with_static(
+        &mut self,
+        points: &[[f32; 5]],
+        variances: Option<&[[f32; 4]]>,
+        static_start: Option<usize>,
+    ) -> Result<Report, String> {
         let spherical: Vec<_> = points
             .iter()
             .map(|p| {
@@ -329,7 +345,7 @@ impl Engine {
                 ]
             })
             .collect();
-        self.step(&spherical, variances)
+        self.step_with_static(&spherical, variances, static_start)
     }
 
     /// Spherical input rows: range, azimuth right, elevation up, radial velocity,
@@ -338,6 +354,15 @@ impl Engine {
         &mut self,
         points: &[[f32; 5]],
         variances: Option<&[[f32; 4]]>,
+    ) -> Result<Report, String> {
+        self.step_with_static(points, variances, None)
+    }
+
+    pub fn step_with_static(
+        &mut self,
+        points: &[[f32; 5]],
+        variances: Option<&[[f32; 4]]>,
+        static_start: Option<usize>,
     ) -> Result<Report, String> {
         if self.poisoned {
             return Err(
@@ -363,6 +388,20 @@ impl Engine {
             return Err("Explicit measurement variances must be positive finite (N,4) values; omit them if unknown".into());
         }
         let n = points.len();
+        if let Some(start) = static_start {
+            if start > n || points[start..].iter().any(|p| p[3] != 0.0) {
+                return Err(
+                    "Static support requires a valid RPC prefix and zero Doppler suffix".into(),
+                );
+            }
+            let set = self
+                .static_start_fn
+                .ok_or("Rebuild the TI plugin for static support")?;
+            // SAFETY: start is checked against the validated input length/capacity.
+            if unsafe { set(self.handle, start as u32) } != 0 {
+                return Err("TI static-support setup failed".into());
+            }
+        }
         let mut result = Report {
             targets: vec![Target::default(); self.config.max_tracks as usize],
             sensor_targets: Vec::new(),

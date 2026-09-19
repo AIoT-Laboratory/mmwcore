@@ -1,7 +1,9 @@
-/* Host allocation and observation only; all numerical tracking runs in unmodified TI sources. */
+/* Host allocation, reporting and optional static-support orchestration.
+ * Numerical prediction, gating and state updates use the pinned TI kernels. */
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 #include <ti/alg/gtrack/gtrack.h>
 #include <ti/alg/gtrack/include/gtrack_int.h>
 #include "bridge.h"
@@ -29,7 +31,96 @@ typedef struct {
     GTRACK_measurement_vector *variances;
     GTRACK_targetDesc *targets;
     uint8_t *indices, *unique;
+    uint32_t static_start;
+    uint8_t static_hit[GTRACK_NUM_TRACKS_MAX];
 } Host;
+
+/* Only active during a synchronous step; independent engines may run on separate threads. */
+static _Thread_local Host *stepping_host;
+
+EXPORT int32_t mmw_ti_static_start(void *handle, uint32_t rpc_count) {
+    Host *host = handle;
+    if (!host || rpc_count > host->max_points) return -1;
+    host->static_start = rpc_count;
+    return 0;
+}
+
+void __real_gtrack_moduleAssociate(GtrackModuleInstance *, GTRACK_measurementPoint *, uint16_t);
+void __real_gtrack_unitEvent(void *, uint16_t, uint16_t, uint16_t);
+
+void __wrap_gtrack_unitEvent(void *handle, uint16_t num, uint16_t reliable, uint16_t dynamic) {
+    GtrackUnitInstance *unit = handle;
+    Host *host = stepping_host;
+    /* A fresh, uniquely associated static observation is positive existence evidence.
+     * TI's integer fine-motion point-history can stay zero with one point per frame;
+     * do not let its separate sleep timer delete a currently observed static unit.
+     * No hit => stock counters/thresholds apply, including boundary exit. */
+    if (host && unit->uid < host->max_tracks && host->static_hit[unit->uid] &&
+        unit->state == TRACK_STATE_ACTIVE && unit->isTargetStatic && num && !dynamic)
+        unit->sleep2freeCount = 0;
+    __real_gtrack_unitEvent(handle, num, reliable, dynamic);
+}
+
+static int inside_boundary(GtrackModuleInstance *module, const GTRACK_cartesian_position *sensor) {
+    GTRACK_cartesian_position world;
+    if (module->params.transormParams.transformationRequired)
+        gtrack_censor2world((GTRACK_cartesian_position *)sensor, &module->params.transormParams, &world);
+    else world = *sensor;
+    for (uint8_t b = 0; b < module->params.sceneryParams.numBoundaryBoxes; b++)
+        if (gtrack_isPointInsideBox(&world, &module->params.sceneryParams.boundaryBox[b])) return 1;
+    return 0;
+}
+
+/* RPC owns association first. Supplemental static detections can support only one
+ * existing ACTIVE unit with no RPC association this frame. Use TI's own gate/score,
+ * with no allocation, velocity fabrication or change to original point ownership. */
+void __wrap_gtrack_moduleAssociate(GtrackModuleInstance *module, GTRACK_measurementPoint *points, uint16_t count) {
+    Host *host = stepping_host;
+    if (!host || host->module != module || host->static_start >= count) {
+        __real_gtrack_moduleAssociate(module, points, count);
+        return;
+    }
+    uint16_t rpc_count = (uint16_t)host->static_start;
+    __real_gtrack_moduleAssociate(module, points, rpc_count);
+    uint8_t rpc_hit[GTRACK_NUM_TRACKS_MAX] = {0};
+    for (uint16_t n = 0; n < rpc_count; n++)
+        if (module->bestIndex[n] < host->max_tracks) rpc_hit[module->bestIndex[n]] = 1;
+    for (uint16_t n = rpc_count; n < count; n++) {
+        module->bestIndex[n] = GTRACK_ID_POINT_BEHIND_THE_WALL;
+        GTRACK_cartesian_position position;
+        gtrack_sph2cart(&points[n].vector, &position);
+        if (!inside_boundary(module, &position)) continue;
+        if (module->isCeilingMounted && module->isBoresightFilteringEnabled &&
+            gtrack_isInsideBoresightStaticZone(&points[n].vector)) continue;
+        uint8_t winner = GTRACK_ID_POINT_NOT_ASSOCIATED, winner_static = 0;
+        float winner_score = FLT_MAX;
+        uint16_t matches = 0;
+        GTrack_ListElem *elem = gtrack_listGetFirst(&module->activeList);
+        while (elem) {
+            GtrackUnitInstance *unit = module->hTrack[elem->data];
+            GTRACK_measurementPoint point = points[n];
+            uint8_t index = GTRACK_ID_POINT_NOT_ASSOCIATED, unique = 0xFF, is_static = 0;
+            float score = FLT_MAX;
+            uint16_t saved = unit->numAssosiatedPoints;
+            gtrack_unitScore(unit, &point, &score, &index, &unique, &is_static, 1);
+            unit->numAssosiatedPoints = saved;
+            if (index == unit->uid && fabsf(point.vector.doppler) <= FLT_EPSILON) {
+                matches++;
+                if (unit->state == TRACK_STATE_ACTIVE && !rpc_hit[unit->uid] &&
+                    inside_boundary(module, (GTRACK_cartesian_position *)unit->S_apriori_hat)) {
+                    winner = index; winner_score = score; winner_static = is_static & 1;
+                }
+            }
+            elem = gtrack_listGetNext(elem);
+        }
+        if (matches == 1 && winner < host->max_tracks) {
+            module->bestIndex[n] = winner;
+            module->bestScore[n] = winner_score;
+            host->static_hit[winner] = 1;
+            if (winner_static) module->isStaticIndex[n >> 3] |= (1U << (n & 7));
+        }
+    }
+}
 
 EXPORT uint32_t mmw_ti_abi(uint32_t kind) {
     if (kind == 0) return 1;
@@ -62,6 +153,7 @@ EXPORT void *mmw_ti_create(const MmwTiConfig *c, int32_t *error) {
         free(host); return NULL;
     }
     host->max_points = c->max_points; host->max_tracks = c->max_tracks;
+    host->static_start = UINT32_MAX;
     host->points = calloc(c->max_points, sizeof(*host->points));
     host->variances = calloc(c->max_points, sizeof(*host->variances));
     host->targets = calloc(c->max_tracks, sizeof(*host->targets));
@@ -107,6 +199,9 @@ EXPORT int32_t mmw_ti_step(void *handle, const float *points, const float *varia
                           float *updated_doppler, uint32_t *presence, uint32_t *bench) {
     Host *host = handle;
     if (!host || count > host->max_points) return -1;
+    if (host->static_start != UINT32_MAX && host->static_start > count) {
+        host->static_start = UINT32_MAX; return -1;
+    }
     for (uint32_t i = 0; i < count; i++) {
         memcpy(host->points[i].array, points + i * 5, 4 * sizeof(float));
         host->points[i].snr = points[i * 5 + 4];
@@ -114,8 +209,13 @@ EXPORT int32_t mmw_ti_step(void *handle, const float *points, const float *varia
     }
     uint16_t number = 0;
     uint8_t detected = 0;
+    Host *previous = stepping_host;
+    memset(host->static_hit, 0, sizeof(host->static_hit));
+    stepping_host = host;
     gtrack_step(host->module, host->points, variances ? host->variances : NULL, (uint16_t)count,
                 host->targets, &number, host->indices, host->unique, &detected, bench);
+    stepping_host = previous;
+    host->static_start = UINT32_MAX;
     GtrackModuleInstance *module = host->module;
     *target_count = number; *presence = detected;
     for (uint32_t i = 0; i < number; i++) {

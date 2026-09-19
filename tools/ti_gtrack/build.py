@@ -61,6 +61,8 @@ def main() -> None:
         "-DGTRACK_3D",
         "-fno-fast-math",
         "-ffp-contract=off",
+        "-Wl,--wrap=gtrack_moduleAssociate",
+        "-Wl,--wrap=gtrack_unitEvent",
         "-I",
         str(packages),
         "-I",
@@ -95,7 +97,10 @@ def main() -> None:
         "platform": platform.platform(),
         "command": command,
         "license": "TI Devices only; see TI-LICENSE.txt",
-        "numerics": "Unmodified TI GTRACK_3D; host compiler, not board-binary equivalence",
+        "numerics": (
+            "Unmodified TI kernels; optional host static support; not board-binary equivalence"
+        ),
+        "capabilities": ["static_support_v1"],
     }
     path = output / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

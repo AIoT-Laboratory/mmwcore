@@ -175,8 +175,19 @@ class TiGTrack3D:
         return self._step_native(np.asarray(points, dtype=np.float32), variances, cartesian=False)
 
     def step(
-        self, point_cloud: PointCloudFrame, *, variances: np.ndarray | None = None
+        self,
+        point_cloud: PointCloudFrame,
+        *,
+        variances: np.ndarray | None = None,
+        static_positions: np.ndarray | None = None,
     ) -> TrackFrame:
+        """Advance once, optionally supporting RPC-missed ACTIVE tracks with static XYZ.
+
+        Static positions use sensor forward/right/up. They cannot allocate, update
+        the position centroid or compete with RPC. The native report retains the
+        appended labels; observation_track_ids retains only the original RPC rows.
+        Unit SNR is an inert ABI placeholder for support-only zero-speed positions.
+        """
         if point_cloud.coordinate_frame not in {
             "sensor_forward_lateral_up",
             "sensor_forward_right_up",
@@ -190,7 +201,19 @@ class TiGTrack3D:
         )
         snr = _linear_snr(point_cloud, required=True)
         points = np.column_stack((point_cloud.xyz(), velocity, snr)).astype(np.float32)
-        raw = self._step_native(points, variances, cartesian=True)
+        rpc_count = len(points)
+        static_start = None
+        if static_positions is not None:
+            static = np.asarray(static_positions, dtype=np.float32)
+            if static.ndim != 2 or static.shape[1] != 3 or not np.isfinite(static).all():
+                raise ValueError("Static support positions must be finite (N,3) sensor XYZ")
+            if variances is not None:
+                raise ValueError("Static support does not accept mixed explicit RPC variances")
+            static_start = rpc_count
+            points = np.concatenate(
+                (points, np.column_stack((static, np.zeros(len(static)), np.ones(len(static)))))
+            ).astype(np.float32)
+        raw = self._step_native(points, variances, cartesian=True, static_start=static_start)
         targets, views = raw["targets"], raw["sensor_targets"]
         count = len(targets)
         state = np.asarray([v["state_vector"] for v in views], np.float32).reshape(count, 9)
@@ -221,7 +244,7 @@ class TiGTrack3D:
                 [missed for _, missed in lifecycle],
                 np.int64,
             ),
-            observation_track_ids=np.asarray(raw["point_tid"], np.int64),
+            observation_track_ids=np.asarray(raw["point_tid"][:rpc_count], np.int64),
             frame_id=point_cloud.frame_id,
             timestamp=point_cloud.timestamp,
             source=point_cloud.source,
@@ -245,11 +268,24 @@ class TiGTrack3D:
         )
 
     def _step_native(
-        self, points: np.ndarray, variances: np.ndarray | None, *, cartesian: bool
+        self,
+        points: np.ndarray,
+        variances: np.ndarray | None,
+        *,
+        cartesian: bool,
+        static_start: int | None = None,
     ) -> dict[str, Any]:
         report: dict[str, Any] = json.loads(
-            self._tracker.step(points, _variances(variances), cartesian=cartesian)
+            self._tracker.step(
+                points, _variances(variances), cartesian=cartesian, static_start=static_start
+            )
         )
+        if static_start is not None:
+            report["static_support"] = {
+                "rpc_count": static_start,
+                "positions": points[static_start:, :3].tolist(),
+                "assigned_count": sum(tid >= 0 for tid in report["point_tid"][static_start:]),
+            }
         self.last_report = report
         return report
 

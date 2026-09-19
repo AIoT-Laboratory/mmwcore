@@ -36,13 +36,14 @@ impl NativeTiGTrack3D {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    #[pyo3(signature = (points, variances=None, *, cartesian=false))]
+    #[pyo3(signature = (points, variances=None, *, cartesian=false, static_start=None))]
     fn step(
         &self,
         py: Python<'_>,
         points: PyReadonlyArray2<'_, f32>,
         variances: Option<PyReadonlyArray2<'_, f32>>,
         cartesian: bool,
+        static_start: Option<usize>,
     ) -> PyResult<String> {
         let points = rows::<5>(points, "points")?;
         let variances = variances.map(|v| rows::<4>(v, "variances")).transpose()?;
@@ -54,9 +55,9 @@ impl NativeTiGTrack3D {
                     .map_err(|_| "TI tracker lock poisoned".to_owned())?;
                 let engine = engine.as_mut().ok_or("TI tracker is closed".to_owned())?;
                 if cartesian {
-                    engine.step_cartesian(&points, variances.as_deref())
+                    engine.step_cartesian_with_static(&points, variances.as_deref(), static_start)
                 } else {
-                    engine.step(&points, variances.as_deref())
+                    engine.step_with_static(&points, variances.as_deref(), static_start)
                 }
             })
             .map_err(PyValueError::new_err)?;

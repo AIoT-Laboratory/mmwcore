@@ -32,4 +32,8 @@ typedef struct {
     float expected_points, range_rate;
 } MmwTiTarget;
 
+/* Optional v1 capability: next step's [rpc_count, count) rows are zero-speed
+ * support-only observations. Reset after that step; ordinary ABI is unchanged. */
+int32_t mmw_ti_static_start(void *handle, uint32_t rpc_count);
+
 #endif
