@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import operator
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
@@ -106,6 +106,29 @@ class ADCArchiveReader:
             self._raw_frame(index, frame_samples)
             for index, frame_samples in zip(normalized, samples, strict=True)
         )
+
+    def iter_frames(
+        self, start: int = 0, stop: int | None = None
+    ) -> Generator[ADCFrame, None, None]:
+        """Stream [start, stop), decoding each archive chunk once.
+
+        Only one chunk-sized batch is retained by the iterator. A yielded frame
+        owns its bytes and remains valid after advancing or closing the iterator.
+        Chunk hashes are still verified by read_frames.
+        """
+        stop = self.num_frames if stop is None else stop
+        if isinstance(start, bool) or isinstance(stop, bool):
+            raise TypeError("ADC frame interval must use integers, not bool.")
+        start, stop = operator.index(start), operator.index(stop)
+        if not 0 <= start <= stop <= self.num_frames:
+            raise IndexError(f"ADC frame interval [{start}, {stop}) is outside the archive.")
+        chunk_frames = self.archive.restart_frames
+        while start < stop:
+            # Align to the archive boundary even when the requested start is in
+            # the middle of a chunk; otherwise adjacent batches decode it twice.
+            end = min((start // chunk_frames + 1) * chunk_frames, stop)
+            yield from self.read_frames(range(start, end))
+            start = end
 
     def _frame_index(self, index: int) -> int:
         if isinstance(index, bool):

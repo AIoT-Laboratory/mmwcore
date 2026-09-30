@@ -77,6 +77,61 @@ def test_reader_batches_frames_in_caller_order(tmp_path: Path) -> None:
     assert reader.read_frames([]) == ()
 
 
+def test_stream_batches_at_chunk_boundaries_and_keeps_yielded_bytes(tmp_path, monkeypatch):
+    capture = _capture(num_frames=10)
+    raw = _raw(capture)
+    source, path = tmp_path / "adc.bin", tmp_path / "adc.mmwa"
+    source.write_bytes(raw)
+    write_adc_archive(source, path, capture)
+    reader = ADCArchiveReader(path)
+    assert reader.archive.restart_frames == 4
+    calls = []
+    read = ADCArchiveReader.read_frames
+
+    def record(self, indices):
+        calls.append(tuple(indices))
+        return read(self, indices)
+
+    monkeypatch.setattr(ADCArchiveReader, "read_frames", record)
+    stream = reader.iter_frames(3, 9)
+    assert calls == []
+    first = next(stream)
+    assert calls == [(3,)]
+    frames = [first, *stream]
+    assert calls == [(3,), (4, 5, 6, 7), (8,)]
+    assert [frame.frame_id for frame in frames] == list(range(3, 9))
+    for index, frame in enumerate(frames, start=3):
+        expected = reader.read_frame(index)
+        np.testing.assert_array_equal(frame.samples, expected.samples)
+        assert (frame.timestamp, frame.profile, frame.metadata) == (
+            expected.timestamp,
+            expected.profile,
+            expected.metadata,
+        )
+    assert list(reader.iter_frames(10, 10)) == []
+    partial = reader.iter_frames()
+    retained = next(partial)
+    partial.close()
+    np.testing.assert_array_equal(retained.samples, reader.read_frame(0).samples)
+
+
+@pytest.mark.parametrize(
+    "start,stop,error",
+    [
+        (-1, 1, IndexError),
+        (2, 1, IndexError),
+        (0, 4, IndexError),
+        (True, 2, TypeError),
+        (0, False, TypeError),
+        (0.5, 2, TypeError),
+    ],
+)
+def test_stream_rejects_invalid_interval(tmp_path, start, stop, error):
+    archive, _, _ = _archive(tmp_path)
+    with pytest.raises(error):
+        list(ADCArchiveReader(archive).iter_frames(start, stop))
+
+
 def test_reader_metadata_cannot_override_embedded_tx_order(tmp_path: Path) -> None:
     archive, _, _ = _archive(tmp_path)
     with pytest.raises(ValueError, match="tx_order"):

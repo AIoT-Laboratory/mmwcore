@@ -1,4 +1,4 @@
-"""Reproducible synthetic IWR6843 pipeline benchmarks.
+"""Reproducible IWR6843 pipeline and recorded-archive benchmarks.
 
 This repository-local runner is intentionally separate from the installed
 ``mmwcore`` command and public Python API.
@@ -35,7 +35,7 @@ from mmwcore.dsp import (
     range_doppler,
     range_fft,
 )
-from mmwcore.io import ADCFileReader
+from mmwcore.io import ADCArchiveReader, ADCFileReader, open_take
 
 SCHEMA = "mmwcore.benchmark.v1"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -207,6 +207,78 @@ def _environment() -> dict[str, object]:
     }
 
 
+def _recorded_benchmarks(
+    take_path: Path, *, warmups: int, samples: int, stream_frames: int
+) -> dict[str, object]:
+    take = open_take(take_path)
+    reader = ADCArchiveReader.from_take(take)
+    recipe = iwr6843_isk_range_doppler_pipeline(
+        reader.capture.profile,
+        adc_layout=reader.spec.layout,
+        tx_order=reader.capture.tx_order,
+    )
+    if stream_frames > reader.num_frames:
+        raise ValueError("stream_frames exceeds the recorded take.")
+    cases = _archive_cases(reader, recipe, warmups, samples, stream_frames)
+    return {
+        "schema": SCHEMA,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+        "revision": _git_revision(),
+        "environment": _environment(),
+        "workload": {
+            "take": str(take.root),
+            "capture": reader.capture.to_record(),
+            "adc_sha256": reader.archive.adc_sha256,
+            "restart_frames": reader.archive.restart_frames,
+            "stream_frames": stream_frames,
+            "range_window": recipe.range_fft.window.value,
+            "doppler_window": recipe.doppler_fft.window.value,
+        },
+        "cases": cases,
+    }
+
+
+def _archive_cases(
+    reader: ADCArchiveReader,
+    recipe: RangeDopplerPipeline,
+    warmups: int,
+    samples: int,
+    count: int,
+) -> list[dict[str, object]]:
+    def operation(*, batched: bool, transform: bool) -> float:
+        frames = (
+            reader.iter_frames(stop=count)
+            if batched
+            else (reader.read_frame(i) for i in range(count))
+        )
+        checksum = 0.0
+        for frame in frames:
+            values = range_doppler(frame, recipe).data if transform else frame.samples
+            checksum += float(values.flat[0].real)
+        return checksum
+
+    cases = []
+    for transform in (False, True):
+        suffix = "_to_rd" if transform else ""
+        for batched in (False, True):
+            cases.append(
+                _measure_case(
+                    name=f"archive_{'chunks' if batched else 'frames'}{suffix}",
+                    scope="verified archive reads" + (" through complete RD" if transform else ""),
+                    input_kind="recorded_mmwa_int16",
+                    operation=lambda b=batched, t=transform: operation(batched=b, transform=t),
+                    warmups=warmups,
+                    samples=samples,
+                    frames_per_sample=count,
+                    input_bytes_per_frame=reader.archive.frame_bytes,
+                    cache_mode="warm_after_full_read_warmup"
+                    if warmups
+                    else "uncontrolled_os_page_cache",
+                )
+            )
+    return cases
+
+
 def _git_revision() -> str | None:
     try:
         result = subprocess.run(
@@ -238,10 +310,15 @@ def run_benchmarks(
     samples: int,
     stream_frames: int,
     workload: _BenchmarkWorkload = _DEFAULT_WORKLOAD,
+    take_path: Path | None = None,
 ) -> dict[str, object]:
     """Run the repository-local suite and return its JSON-compatible record."""
 
     _validate_counts(warmups=warmups, samples=samples, stream_frames=stream_frames)
+    if take_path is not None:
+        return _recorded_benchmarks(
+            take_path, warmups=warmups, samples=samples, stream_frames=stream_frames
+        )
     recipe = workload.recipe
     adc_spec = recipe.decode.adc
     frame = _synthetic_frame(recipe)
@@ -354,6 +431,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--warmups", type=_non_negative_integer, default=1)
     parser.add_argument("--samples", type=_positive_integer, default=5)
     parser.add_argument("--stream-frames", type=_positive_integer, default=16)
+    parser.add_argument(
+        "--take", type=Path, help="Measure verified archive reads and RD on this take."
+    )
     parser.add_argument("--output", type=Path, help="Write the versioned JSON result to this file.")
     return parser
 
@@ -364,6 +444,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         warmups=args.warmups,
         samples=args.samples,
         stream_frames=args.stream_frames,
+        take_path=args.take,
     )
     serialized = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output is None:

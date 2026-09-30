@@ -133,6 +133,9 @@ pub fn fft_complex_axis(
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(spec.n_fft);
     let mut line = vec![Complex32::new(0.0, 0.0); spec.n_fft];
+    // rustfft::process allocates scratch on every call. Reuse it across all
+    // lines of this cube; keep it local so concurrent transforms stay independent.
+    let mut scratch = vec![Complex32::new(0.0, 0.0); fft.get_inplace_scratch_len()];
     let copied_length = input_length.min(spec.n_fft);
 
     for outer_index in 0..outer {
@@ -155,7 +158,7 @@ pub fn fft_complex_axis(
                 }
                 line[index] = value;
             }
-            fft.process(&mut line);
+            fft.process_with_scratch(&mut line, &mut scratch);
             if spec.fftshift {
                 line.rotate_left(spec.n_fft.div_ceil(2));
             }

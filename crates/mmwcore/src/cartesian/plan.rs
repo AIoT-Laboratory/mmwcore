@@ -223,6 +223,13 @@ impl PlanarCartesianProjectionPlan {
         ];
         let mut azimuth = vec![Complex32::new(0.0, 0.0); checked_product(&azimuth_shape)?];
         let mut angle = vec![Complex32::new(0.0, 0.0); checked_product(&angle_shape)?];
+        // The two FFTs run sequentially. One worker-local buffer can serve both
+        // plans and every Doppler slice without shared mutable projector state.
+        let scratch_length = self
+            .azimuth_fft
+            .get_inplace_scratch_len()
+            .max(self.elevation_fft.get_inplace_scratch_len());
+        let mut scratch = vec![Complex32::new(0.0, 0.0); scratch_length];
         let chunk_doppler_bins = selected_doppler_stop - selected_doppler_start;
         debug_assert_eq!(
             magnitudes.len(),
@@ -246,7 +253,8 @@ impl PlanarCartesianProjectionPlan {
                     azimuth[destination] = source[source_start + selected_range];
                 }
             }
-            self.azimuth_fft.process(&mut azimuth);
+            self.azimuth_fft
+                .process_with_scratch(&mut azimuth, &mut scratch);
 
             for range in 0..selected_range_bins {
                 for elevation in 0..self.aperture_elevation_bins {
@@ -260,7 +268,8 @@ impl PlanarCartesianProjectionPlan {
                     }
                 }
             }
-            self.elevation_fft.process(&mut angle);
+            self.elevation_fft
+                .process_with_scratch(&mut angle, &mut scratch);
             let magnitude_base = (selected_doppler - selected_doppler_start) * self.spatial_count;
             for spatial in &self.spatial_samples {
                 magnitudes[magnitude_base + spatial.output_index] =
