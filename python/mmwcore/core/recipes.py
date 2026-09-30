@@ -170,6 +170,16 @@ class PointCloudPipeline:
         angle_fft = self.detection.angle_fft
         if angle_fft is None or angle_fft.virtual_layout is None:
             raise ValueError("PointCloudPipeline requires a calibrated virtual antenna layout.")
+        transform = self.detection.transform
+        doppler = transform.doppler_fft
+        tdm = transform.tdm_virtual_array
+        samples = transform.decode.adc.num_chirps // (tdm.num_tx if tdm else 1)
+        if self.projection.doppler_bins not in (None, doppler.n_fft or samples):
+            raise ValueError("PointCloudPipeline projection doppler_bins must match Doppler FFT.")
+        if self.projection.center_doppler and (
+            self.projection.doppler_fftshifted != doppler.fftshift
+        ):
+            raise ValueError("PointCloudPipeline projection fftshift must match Doppler FFT.")
 
 
 def _require_builtin_bool(value: object, *, name: str) -> None:

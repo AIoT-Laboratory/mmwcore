@@ -95,6 +95,41 @@ def test_radar_profile_rejects_invalid_values() -> None:
         RadarProfile(adc_start_time_s=65e-6, ramp_end_time_s=65e-6)
 
 
+def test_radar_profile_rejects_sampling_past_ramp_end() -> None:
+    with pytest.raises(ValueError, match="sampling must finish"):
+        RadarProfile(num_adc_samples=512)
+    # Equality is legal despite floating-point subtraction at the ramp boundary.
+    profile = RadarProfile(
+        num_adc_samples=4,
+        adc_sample_rate_hz=4e6,
+        adc_start_time_s=5e-6,
+        ramp_end_time_s=6e-6,
+    )
+    assert profile.bandwidth_hz == pytest.approx(profile.frequency_slope_hz_per_s * 1e-6)
+
+
+@pytest.mark.parametrize("center", [False, True])
+def test_projection_uses_fft_bin_spacing_without_changing_physical_resolution(center: bool) -> None:
+    profile = RadarProfile()
+    spec = profile.to_point_cloud_projection_spec(
+        center_doppler=center,
+        doppler_bins=128,
+        range_n_fft=512,
+    )
+    assert spec.range_resolution_m * 2 == pytest.approx(profile.range_resolution_m)
+    assert spec.doppler_resolution_mps * 2 == pytest.approx(profile.velocity_resolution_mps)
+
+
+@pytest.mark.parametrize("field", ["doppler_bins", "range_n_fft"])
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_projection_rejects_invalid_fft_lengths(field: str, value: object) -> None:
+    with pytest.raises((ValueError, TypeError), match=field):
+        if field == "doppler_bins":
+            RadarProfile().to_point_cloud_projection_spec(doppler_bins=cast(int, value))
+        else:
+            RadarProfile().to_point_cloud_projection_spec(range_n_fft=cast(int, value))
+
+
 @pytest.mark.parametrize(
     "field_name",
     [

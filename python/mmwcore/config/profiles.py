@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import isclose, isfinite
 from numbers import Real
 from operator import index
 from typing import SupportsFloat, SupportsIndex, cast
@@ -49,6 +49,10 @@ class RadarProfile:
 
         if self.adc_start_time_s >= self.ramp_end_time_s:
             raise ValueError("RadarProfile.adc_start_time_s must be before ramp_end_time_s.")
+        if self.adc_sample_time_s > self.usable_ramp_time_s and not isclose(
+            self.adc_sample_time_s, self.usable_ramp_time_s, rel_tol=1e-12, abs_tol=0.0
+        ):
+            raise ValueError("RadarProfile ADC sampling must finish by ramp_end_time_s.")
 
     @property
     def wavelength_m(self) -> float:
@@ -64,10 +68,7 @@ class RadarProfile:
 
     @property
     def bandwidth_hz(self) -> float:
-        return self.frequency_slope_hz_per_s * min(
-            self.adc_sample_time_s,
-            self.usable_ramp_time_s,
-        )
+        return self.frequency_slope_hz_per_s * self.adc_sample_time_s
 
     @property
     def chirp_period_s(self) -> float:
@@ -122,13 +123,24 @@ class RadarProfile:
         center_doppler: bool = True,
         doppler_bins: int | None = None,
         doppler_fftshifted: bool = False,
+        range_n_fft: int | None = None,
     ) -> PointCloudProjectionSpec:
-        """Build the simple range-Doppler projection spec from profile geometry."""
+        """Build metric bin spacing for the actual FFT lengths, before one-sided slicing."""
 
-        bins = doppler_bins if doppler_bins is not None else self.num_chirps_per_tx
+        bins = (
+            self.num_chirps_per_tx
+            if doppler_bins is None
+            else _positive_dimension(doppler_bins, name="doppler_bins")
+        )
+        range_size = (
+            self.num_adc_samples
+            if range_n_fft is None
+            else _positive_dimension(range_n_fft, name="range_n_fft")
+        )
+        # Zero padding densifies FFT bins; it does not improve physical resolution.
         return PointCloudProjectionSpec(
-            range_resolution_m=self.range_resolution_m,
-            doppler_resolution_mps=self.velocity_resolution_mps,
+            range_resolution_m=self.range_resolution_m * (self.num_adc_samples / range_size),
+            doppler_resolution_mps=(2 * self.max_velocity_mps) / bins,
             doppler_sign=doppler_sign,
             center_doppler=center_doppler,
             doppler_bins=bins if center_doppler else doppler_bins,

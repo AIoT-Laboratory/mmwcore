@@ -29,10 +29,12 @@ def scene():
     return x.astype(np.complex64)
 
 
-def test_full_chain_against_independent_numpy_reference():
+@pytest.mark.parametrize("doppler_bins", [32, 64])
+def test_full_chain_against_independent_numpy_reference(doppler_bins):
     data = scene()
-    actual = isk_capon_from_range_cube(cube(data), SPEC)
-    power, expected, total = evaluate(data, SPEC.doppler_bins)
+    spec = IskCaponSpec(SPEC.range_resolution_m, SPEC.velocity_resolution_mps, doppler_bins)
+    actual = isk_capon_from_range_cube(cube(data), spec)
+    power, expected, total = evaluate(data, spec.doppler_bins)
     np.testing.assert_allclose(actual.ra_power, power, rtol=3e-6, atol=1e-8)
     assert actual.diagnostics["accepted_before_capacity"] == total
     assert len(actual.detections) == len(expected) > 0
@@ -48,7 +50,7 @@ def test_full_chain_against_independent_numpy_reference():
         )
     for r, a, e, d in [(25, 65, 18, -5), (40, 120, 8, 7)]:
         match = next(p for p in actual.detections if p.range_bin == r and p.azimuth_bin == a)
-        assert match.doppler_bin == d
+        assert match.doppler_bin == d * doppler_bins // 32
         assert match.elevation_bin == e
         assert np.sign(match.xyz_m[1]) == np.sign(-NU[a])
         assert np.sign(match.xyz_m[2]) == np.sign(MU[e])

@@ -53,6 +53,7 @@ def process_range_doppler_to_detections(
 ) -> DetectionFrame:
     """Detect targets in a range-Doppler cube produced by the same recipe."""
 
+    _validate_range_doppler(range_doppler_cube, recipe.transform)
     detection_cube = _detection_cube(range_doppler_cube, recipe)
     detections = _detect(detection_cube, recipe)
     detections = _filter_detections(detections, recipe)
@@ -62,6 +63,97 @@ def process_range_doppler_to_detections(
         detections,
         recipe,
     )
+
+
+def _validate_range_doppler(cube: RadarCube, recipe: RangeDopplerPipeline) -> None:
+    """Check physical interpretation when reusing an already transformed cube.
+
+    Clutter subtraction and unrelated provenance may differ between consumers
+    sharing an FFT. Axis ordering, FFT conventions and channel corrections may not.
+    """
+    adc = recipe.decode.adc
+    tdm = recipe.tdm_virtual_array
+    range_size = recipe.range_fft.n_fft or adc.num_samples
+    slow_samples = adc.num_chirps // (tdm.num_tx if tdm else 1)
+    axes = ["frame", "loop" if tdm else "chirp", "virtual_rx" if tdm else "rx", "range_bin"]
+    shape = [
+        cube.data.shape[0],
+        slow_samples,
+        adc.num_rx * (tdm.num_tx if tdm else 1),
+        range_size // 2 + 1 if recipe.range_fft.one_sided else range_size,
+    ]
+    doppler_axis = axes.index(recipe.doppler_fft.input_axis)
+    doppler_size = recipe.doppler_fft.n_fft or shape[doppler_axis]
+    axes[doppler_axis] = "doppler_bin"
+    shape[doppler_axis] = doppler_size
+    if cube.axes != tuple(axes) or cube.data.shape != tuple(shape):
+        raise ValueError("Precomputed RD axes/shape do not match the transform recipe.")
+    _check_rd_metadata(
+        cube,
+        "range_fft",
+        {
+            "n_fft": range_size,
+            "window": recipe.range_fft.window.value,
+            "one_sided": recipe.range_fft.one_sided,
+            "remove_dc": recipe.range_fft.remove_dc,
+        },
+    )
+    _check_rd_metadata(
+        cube,
+        "doppler_fft",
+        {
+            "n_fft": doppler_size,
+            "window": recipe.doppler_fft.window.value,
+            "fftshift": recipe.doppler_fft.fftshift,
+            "input_axis": recipe.doppler_fft.input_axis,
+        },
+    )
+    _check_rd_metadata(
+        cube,
+        "tdm_virtual_array",
+        None
+        if tdm is None
+        else {
+            "tx_order": list(tdm.tx_order),
+            "num_loops": slow_samples,
+            "layout": tdm.virtual_layout().as_metadata(),
+        },
+    )
+    _check_rd_metadata(
+        cube,
+        "tdm_doppler_compensation",
+        None
+        if tdm is None
+        else {
+            "tx_order": list(tdm.tx_order),
+            "num_tx": tdm.num_tx,
+            "num_rx": tdm.geometry.num_rx,
+            "fftshift": recipe.doppler_fft.fftshift,
+        },
+    )
+    calibration = recipe.channel_calibration
+    _check_rd_metadata(
+        cube,
+        "virtual_channel_calibration",
+        None
+        if calibration is None
+        else {
+            "coefficients": calibration.as_metadata()["coefficients"],
+        },
+    )
+
+
+def _check_rd_metadata(cube: RadarCube, stage: str, expected: dict[str, object] | None) -> None:
+    actual = cube.metadata.get(stage)
+    if expected is None:
+        if actual is not None:
+            raise ValueError(f"Precomputed RD has unexpected {stage}.")
+        return
+    if not isinstance(actual, dict):
+        raise ValueError(f"Precomputed RD is missing {stage} metadata.")
+    for key, value in expected.items():
+        if actual.get(key) != value:
+            raise ValueError(f"Precomputed RD {stage}.{key} does not match the transform recipe.")
 
 
 def _detection_cube(range_doppler_cube: RadarCube, recipe: DetectionPipeline) -> RadarCube:

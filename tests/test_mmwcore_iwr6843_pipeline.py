@@ -102,6 +102,92 @@ def test_iwr6843_recipe_maps_tdm_adc_to_virtual_range_doppler_cube() -> None:
     assert cube.metadata["tdm_doppler_compensation"]["tx_order"] == [0, 2, 1]
 
 
+@pytest.mark.parametrize("range_factor,doppler_factor", [(1, 1), (2, 1), (1, 2), (2, 2)])
+@pytest.mark.parametrize("shift", [False, True])
+@pytest.mark.parametrize("doppler_bin", [-1, 1])
+def test_zero_padding_preserves_target_range_and_velocity(
+    range_factor: int,
+    doppler_factor: int,
+    shift: bool,
+    doppler_bin: int,
+) -> None:
+    profile = _small_isk_profile()
+    raw = _synthesize_isk_target(
+        profile,
+        range_bin=2,
+        doppler_bin=doppler_bin,
+        azimuth_rad=np.pi / 6,
+    )
+    base = iwr6843_isk_point_cloud_pipeline(
+        100_000,
+        profile,
+        range_window=FFTWindow.NONE,
+        doppler_window=FFTWindow.NONE,
+        angle_window=FFTWindow.NONE,
+        angle_n_fft=8,
+    )
+    transform = base.detection.transform
+    range_size = profile.num_adc_samples * range_factor
+    doppler_size = profile.num_chirps_per_tx * doppler_factor
+    recipe = replace(
+        base,
+        detection=replace(
+            base.detection,
+            transform=replace(
+                transform,
+                range_fft=replace(transform.range_fft, n_fft=range_size),
+                doppler_fft=replace(transform.doppler_fft, n_fft=doppler_size, fftshift=shift),
+            ),
+        ),
+        projection=profile.to_point_cloud_projection_spec(
+            range_n_fft=range_size,
+            doppler_bins=doppler_size,
+            doppler_fftshifted=shift,
+        ),
+    )
+    cloud = point_cloud(raw, recipe)
+    reused = process_range_doppler_to_calibrated_point_cloud(
+        range_doppler(raw, recipe.detection.transform),
+        recipe,
+    )
+    np.testing.assert_array_equal(reused.points, cloud.points)
+    peak = cloud.points[np.argmax(cloud.points[:, cloud.channels.index("magnitude")])]
+    assert np.linalg.norm(peak[:3]) == pytest.approx(2 * profile.range_resolution_m, abs=1e-5)
+    assert peak[3] == pytest.approx(doppler_bin * profile.velocity_resolution_mps, abs=1e-5)
+
+
+@pytest.mark.parametrize(
+    "mismatch", ["shift", "length", "tx_order", "calibration", "metadata", "axes"]
+)
+def test_precomputed_rd_rejects_incompatible_recipe(mismatch: str) -> None:
+    profile = _small_isk_profile()
+    raw = _synthesize_isk_target(profile, range_bin=2, doppler_bin=1, azimuth_rad=0.0)
+    recipe = iwr6843_isk_point_cloud_pipeline(100_000, profile)
+    transform = recipe.detection.transform
+    if mismatch == "shift":
+        transform = replace(transform, doppler_fft=replace(transform.doppler_fft, fftshift=False))
+    elif mismatch == "length":
+        transform = replace(transform, doppler_fft=replace(transform.doppler_fft, n_fft=16))
+    elif mismatch == "tx_order":
+        transform = iwr6843_isk_range_doppler_pipeline(profile, tx_order=(0, 1, 2))
+    elif mismatch == "calibration":
+        transform = replace(transform, channel_calibration=VirtualChannelCalibration((1j,) * 12))
+    cube = range_doppler(raw, transform)
+    if mismatch == "metadata":
+        cube = replace(cube, metadata={})
+    elif mismatch == "axes":
+        cube = replace(cube, axes=("frame", "virtual_rx", "doppler_bin", "range_bin"))
+    with pytest.raises(ValueError, match="Precomputed RD"):
+        process_range_doppler_to_calibrated_point_cloud(cube, recipe)
+
+
+@pytest.mark.parametrize("field,value", [("doppler_fftshifted", False), ("doppler_bins", 16)])
+def test_point_cloud_recipe_rejects_inconsistent_projection(field: str, value: object) -> None:
+    recipe = iwr6843_isk_point_cloud_pipeline(100_000, _small_isk_profile())
+    with pytest.raises(ValueError, match="projection.*must match Doppler FFT"):
+        replace(recipe, projection=replace(recipe.projection, **{field: value}))
+
+
 def test_iwr6843_recipe_maps_active_tx_subset_to_virtual_range_doppler_cube() -> None:
     profile = replace(_small_isk_profile(), num_tx=2)
     raw = _synthesize_isk_target(

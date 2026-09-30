@@ -220,7 +220,11 @@ class DetectionQualitySpec:
 
 @dataclass(frozen=True)
 class PointCloudProjectionSpec:
-    """Projection to Cartesian points whose positive radial velocity points away."""
+    """Metric FFT-bin spacing; positive radial velocity points away.
+
+    The historical ``*_resolution_*`` fields describe bin spacing here, which
+    differs from physical resolution when the FFT is zero-padded.
+    """
 
     range_resolution_m: float = 1.0
     doppler_resolution_mps: float = 1.0

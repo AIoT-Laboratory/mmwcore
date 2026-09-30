@@ -194,6 +194,8 @@ pub fn isk_capon(
     let mut inverses: Vec<Option<Vec<Complex64>>> = vec![None; ranges];
     let mut planner = FftPlanner::<f64>::new();
     let fft = planner.plan_fft_forward(config.doppler_bins);
+    let mut spectrum = vec![Complex64::default(); config.doppler_bins];
+    let mut scratch = vec![Complex64::default(); fft.get_inplace_scratch_len()];
     for candidate in candidates {
         let r = candidate.range;
         if candidate.noise <= 0. {
@@ -232,7 +234,9 @@ pub fn isk_capon(
             continue;
         }
         let weights = &responses[peak].1; // Discrete-peak, unnormalized R^-1 a.
-        let mut spectrum = vec![Complex64::default(); config.doppler_bins];
+        // Each candidate reuses the same buffers. Clear the padded tail as well
+        // as measured loops so the previous candidate cannot leak into this FFT.
+        spectrum.fill(Complex64::default());
         for (t, value) in spectrum.iter_mut().take(loops).enumerate() {
             *value = weights
                 .iter()
@@ -240,7 +244,7 @@ pub fn isk_capon(
                 .map(|(j, w)| w.conj() * samples[r][t * ANTENNAS + j])
                 .sum();
         }
-        fft.process(&mut spectrum);
+        fft.process_with_scratch(&mut spectrum, &mut scratch);
         let bin = first_peak(spectrum.iter().map(|z| z.norm_sqr()));
         // TI uses > (not >=): the aliased Nyquist bin is reported positive.
         let signed = if bin > config.doppler_bins / 2 {
