@@ -38,3 +38,27 @@ jobs:
       - run: uv run --python 3.12 pyright
       - run: uv run --python 3.12 python -m pytest -p no:cacheprovider -q
       - run: uv run --python 3.12 python benchmarks/pipeline.py --warmups 0 --samples 1 --stream-frames 2
+      - name: Build wheel from sdist
+        run: uv run --no-sync maturin build --release --locked --sdist --interpreter python --out dist
+      - name: Check independent installation
+        shell: python
+        run: |
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          wheel, = (root / "dist").glob("*.whl")
+          with tempfile.TemporaryDirectory(prefix="mmwcore-installed-") as directory:
+              work = Path(directory)
+              environment = work / "venv"
+              subprocess.run(["uv", "venv", "--python", sys.executable, str(environment)], check=True)
+              python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+              subprocess.run([
+                  "uv", "pip", "install", "--python", str(python), "--only-binary", ":all:", str(wheel)
+              ], check=True)
+              subprocess.run([
+                  str(python), "-I", str(root / "tests/distribution_smoke.py"), str(root / "dist")
+              ], cwd=work, check=True)

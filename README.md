@@ -67,28 +67,22 @@ the existing RPC pipeline; host arithmetic is not TI DSP bit emulation.
 
 ## Tracking and benchmarks
 
-`TiGTrack3D` runs the complete pinned IWR6843 **TI 3DA nine-state** source through a separately
-built local plugin. It preserves original association, allocation, update, lifecycle and full
-point/target reports. See [complete TI API, source provenance and validation](docs/ti-gtrack.md).
-The plugin retains the TI-device-only license and is not bundled with the Apache package.
+`TiGTrack3D` implements the pinned IWR6843 **TI 3DA nine-state** tracker in Rust.
+Normal installations need no TI SDK, C compiler or GTRACK DLL. Association, allocation,
+update, lifecycle and static support run inside mmwcore's native extension.
+This component retains TI's **TI-device-only** license, included in source and wheels;
+other mmwcore code remains Apache-2.0. See [API and validation](docs/ti-gtrack.md).
 
-`mmwcore.tracking` is a deterministic classical baseline for learned temporal models. Keep it for
-comparable association, state-estimation, and metric results.
+The other maintained backend is `ScatterBodyTracker` in `mmwcore.tracking.multiscale`:
+multiscale clustering, scatter-component histories and causal bulk-motion estimation.
+Its ablation components remain available for comparison and subsequent improvements against
+complete TI GTRACK. Both backends are exported from `mmwcore.tracking`.
 
-`GTrack2D` keeps the TI-compatible 2D benchmark path. `GTrack3D` tracks sensor-frame
-`[x,y,z,vx,vy,vz]` state from `[range,azimuth,elevation,radial velocity]` with an EKF. Both use
-group dispersion, measurement noise, competitive Mahalanobis bidding, Doppler unwrapping,
-lead-point allocation, and explicit tentative/confirmed/coasting lifecycles. GTrack3D reports full
-3D position, velocity, position covariance, and reflection-extent covariance. Installation-pose
-transforms belong at the application boundary because radial Doppler is defined about the radar,
-not the room origin. These are compact, inspectable GTRACK implementations, not TI binary-library
-or complete TI People Tracking equivalence claims.
-
-For GTrack3D, the Cartesian distance gate bounds every association before the spherical
-Mahalanobis/Doppler gate. A single associated point may conservatively correct a mature unit, but it
-cannot confirm, reactivate, or keep a unit alive. Lifecycle evidence requires the configured
-multi-point support. When a static-speed threshold is configured, a coasting unit additionally
-requires renewed radial motion evidence before it can reactivate.
+The simplified `GTrack2D`/six-state `GTrack3D`, `PointTracker2D`, `ClusterTracker2D`, their
+configuration adapters, ADC runners and dedicated 2D vector benchmark have been removed.
+There are no compatibility aliases or legacy backend switch. Shared DBSCAN, assignment,
+geometry, `TrackFrame` and comparison metrics remain; metric regions use `boundary_boxes`
+directly instead of the retired `ScenerySpec`.
 
 `benchmarks/pipeline.py` is the performance and regression gate for the fixed IWR6843 workload. It
 uses deterministic synthetic ADC and requires no hardware or private data. See
@@ -117,3 +111,9 @@ uv run --python 3.12 python benchmarks/pipeline.py --warmups 0 --samples 1 --str
 ```
 
 These checks are local and do not access radar hardware.
+
+CI also builds a source distribution and compiles the wheel from that archive on Windows and
+Linux. It installs the wheel into a clean environment outside the checkout and runs
+`tests/distribution_smoke.py` with `python -I`. The check verifies installed import paths,
+license files, type stubs, FFT, archive round trips and both tracking backends. The source
+distribution includes the frozen TI oracle fixture so its Rust tests also run independently.

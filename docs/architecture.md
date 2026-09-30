@@ -19,9 +19,10 @@ DSP for both archived and in-memory ADC frames.
 ## Ownership
 
 - `crates/mmwcore` owns lossless `.mmwa` storage and deterministic numerical kernels.
+- `crates/mmwcore-ti-gtrack` owns the complete Rust TI GTRACK 3DA implementation.
 - `crates/mmwcore-python` exposes those kernels as checked NumPy operations.
 - `python/mmwcore` owns finite capture/take readers, physical contracts, DSP composition, and
-  tracking baselines.
+  multiscale tracking and the public TI tracking adapter. These are the two maintained backends.
 - `benchmarks` owns reproducible storage and DSP regression workloads.
 
 The Python layer composes Rust kernels.
@@ -59,12 +60,56 @@ explicit in recipes and products. See the [ADC archive format](adc-archive-forma
 OpenMMW chooses windows, labels, splits, tensor layouts, and neural networks. mmwcore supplies the
 deterministic physical transformation beneath those choices.
 
+`RadarProfile` rejects sampling that extends beyond the chirp ramp. Physical range/velocity
+resolution is distinct from FFT-bin spacing: pass the actual `range_n_fft` and `doppler_bins`
+to `to_point_cloud_projection_spec` when changing FFT lengths. Range FFT length means the full
+transform length, before one-sided slicing. Precomputed RD reuse checks axes, dimensions,
+FFT conventions, TDM channel mapping/compensation and calibration coefficients against the recipe.
+Clutter-subtracted and full RD may share the same detection recipe; unrelated provenance is ignored.
+
 ## Quality boundary
 
 Tracking remains a classical reference for learned temporal perception. Tests protect archive
 round trips, tensor shapes and axes, numerical behavior, take semantics, and tracking results.
 Benchmarks detect storage and DSP regressions on a fixed IWR6843 workload. Neither adds another
 workflow or hardware path.
+
+Tracking evaluation gates pairs before assignment, maximizing the number of valid matches and
+then minimizing their total distance. This prevents a shorter out-of-gate assignment from hiding
+otherwise valid pairs. Reported errors still require independently supplied, frame-aligned truth.
+
+### TI / multiscale tracking comparison
+
+Compare **body-level IDs and horizontal XY positions**, in metres in the same world
+forward/right/up frame. TI produces a 3D filtered state; multiscale produces XY position and
+bulk XY velocity. Its display height is the observed scatter centroid, its displayed vertical
+velocity is zero, and it has no equivalent state covariance. Do not score those display values
+as 3D body estimates or fabricate covariance to construct a `TrackFrame`.
+
+`evaluate_track_frames(..., dimensions=2)` accepts TI's world-transformed `TrackFrame` and
+`TrackingPredictionFrame.from_multiscale(bodies, ...)` against independent
+`TrackingGroundTruthFrame` labels. Use the body reports from `step_points`, not scatter-component
+IDs. Pass matching `frame_id`, `timestamp` and `coordinate_frame`; mismatches are rejected even
+for empty frames. If both sides omit timing/IDs, list-index alignment is the caller's contract.
+The default `include_statuses=(CONFIRMED, COASTING)` scores published continuity; select only
+`CONFIRMED` explicitly for that subset. A confirmed status does not prove a centroid measurement
+update in the current frame. Summary records include dimensions, statuses and coordinate frame.
+
+Both runs must use the same RPC frames, mount transform, scene ROI, person-count prior and
+frame schedule. TI advances by its configured frame period; pass that same period to multiscale,
+including empty observations for missing frames, rather than host receipt-time jitter. For a
+shared RPC comparison disable TI's supplemental static support; evaluate static support as a
+separate observation condition. Different lifecycle and association rules remain backend
+differences, not silently aligned settings.
+
+`ScatterBodyTracker(max_bodies=person_count, max_components=...)` separates independent body
+hypotheses from scatter history capacity. A body may contain several components only with the
+existing split-origin evidence. The body limit includes tentative and coasting hypotheses:
+existing bodies keep their slots until normal expiry, new roots use point count then SNR order,
+and excess roots are removed from backend state and point associations. Independently supported
+children are released, not forcibly kept in a body to satisfy the count. `max_components` is an
+optional resource bound, not a person-count prior; leave enough capacity for split histories.
+Neither limit changes the unlimited baseline's association or lifecycle rules.
 
 ## IQ and radial velocity
 
