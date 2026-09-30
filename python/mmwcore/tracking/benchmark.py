@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
+from math import isclose, isfinite, sqrt
+from typing import Literal
 
 import numpy as np
 
@@ -13,24 +14,101 @@ from mmwcore.core import TrackFrame, TrackStatus
 
 @dataclass(frozen=True)
 class TrackingGroundTruthFrame:
-    """Ground-truth Cartesian target identities for one frame."""
+    """Independent Cartesian target labels in metres, with 2D or 3D positions."""
 
     track_ids: np.ndarray
     positions: np.ndarray
+    frame_id: str | int | None = None
+    timestamp: float | None = None
+    coordinate_frame: str = "radar"
 
     def __post_init__(self) -> None:
-        track_ids = np.asarray(self.track_ids, dtype=np.int64)
-        positions = np.asarray(self.positions, dtype=np.float32)
-        if track_ids.ndim != 1 or np.any(track_ids < 0):
-            raise ValueError("Ground-truth track_ids must be one-dimensional and non-negative.")
-        if np.unique(track_ids).size != track_ids.size:
-            raise ValueError("Ground-truth track_ids must be unique within a frame.")
-        if positions.shape != (track_ids.size, 3):
-            raise ValueError("Ground-truth positions must have shape (N, 3).")
-        if not np.isfinite(positions).all():
-            raise ValueError("Ground-truth positions contain NaN or Inf.")
+        track_ids, positions = _positions(self.track_ids, self.positions)
         object.__setattr__(self, "track_ids", track_ids)
         object.__setattr__(self, "positions", positions)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrackingPredictionFrame:
+    """Positions used for scoring, without fabricated height or covariance.
+
+    TI's full TrackFrame is accepted directly by the evaluator. This smaller
+    contract admits multiscale body outputs with genuine horizontal state only.
+    """
+
+    track_ids: np.ndarray
+    positions: np.ndarray
+    statuses: tuple[TrackStatus, ...]
+    coordinate_frame: str
+    frame_id: str | int | None = None
+    timestamp: float | None = None
+
+    def __post_init__(self) -> None:
+        track_ids, positions = _positions(self.track_ids, self.positions)
+        statuses = tuple(TrackStatus(status) for status in self.statuses)
+        if len(statuses) != len(track_ids):
+            raise ValueError("statuses must match track_ids.")
+        object.__setattr__(self, "track_ids", track_ids)
+        object.__setattr__(self, "positions", positions)
+        object.__setattr__(self, "statuses", statuses)
+
+    @classmethod
+    def from_multiscale(
+        cls,
+        bodies: list[dict],
+        *,
+        coordinate_frame: str,
+        frame_id: str | int | None = None,
+        timestamp: float | None = None,
+    ) -> TrackingPredictionFrame:
+        """Adapt step_points' body reports, never its internal scatter tracks."""
+        return cls(
+            track_ids=np.asarray([body["id"] for body in bodies], dtype=np.int64),
+            positions=np.asarray([body["xy"] for body in bodies]).reshape(-1, 2),
+            statuses=tuple(
+                TrackStatus.COASTING if body["coasting"] else TrackStatus.CONFIRMED
+                for body in bodies
+            ),
+            coordinate_frame=coordinate_frame,
+            frame_id=frame_id,
+            timestamp=timestamp,
+        )
+
+
+def _positions(ids: np.ndarray, positions: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    ids = np.asarray(ids)
+    if ids.ndim != 1 or (ids.size and ids.dtype.kind not in "iu") or np.any(ids < 0):
+        raise ValueError("track_ids must be one-dimensional non-negative integers.")
+    if ids.size and np.max(ids) > np.iinfo(np.int64).max:
+        raise ValueError("track_ids must fit int64.")
+    ids = ids.astype(np.int64)
+    if np.unique(ids).size != ids.size:
+        raise ValueError("track_ids must be unique within a frame.")
+    positions = np.asarray(positions, dtype=np.float64)
+    if positions.shape not in {(ids.size, 2), (ids.size, 3)}:
+        raise ValueError("positions must have shape (N, 2) or (N, 3).")
+    if not np.isfinite(positions).all():
+        raise ValueError("positions contain NaN or Inf.")
+    return ids, positions
+
+
+def _validate_alignment(
+    prediction: TrackFrame | TrackingPredictionFrame,
+    truth: TrackingGroundTruthFrame,
+    dimensions: int,
+) -> None:
+    if not truth.coordinate_frame or prediction.coordinate_frame != truth.coordinate_frame:
+        raise ValueError("Prediction and ground truth must use the same coordinate_frame.")
+    if prediction.frame_id != truth.frame_id:
+        raise ValueError("Prediction and ground truth frame_id must match.")
+    a, b = prediction.timestamp, truth.timestamp
+    if a is None or b is None:
+        if a != b:
+            raise ValueError("Both frames must supply timestamp, or both omit it.")
+    elif not (isfinite(a) and isfinite(b) and isclose(a, b, rel_tol=0, abs_tol=1e-6)):
+        raise ValueError("Prediction and ground truth timestamp must match and be finite.")
+    if min(prediction.positions.shape[1], truth.positions.shape[1]) < dimensions:
+        raise ValueError("Requested dimensions exceed the available position state.")
 
 
 @dataclass(frozen=True)
@@ -54,6 +132,9 @@ class TrackingBenchmarkSummary:
     false_track_observations: int
     identity_switches: tuple[IdentitySwitchEvent, ...]
     position_rmse_m: float | None
+    dimensions: int
+    included_statuses: tuple[TrackStatus, ...]
+    coordinate_frame: str | None
 
     @property
     def id_switches(self) -> int:
@@ -84,22 +165,37 @@ class TrackingBenchmarkSummary:
             ],
             "position_rmse_m": self.position_rmse_m,
             "recall": self.recall,
+            "dimensions": self.dimensions,
+            "included_statuses": list(self.included_statuses),
+            "coordinate_frame": self.coordinate_frame,
         }
 
 
 def evaluate_track_frames(
-    predictions: list[TrackFrame],
+    predictions: list[TrackFrame] | list[TrackingPredictionFrame],
     ground_truth: list[TrackingGroundTruthFrame],
     *,
     match_distance_m: float,
-    confirmed_only: bool = True,
+    dimensions: Literal[2, 3] = 3,
+    include_statuses: tuple[TrackStatus, ...] = (TrackStatus.CONFIRMED, TrackStatus.COASTING),
 ) -> TrackingBenchmarkSummary:
-    """Evaluate frame-aligned predictions with global distance matching."""
+    """Score body IDs with gated matching in XY (2) or XYZ (3).
+
+    Published continuity includes confirmed and coasting states by default.
+    If both sides omit frame IDs/timestamps, the caller guarantees alignment by
+    list index. Supplied metadata must agree; this function never aligns streams
+    or transforms coordinates. Use dimensions=2 for TI/multiscale comparison.
+    """
 
     if len(predictions) != len(ground_truth):
         raise ValueError("Prediction and ground-truth sequences must have equal length.")
-    if match_distance_m <= 0:
-        raise ValueError("match_distance_m must be positive.")
+    if not isfinite(match_distance_m) or match_distance_m <= 0:
+        raise ValueError("match_distance_m must be finite and positive.")
+    if dimensions not in (2, 3):
+        raise ValueError("dimensions must be 2 or 3.")
+    statuses = tuple(TrackStatus(status) for status in include_statuses)
+    if not statuses or len(set(statuses)) != len(statuses):
+        raise ValueError("include_statuses must be non-empty and unique.")
 
     previous_matches: dict[int, int] = {}
     ground_truth_observations = 0
@@ -109,15 +205,14 @@ def evaluate_track_frames(
     identity_switches: list[IdentitySwitchEvent] = []
     squared_errors: list[float] = []
     for frame_index, (prediction, truth) in enumerate(zip(predictions, ground_truth, strict=True)):
+        _validate_alignment(prediction, truth, dimensions)
+        if truth.coordinate_frame != ground_truth[0].coordinate_frame:
+            raise ValueError("coordinate_frame must remain fixed throughout the sequence.")
         selected = np.array(
-            [
-                index
-                for index, status in enumerate(prediction.statuses)
-                if not confirmed_only or status is TrackStatus.CONFIRMED
-            ],
+            [index for index, status in enumerate(prediction.statuses) if status in statuses],
             dtype=np.int64,
         )
-        predicted_positions = prediction.positions[selected]
+        predicted_positions = prediction.positions[selected, :dimensions]
         predicted_ids = prediction.track_ids[selected]
         ground_truth_observations += truth.track_ids.size
         if truth.track_ids.size == 0 or predicted_ids.size == 0:
@@ -126,16 +221,22 @@ def evaluate_track_frames(
             continue
 
         distances = np.linalg.norm(
-            truth.positions[:, None, :] - predicted_positions[None, :, :],
+            truth.positions[:, None, :dimensions]
+            - predicted_positions.astype(np.float64)[None, :, :],
             axis=2,
         )
+        valid = distances <= match_distance_m
+        # Each valid edge costs at most 1. One invalid edge must cost more than
+        # every valid edge combined: maximize matches first, minimize distance second.
+        cost = np.full(distances.shape, min(distances.shape) + 1.0)
+        cost[valid] = distances[valid] / match_distance_m
         truth_indices, prediction_indices = _native.linear_sum_assignment(
-            np.ascontiguousarray(distances, dtype=np.float64)
+            np.ascontiguousarray(cost)
         )
         accepted = [
             (int(truth_index), int(prediction_index))
             for truth_index, prediction_index in zip(truth_indices, prediction_indices, strict=True)
-            if distances[truth_index, prediction_index] <= match_distance_m
+            if valid[truth_index, prediction_index]
         ]
         matches += len(accepted)
         misses += truth.track_ids.size - len(accepted)
@@ -165,4 +266,7 @@ def evaluate_track_frames(
         false_track_observations=false_tracks,
         identity_switches=tuple(identity_switches),
         position_rmse_m=rmse,
+        dimensions=dimensions,
+        included_statuses=statuses,
+        coordinate_frame=ground_truth[0].coordinate_frame if ground_truth else None,
     )

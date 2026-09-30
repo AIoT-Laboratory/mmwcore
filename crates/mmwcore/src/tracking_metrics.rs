@@ -3,7 +3,44 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
-use super::Box2D;
+/// Inclusive Cartesian tracking region in radar x/y coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Box2D {
+    pub(crate) x_min_m: f64,
+    pub(crate) x_max_m: f64,
+    pub(crate) y_min_m: f64,
+    pub(crate) y_max_m: f64,
+}
+
+impl Box2D {
+    /// Construct one finite, non-empty tracking boundary.
+    pub fn new(
+        x_min_m: f64,
+        x_max_m: f64,
+        y_min_m: f64,
+        y_max_m: f64,
+    ) -> Result<Self, TrackingMetricsError> {
+        if !x_min_m.is_finite()
+            || !x_max_m.is_finite()
+            || !y_min_m.is_finite()
+            || !y_max_m.is_finite()
+            || x_min_m >= x_max_m
+            || y_min_m >= y_max_m
+        {
+            return Err(TrackingMetricsError::InvalidBoundaryBox);
+        }
+        Ok(Self {
+            x_min_m,
+            x_max_m,
+            y_min_m,
+            y_max_m,
+        })
+    }
+
+    pub(crate) fn contains(self, x_m: f64, y_m: f64) -> bool {
+        self.x_min_m <= x_m && x_m <= self.x_max_m && self.y_min_m <= y_m && y_m <= self.y_max_m
+    }
+}
 
 /// Packed observations from ordered tracker frames.
 #[derive(Clone, Copy, Debug)]
@@ -320,6 +357,7 @@ fn contiguous_intervals(indices: &[usize]) -> Vec<[usize; 2]> {
 /// Native input and numerical validation errors for tracking metrics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TrackingMetricsError {
+    InvalidBoundaryBox,
     EmptyFrameOffsets,
     InvalidFirstFrameOffset {
         actual: usize,
@@ -368,6 +406,10 @@ pub enum TrackingMetricsError {
 impl fmt::Display for TrackingMetricsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidBoundaryBox => write!(
+                formatter,
+                "Tracking metrics boundary_boxes must be finite and ordered."
+            ),
             Self::EmptyFrameOffsets => write!(formatter, "Tracking metrics require frame offsets."),
             Self::InvalidFirstFrameOffset { actual } => {
                 write!(

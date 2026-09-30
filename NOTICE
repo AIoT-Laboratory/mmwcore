@@ -2,3 +2,8 @@ mmwcore
 Copyright 2026 AIoT Laboratory
 
 This product contains software developed by AIoT Laboratory.
+
+The built-in GTRACK 3DA component (crates/mmwcore-ti-gtrack) adapts
+Copyright (C) 2024 Texas Instruments Incorporated software.
+It and its derivatives are licensed for use only with TI devices, under the
+included TI-LICENSE.txt. Other mmwcore code remains Apache-2.0.

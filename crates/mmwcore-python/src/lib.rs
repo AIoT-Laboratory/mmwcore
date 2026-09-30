@@ -79,7 +79,7 @@ mod cube;
 mod detection;
 mod geometry;
 mod ti_gtrack;
-mod tracking;
+mod tracking_metrics;
 
 const FFT_REMOVE_DC_FLAG: u8 = 1;
 const FFT_SHIFT_FLAG: u8 = 1 << 1;
@@ -95,7 +95,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     detection::register(module)?;
     adc_archive::register(module)?;
     geometry::register(module)?;
-    tracking::register(module)?;
+    tracking_metrics::register(module)?;
     ti_gtrack::register(module)?;
     Ok(())
 }

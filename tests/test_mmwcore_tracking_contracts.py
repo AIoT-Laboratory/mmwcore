@@ -8,154 +8,27 @@ from sys import maxsize
 import numpy as np
 import pytest
 
-from mmwcore.core import (
-    AllocationSpec,
-    Box2D,
-    DBSCANSpec,
-    GatingSpec,
-    LifecycleSpec,
-    ScenerySpec,
-    Tracker2DSpec,
-    TrackFrame,
-    TrackStatus,
-)
+from mmwcore.core import Box2D, DBSCANSpec, TrackFrame, TrackStatus
 
-type IntegerTrackingSpec = DBSCANSpec | AllocationSpec | LifecycleSpec | ScenerySpec | Tracker2DSpec
+type IntegerTrackingSpec = DBSCANSpec
+
 type PhysicalSpecFactory = Callable[[float], object]
-
-
-def _tracker_spec_with(**changes: object) -> Tracker2DSpec:
-    return replace(
-        Tracker2DSpec(
-            frame_period_s=0.1,
-            gating=GatingSpec(max_distance_m=1.0),
-        ),
-        **changes,
-    )
 
 
 _INTEGER_SPEC_FIELDS: tuple[tuple[IntegerTrackingSpec, str], ...] = (
     (DBSCANSpec(eps_m=0.5, min_samples=2), "min_samples"),
-    (AllocationSpec(), "min_points"),
-    (AllocationSpec(), "max_new_tracks_per_frame"),
-    (LifecycleSpec(), "min_update_points"),
-    (LifecycleSpec(), "confirmation_hits"),
-    (LifecycleSpec(), "tentative_max_misses"),
-    (LifecycleSpec(), "confirmed_max_misses"),
-    (LifecycleSpec(static_max_misses=5, static_speed_threshold_mps=0.1), "static_max_misses"),
-    (LifecycleSpec(exit_max_misses=2), "exit_max_misses"),
-    (ScenerySpec(), "outside_max_frames"),
-    (
-        Tracker2DSpec(
-            frame_period_s=0.1,
-            gating=GatingSpec(max_distance_m=1.0),
-        ),
-        "max_tracks",
-    ),
 )
 
 _PHYSICAL_SPEC_FIELDS: tuple[tuple[str, PhysicalSpecFactory], ...] = (
-    (
-        "DBSCANSpec.eps_m",
-        lambda value: DBSCANSpec(eps_m=value, min_samples=2),
-    ),
+    ("DBSCANSpec.eps_m", lambda value: DBSCANSpec(eps_m=value, min_samples=2)),
     (
         "DBSCANSpec.velocity_scale_s",
-        lambda value: DBSCANSpec(
-            eps_m=0.5,
-            min_samples=2,
-            velocity_scale_s=value,
-        ),
+        lambda value: DBSCANSpec(eps_m=0.5, min_samples=2, velocity_scale_s=value),
     ),
-    (
-        "GatingSpec.max_distance_m",
-        lambda value: GatingSpec(max_distance_m=value),
-    ),
-    (
-        "GatingSpec.max_radial_velocity_difference_mps",
-        lambda value: GatingSpec(
-            max_distance_m=1.0,
-            max_radial_velocity_difference_mps=value,
-        ),
-    ),
-    (
-        "GatingSpec.max_mahalanobis_distance",
-        lambda value: GatingSpec(
-            max_distance_m=1.0,
-            max_mahalanobis_distance=value,
-        ),
-    ),
-    (
-        "AllocationSpec.min_abs_radial_velocity_mps",
-        lambda value: AllocationSpec(min_abs_radial_velocity_mps=value),
-    ),
-    (
-        "AllocationSpec.min_total_snr",
-        lambda value: AllocationSpec(min_total_snr=value),
-    ),
-    (
-        "AllocationSpec.min_separation_m",
-        lambda value: AllocationSpec(min_separation_m=value),
-    ),
-    (
-        "Box2D.x_min_m",
-        lambda value: Box2D(value, 1.0, -1.0, 1.0),
-    ),
-    (
-        "Box2D.x_max_m",
-        lambda value: Box2D(-1.0, value, -1.0, 1.0),
-    ),
-    (
-        "Box2D.y_min_m",
-        lambda value: Box2D(-1.0, 1.0, value, 1.0),
-    ),
-    (
-        "Box2D.y_max_m",
-        lambda value: Box2D(-1.0, 1.0, -1.0, value),
-    ),
-    (
-        "Tracker2DSpec.frame_period_s",
-        lambda value: Tracker2DSpec(
-            frame_period_s=value,
-            gating=GatingSpec(max_distance_m=1.0),
-        ),
-    ),
-    (
-        "Tracker2DSpec.measurement_noise_m",
-        lambda value: _tracker_spec_with(measurement_noise_m=value),
-    ),
-    (
-        "Tracker2DSpec.initial_velocity_std_mps",
-        lambda value: _tracker_spec_with(initial_velocity_std_mps=value),
-    ),
-    (
-        "Tracker2DSpec.extent_covariance_smoothing",
-        lambda value: _tracker_spec_with(extent_covariance_smoothing=value),
-    ),
-    (
-        "Tracker2DSpec.angle_noise_rad",
-        lambda value: _tracker_spec_with(angle_noise_rad=value),
-    ),
-    (
-        "Tracker2DSpec.doppler_noise_mps",
-        lambda value: _tracker_spec_with(doppler_noise_mps=value),
-    ),
-    (
-        "Tracker2DSpec.max_velocity_mps",
-        lambda value: _tracker_spec_with(max_velocity_mps=value),
-    ),
-    (
-        "Tracker2DSpec.max_acceleration_mps2",
-        lambda value: _tracker_spec_with(max_acceleration_mps2=(value, 2.0)),
-    ),
-    (
-        "Tracker2DSpec.max_acceleration_mps2",
-        lambda value: _tracker_spec_with(max_acceleration_mps2=(2.0, value)),
-    ),
-    (
-        "LifecycleSpec.static_speed_threshold_mps",
-        lambda value: LifecycleSpec(static_speed_threshold_mps=value),
-    ),
+    ("Box2D.x_min_m", lambda value: Box2D(value, 1.0, -1.0, 1.0)),
+    ("Box2D.x_max_m", lambda value: Box2D(-1.0, value, -1.0, 1.0)),
+    ("Box2D.y_min_m", lambda value: Box2D(-1.0, 1.0, value, 1.0)),
+    ("Box2D.y_max_m", lambda value: Box2D(-1.0, 1.0, -1.0, value)),
 )
 
 
@@ -178,27 +51,6 @@ def _single_track_frame(**integer_fields: np.ndarray) -> TrackFrame:
         missed_counts=fields["missed_counts"],
         observation_track_ids=fields["observation_track_ids"],
     )
-
-
-def test_cluster_tracker_spec_keeps_explicit_timing_and_lifecycle() -> None:
-    spec = Tracker2DSpec(
-        frame_period_s=0.1,
-        gating=GatingSpec(
-            max_distance_m=0.8,
-            max_radial_velocity_difference_mps=1.5,
-        ),
-        allocation=AllocationSpec(min_points=3),
-        lifecycle=LifecycleSpec(
-            confirmation_hits=4,
-            tentative_max_misses=2,
-            confirmed_max_misses=10,
-        ),
-    )
-
-    assert spec.frame_period_s == pytest.approx(0.1)
-    assert spec.gating.max_distance_m == pytest.approx(0.8)
-    assert spec.allocation.min_points == 3
-    assert spec.lifecycle.confirmation_hits == 4
 
 
 @pytest.mark.parametrize(
@@ -336,60 +188,9 @@ def test_dbscan_spec_requires_builtin_bool_use_z(invalid: object) -> None:
         )
 
 
-def test_track_allocation_spec_rejects_non_positive_snr_threshold() -> None:
-    with pytest.raises(ValueError, match="min_total_snr"):
-        AllocationSpec(min_total_snr=0.0)
-
-
-def test_track_gating_spec_rejects_non_positive_mahalanobis_limit() -> None:
-    with pytest.raises(ValueError, match="max_mahalanobis_distance"):
-        GatingSpec(max_distance_m=1.0, max_mahalanobis_distance=0.0)
-
-
 def test_tracking_box_preserves_ordered_bound_domain() -> None:
     with pytest.raises(ValueError, match="minimum bounds"):
         Box2D(1.0, 1.0, -1.0, 1.0)
-
-
-@pytest.mark.parametrize("smoothing", [0.0, 1.1])
-def test_tracker_spec_preserves_smoothing_domain(smoothing: float) -> None:
-    with pytest.raises(ValueError, match="extent_covariance_smoothing"):
-        _tracker_spec_with(extent_covariance_smoothing=smoothing)
-
-
-def test_tracker_spec_preserves_positive_acceleration_domain() -> None:
-    with pytest.raises(ValueError, match="max_acceleration_mps2"):
-        _tracker_spec_with(max_acceleration_mps2=(2.0, 0.0))
-
-
-@pytest.mark.parametrize("index", [0, 1])
-@pytest.mark.parametrize(
-    "invalid",
-    [
-        pytest.param(True, id="bool"),
-        pytest.param(np.bool_(True), id="numpy-bool"),
-        pytest.param("2.0", id="string"),
-        pytest.param(2.0 + 0.0j, id="complex"),
-    ],
-)
-def test_tracker_spec_rejects_non_real_acceleration_entries(
-    index: int,
-    invalid: object,
-) -> None:
-    acceleration: list[object] = [1.0, 2.0]
-    acceleration[index] = invalid
-
-    with pytest.raises(TypeError, match="max_acceleration_mps2.*real numbers"):
-        _tracker_spec_with(max_acceleration_mps2=tuple(acceleration))
-
-
-def test_tracker_spec_normalizes_real_acceleration_entries() -> None:
-    spec = _tracker_spec_with(
-        max_acceleration_mps2=(np.float32(1.25), np.int64(2)),
-    )
-
-    assert spec.max_acceleration_mps2 == (1.25, 2.0)
-    assert all(type(value) is float for value in spec.max_acceleration_mps2)
 
 
 def test_track_frame_normalizes_state_and_associations() -> None:
@@ -482,37 +283,3 @@ def test_track_frame_rejects_non_positive_semidefinite_covariance() -> None:
             missed_counts=np.array([0]),
             observation_track_ids=np.array([1]),
         )
-
-
-def test_tracking_scenery_accepts_any_configured_boundary_box() -> None:
-    scenery = ScenerySpec(
-        boundary_boxes=(
-            Box2D(-1.0, 1.0, 0.0, 2.0),
-            Box2D(2.0, 3.0, 4.0, 5.0),
-        ),
-        outside_max_frames=3,
-    )
-
-    assert scenery.contains(0.0, 1.0)
-    assert scenery.contains(2.5, 4.5)
-    assert not scenery.contains(0.0, 3.0)
-
-
-def test_tracking_scenery_marks_static_regions_separately() -> None:
-    scenery = ScenerySpec(
-        boundary_boxes=(Box2D(-2.0, 2.0, 0.0, 4.0),),
-        static_boxes=(Box2D(-1.0, 1.0, 0.0, 3.0),),
-    )
-
-    assert scenery.contains_static(0.0, 1.0)
-    assert not scenery.contains_static(1.5, 1.0)
-
-
-def test_static_lifecycle_requires_a_positive_speed_threshold() -> None:
-    with pytest.raises(ValueError, match="must be positive"):
-        LifecycleSpec(static_max_misses=10)
-
-
-def test_gtrack_angle_noise_must_be_below_a_right_angle() -> None:
-    with pytest.raises(ValueError, match="below pi / 2"):
-        _tracker_spec_with(angle_noise_rad=np.pi / 2)

@@ -18,7 +18,7 @@ pub mod detection_postprocess;
 pub mod fft;
 pub mod pointcloud;
 pub mod sparsification;
-pub mod tracking;
+pub mod tracking_metrics;
 
 #[inline]
 pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<usize> {
@@ -84,11 +84,7 @@ pub use sparsification::{
     CartesianSparsificationConfig, CartesianSparsificationError, CartesianSparsificationInput,
     CartesianSparsificationResult, sparsify,
 };
-pub use tracking::{
-    Box2D, Box3D, ClusterMeasurements, ClusterTracker2D, GTrack2D, GTrack3D, GTrack3DDiagnostics,
-    NativeTrackStatus, PointMeasurements, PointTracker2D, TrackAllocationConfig, TrackGatingConfig,
-    TrackLifecycleConfig, TrackObservationMetrics, TrackScenery3DConfig, TrackSceneryConfig,
-    TrackStepResult, Tracker2DConfig, Tracker3DConfig, TrackerDynamics3DConfig,
-    TrackerDynamicsConfig, TrackingError, TrackingMetricsError, TrackingMetricsInput,
+pub use tracking_metrics::{
+    Box2D, TrackObservationMetrics, TrackingMetricsError, TrackingMetricsInput,
     TrackingSequenceMetrics, summarize_tracking_metrics,
 };

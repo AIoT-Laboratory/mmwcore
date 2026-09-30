@@ -1,13 +1,11 @@
-"""Complete pinned TI 6843 GTRACK, using a separately built local native plugin.
+"""Pinned TI 6843 GTRACK 3DA implemented in Rust inside mmwcore.
 
-TI code is licensed for TI devices; it is not included in mmwcore distributions.
-The older GTrack3D remains a separate six-state implementation.
+This component retains TI's device-only license; see the distribution's TI-LICENSE.txt.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,7 +14,6 @@ import numpy as np
 
 from mmwcore import _native
 from mmwcore.core import Box3D, PointCloudFrame, TrackFrame, TrackStatus
-from mmwcore.tracking.measurement_tracker import _linear_snr, _point_channel
 
 
 @dataclass(frozen=True)
@@ -144,7 +141,7 @@ def _boxes(boxes: tuple[Box3D, ...]) -> list[float]:
 
 
 class TiGTrack3D:
-    """Run the entire original 3DA step; no Python numerical tracker or fallback.
+    """Run the complete Rust 3DA step; no SDK, DLL or Python numerical fallback.
 
     ``step`` consumes sensor forward/right/up Cartesian point clouds.
     ``step_spherical`` consumes range/azimuth-right/elevation-up/vr/linear-SNR.
@@ -154,13 +151,11 @@ class TiGTrack3D:
 
     def __init__(self, spec: TiGTrack3DSpec, *, plugin_manifest: str | Path | None = None) -> None:
         self.spec = spec
-        selected = plugin_manifest or os.environ.get("MMWCORE_TI_GTRACK_MANIFEST")
-        if not selected:
-            raise ValueError(
-                "TI GTRACK requires plugin_manifest or MMWCORE_TI_GTRACK_MANIFEST; "
-                "build the local TI plugin first"
-            )
-        self.plugin_manifest = Path(selected).resolve(strict=True)
+        # Explicit selection is only for C-oracle comparison in development builds.
+        # An old environment variable must not silently switch normal installations.
+        self.plugin_manifest = (
+            Path(plugin_manifest).resolve(strict=True) if plugin_manifest else None
+        )
         self._tracker = self._create_native()
         self.provenance: dict[str, Any] = json.loads(self._tracker.provenance_json())
         self.last_report: dict[str, Any] | None = None
@@ -196,10 +191,8 @@ class TiGTrack3D:
                 "TI GTRACK Cartesian input must use sensor_forward_right_up "
                 "(or the existing lateral alias)"
             )
-        velocity = _point_channel(
-            point_cloud, "velocity", required=True, requirement="TI GTRACK spherical measurements"
-        )
-        snr = _linear_snr(point_cloud, required=True)
+        velocity = _point_channel(point_cloud, "velocity")
+        snr = _linear_snr(point_cloud)
         points = np.column_stack((point_cloud.xyz(), velocity, snr)).astype(np.float32)
         rpc_count = len(points)
         static_start = None
@@ -223,7 +216,7 @@ class TiGTrack3D:
             "model": "ti_gtrack_6843_3da",
             "configuration": asdict(self.spec),
             "source_version": self.provenance["source_version"],
-            "library_sha256": self.provenance["library_sha256"],
+            "implementation": self.provenance.get("implementation", "ti-c-reference-plugin"),
             "ti_report_frame": "sensor_right_forward_up",
             "ti_report": raw,
             "extent_covariance": "spherical_group_dispersion_projected_to_sensor_cartesian",
@@ -264,7 +257,8 @@ class TiGTrack3D:
 
     def _create_native(self) -> _native.NativeTiGTrack3D:
         return _native.NativeTiGTrack3D(
-            str(self.plugin_manifest), json.dumps(self.spec.native_config(), allow_nan=False)
+            str(self.plugin_manifest) if self.plugin_manifest else None,
+            json.dumps(self.spec.native_config(), allow_nan=False),
         )
 
     def _step_native(
@@ -306,3 +300,24 @@ def _lifecycle(target: dict[str, Any]) -> tuple[TrackStatus, int]:
     missed = target["counters"][2]  # Native ACTIVE's active2freeCount
     status = TrackStatus.COASTING if missed else TrackStatus.CONFIRMED
     return status, missed
+
+
+def _point_channel(point_cloud: PointCloudFrame, channel: str) -> np.ndarray:
+    try:
+        index = point_cloud.channels.index(channel)
+    except ValueError:
+        raise ValueError(
+            f'PointCloudFrame must include a "{channel}" channel for TI GTRACK.'
+        ) from None
+    return np.ascontiguousarray(point_cloud.points[:, index], dtype=np.float32)
+
+
+def _linear_snr(point_cloud: PointCloudFrame) -> np.ndarray:
+    """Convert the DSP dB channel to the linear ratio required by TI."""
+    if "snr" in point_cloud.channels:
+        return _point_channel(point_cloud, "snr")
+    if "snr_db" in point_cloud.channels:
+        return np.ascontiguousarray(
+            np.power(10.0, _point_channel(point_cloud, "snr_db") / 10.0), dtype=np.float32
+        )
+    raise ValueError('PointCloudFrame must include an "snr" or "snr_db" channel for TI GTRACK.')

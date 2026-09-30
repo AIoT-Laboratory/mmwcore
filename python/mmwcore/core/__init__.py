@@ -26,16 +26,9 @@ from .spec_enums import ADCComplexLayout, CFARInputScale, CFARMode, DetectionMet
 from .spec_fft import AngleFFTSpec, DopplerFFTSpec, PlanarAngleFFTSpec, RangeFFTSpec
 from .spec_pointcloud import SparsifySpec
 from .spec_tracking import (
-    AllocationSpec,
     Box2D,
     Box3D,
     DBSCANSpec,
-    GatingSpec,
-    LifecycleSpec,
-    Scenery3DSpec,
-    ScenerySpec,
-    Tracker2DSpec,
-    Tracker3DSpec,
     TrackStatus,
 )
 from .types import (
@@ -62,8 +55,6 @@ __all__ = [
     "CFARInputScale",
     "CFARMode",
     "ClusterFrame",
-    "Tracker2DSpec",
-    "Tracker3DSpec",
     "DBSCANSpec",
     "DetectionFrame",
     "DetectionQualitySpec",
@@ -85,12 +76,7 @@ __all__ = [
     "ADCFrame",
     "TDMVirtualArraySpec",
     "TimeDomainChannelCalibration",
-    "AllocationSpec",
     "TrackFrame",
-    "GatingSpec",
-    "LifecycleSpec",
-    "ScenerySpec",
-    "Scenery3DSpec",
     "TrackStatus",
     "Box2D",
     "Box3D",

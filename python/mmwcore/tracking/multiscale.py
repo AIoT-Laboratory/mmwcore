@@ -416,6 +416,9 @@ class ScatterBodyTracker(RecentSupportTracker):
     jointly match distinct points of the previous observation. Signal strength
     never blocks birth. Independent strong support immediately releases a child
     from that hypothesis; proximity alone cannot attach an existing component.
+
+    max_components bounds scatter histories. max_bodies bounds independent body
+    hypotheses, including tentative/coasting ones, after split-origin checks.
     """
 
     def __init__(
@@ -425,7 +428,8 @@ class ScatterBodyTracker(RecentSupportTracker):
         prefer_recent: bool = True,
         split_cores: bool = True,
         temporal: bool = True,
-        max_tracks: int | None = None,
+        max_components: int | None = None,
+        max_bodies: int | None = None,
         height_m: float = 1.5,
         velocity_resolution_mps: float = DEFAULT_CONFIG.velocity_scale_mps / 3,
     ) -> None:
@@ -433,10 +437,15 @@ class ScatterBodyTracker(RecentSupportTracker):
             prefer_recent=prefer_recent,
             split_cores=split_cores,
             temporal=temporal,
-            max_tracks=max_tracks,
+            max_tracks=max_components,
             height_m=height_m,
             velocity_resolution_mps=velocity_resolution_mps,
         )
+        if max_bodies is not None and (
+            not isinstance(max_bodies, int) or isinstance(max_bodies, bool) or max_bodies < 1
+        ):
+            raise ValueError("max_bodies must be positive or None")
+        self.max_bodies = max_bodies
         self.lineage = lineage
         self.previous_clouds: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         self.parents: dict[int, int] = {}
@@ -529,13 +538,52 @@ class ScatterBodyTracker(RecentSupportTracker):
             tid: value for tid, value in support.items() if tid in self.tracks
         }
 
+    def _body_root(self, tid: int) -> int:
+        while tid in self.parents:
+            tid = self.parents[tid]
+        return tid
+
+    def _limit_bodies(self, previous_roots: set[int]) -> None:
+        if self.max_bodies is None:
+            return
+        roots = {self._body_root(tid) for tid in self.tracks}
+        if len(roots) <= self.max_bodies:
+            return
+
+        def priority(tid: int) -> tuple:
+            observation = self.last_matches.get(tid, {})
+            # Keep admitted bodies until their normal expiry. For simultaneous
+            # births use the existing allocation order: point count, then SNR.
+            return (
+                tid not in previous_roots,
+                -len(observation.get("members", [])),
+                -observation.get("snr_sum", 0),
+                tid,
+            )
+
+        admitted = set(sorted(roots, key=priority)[: self.max_bodies])
+        rejected = {tid for tid in self.tracks if self._body_root(tid) not in admitted}
+        # Reject whole hypotheses in the backend, including point associations.
+        # A person-count prior is not evidence for joining unrelated components.
+        for tid in rejected:
+            del self.tracks[tid]
+            self.last_matches.pop(tid, None)
+            self.position_history.pop(tid, None)
+            self.component_support.pop(tid, None)
+            self.parents.pop(tid, None)
+        self.lineage_events = [e for e in self.lineage_events if e["child"] not in rejected]
+
     def step_points(self, points: np.ndarray, dt: float = 0.1) -> tuple:
         points = np.asarray(points, dtype=float).reshape(-1, 5)
         old_ids = set(self.tracks)
+        previous_roots = old_ids - self.parents.keys()
         labels, weights, observations, components = super().step_points(points, dt)
         self.lineage_events = []
         if self.lineage:
             self._update_lineage(points, old_ids, dt)
+        # Candidate components must reach the split test before counting bodies.
+        self._limit_bodies(previous_roots)
+        components = [c for c in components if c["id"] in self.tracks]
         self.previous_clouds = {
             tid: (points[o["members"], :2].copy(), self.tracks[tid]["association_velocity"].copy())
             for tid, o in self.last_matches.items()
@@ -543,9 +591,7 @@ class ScatterBodyTracker(RecentSupportTracker):
         groups: dict[int, list[dict]] = {}
         by_id = {c["id"]: c for c in components}
         for component in components:
-            root = component["id"]
-            while root in self.parents:
-                root = self.parents[root]
+            root = self._body_root(component["id"])
             groups.setdefault(root, []).append(component)
         bodies = [
             dict(

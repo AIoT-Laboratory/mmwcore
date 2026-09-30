@@ -1,13 +1,11 @@
-"""Full plugin contracts and an independently executed original-TI oracle.
+"""Built-in Rust tracker against independently executed original-TI fixtures.
 
-Plugin tests skip without a local TI SDK build; input-contract/default tests do not.
-The synthetic oracle configuration exercises lifecycle, not pilot-data tuning.
+No SDK, manifest or DLL is required for these regression tests.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -27,16 +25,6 @@ from mmwcore.tracking import (
 
 ROOT = Path(__file__).resolve().parents[1]
 ORACLE = ROOT / "tests/fixtures/ti_gtrack_3da_oracle.json"
-
-
-@pytest.fixture
-def manifest() -> Path:
-    path = Path(
-        os.environ.get("MMWCORE_TI_GTRACK_MANIFEST", ROOT / "build/ti-gtrack/manifest.json")
-    )
-    if not path.is_file():
-        pytest.skip("Build the local TI-device-only plugin to run native oracle tests")
-    return path
 
 
 def _spec(tilt: int = 0) -> TiGTrack3DSpec:
@@ -90,11 +78,11 @@ def _frames() -> list[np.ndarray]:
 
 
 @pytest.mark.parametrize("tilt,variance", [(0, False), (0, True), (90, False), (90, True)])
-def test_full_step_matches_independent_original_c_oracle(manifest, tilt, variance) -> None:
+def test_full_step_matches_independent_original_c_oracle(tilt, variance) -> None:
     fixture = json.loads(ORACLE.read_text())
     expected = next(c for c in fixture["cases"] if c["tilt"] == tilt and c["variance"] == variance)
     seen_ids = set()
-    with TiGTrack3D(_spec(tilt), plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(_spec(tilt)) as tracker:
         for points, reference in zip(_frames(), expected["frames"], strict=True):
             var = np.tile([0.01, 0.001, 0.002, 0.02], (len(points), 1)) if variance else None
             actual = tracker.step_spherical(points, var)
@@ -157,8 +145,8 @@ def test_invalid_config_rejected_before_plugin_io(tmp_path, changes) -> None:
     assert "os error" not in str(exc.value)
 
 
-def test_invalid_input_does_not_advance_and_reset_restarts_ids(manifest) -> None:
-    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+def test_invalid_input_does_not_advance_and_reset_restarts_ids() -> None:
+    with TiGTrack3D(_spec()) as tracker:
         points = _group(2, 0.3)
         for bad in (np.zeros((6, 4)), np.full((6, 4), np.nan), np.ones((5, 4))):
             with pytest.raises(ValueError, match="variances"):
@@ -178,7 +166,7 @@ def test_invalid_input_does_not_advance_and_reset_restarts_ids(manifest) -> None
         assert tracker.step_spherical(points)["targets"][0]["tid"] == 1
 
 
-def test_cartesian_adapter_preserves_right_doppler_and_nine_states(manifest) -> None:
+def test_cartesian_adapter_preserves_right_doppler_and_nine_states() -> None:
     points = np.asarray(
         [
             [2 + 0.01 * i, 0.4 + 0.005 * i, 0.3 + 0.005 * i, -0.3 - 0.002 * i, 20 + i]
@@ -186,7 +174,7 @@ def test_cartesian_adapter_preserves_right_doppler_and_nine_states(manifest) -> 
         ],
         np.float32,
     )
-    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(_spec()) as tracker:
         for frame in range(3):
             result = tracker.step(
                 PointCloudFrame(
@@ -209,17 +197,14 @@ def test_cartesian_adapter_preserves_right_doppler_and_nine_states(manifest) -> 
         assert result.frame_id == 2
 
 
-def test_hash_tampering_fails_before_loading(tmp_path, manifest) -> None:
-    record = json.loads(manifest.read_text())
-    record["library_sha256"] = "0" * 64
-    (tmp_path / record["library"]).write_bytes((manifest.parent / record["library"]).read_bytes())
-    path = tmp_path / "manifest.json"
-    path.write_text(json.dumps(record))
-    with pytest.raises(ValueError, match="hash"):
-        TiGTrack3D(_spec(), plugin_manifest=path)
+def test_default_ignores_old_plugin_environment(monkeypatch) -> None:
+    monkeypatch.setenv("MMWCORE_TI_GTRACK_MANIFEST", "missing/manifest.json")
+    with TiGTrack3D(_spec()) as tracker:
+        assert tracker.provenance["implementation"] == "mmwcore-rust-gtrack-3da-v1"
+        assert tracker.step_spherical(_group(2, 0.3))["targets"]
 
 
-def test_two_targets_keep_separate_point_membership(manifest) -> None:
+def test_two_targets_keep_separate_point_membership() -> None:
     spec = TiGTrack3DSpec(
         0.1, 4, 0.125, scenery=TiGTrackScenery(boundary_boxes=(Box3D(0, 8, -4, 4, 0, 4),))
     )
@@ -231,7 +216,7 @@ def test_two_targets_keep_separate_point_membership(manifest) -> None:
         ],
         np.float32,
     )
-    with TiGTrack3D(spec, plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(spec) as tracker:
         for _ in range(8):
             result = tracker.step(
                 PointCloudFrame(
@@ -247,10 +232,10 @@ def test_two_targets_keep_separate_point_membership(manifest) -> None:
         assert (result.positions[:, 1] < 0).sum() == 1
 
 
-def test_native_nonfinite_result_requires_reset(manifest) -> None:
+def test_native_nonfinite_result_requires_reset() -> None:
     # Regression for original TI zero velocity-gate limit producing a singular gC.
     spec = replace(_spec(), gating=TiGTrackGating(4, 2, 2, 2, 0))
-    with TiGTrack3D(spec, plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(spec) as tracker:
         with pytest.raises(ValueError, match="non-finite"):
             tracker.step_spherical(_group(2, 0.3))
         with pytest.raises(ValueError, match="reset"):
@@ -270,12 +255,10 @@ def _cartesian_cloud(spherical: np.ndarray) -> PointCloudFrame:
 
 
 @pytest.mark.parametrize("point_count", [1, 6])
-def test_static_support_keeps_existing_id_without_rpc_then_recovers_and_releases(
-    manifest, point_count
-):
+def test_static_support_keeps_existing_id_without_rpc_then_recovers_and_releases(point_count):
     empty = _cartesian_cloud(np.empty((0, 5), np.float32))
     static = _cartesian_cloud(_group(2.2, 0)).xyz()[:point_count]
-    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(_spec()) as tracker:
         for k in range(6):
             tracked = tracker.step(_cartesian_cloud(_group(2 + 0.03 * k, 0.3)))
         tid = tracked.track_ids.tolist()
@@ -304,10 +287,10 @@ def test_static_support_keeps_existing_id_without_rpc_then_recovers_and_releases
         assert tracked.track_ids.size == 0
 
 
-def test_static_support_cannot_birth_or_confirm_candidate(manifest):
+def test_static_support_cannot_birth_or_confirm_candidate():
     empty = _cartesian_cloud(np.empty((0, 5), np.float32))
     static = _cartesian_cloud(_group(2.2, 0)).xyz()
-    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(_spec()) as tracker:
         for _ in range(20):
             assert tracker.step(empty, static_positions=static).track_ids.size == 0
         tracker.step(_cartesian_cloud(_group(2.2, 0.3)))
@@ -317,11 +300,11 @@ def test_static_support_cannot_birth_or_confirm_candidate(manifest):
         assert result.track_ids.size == 0
 
 
-def test_static_support_preserves_rpc_reports_and_original_point_labels(manifest):
+def test_static_support_preserves_rpc_reports_and_original_point_labels():
     static = _cartesian_cloud(_group(2.2, 0)).xyz()
     with (
-        TiGTrack3D(_spec(), plugin_manifest=manifest) as baseline,
-        TiGTrack3D(_spec(), plugin_manifest=manifest) as supported,
+        TiGTrack3D(_spec()) as baseline,
+        TiGTrack3D(_spec()) as supported,
     ):
         for k in range(12):
             cloud = _cartesian_cloud(_group(2 + 0.03 * k, 0.3))
@@ -345,13 +328,13 @@ def test_static_support_preserves_rpc_reports_and_original_point_labels(manifest
                 assert first[key] == second[key][: len(cloud.points)]
 
 
-def test_static_support_inside_roi_exit_zone_and_outside_release(manifest):
+def test_static_support_inside_roi_exit_zone_and_outside_release():
     spec = replace(
         _spec(), scenery=replace(_spec().scenery, static_boxes=(Box3D(0, 1, -1, 1, -1, 1),))
     )
     empty = _cartesian_cloud(np.empty((0, 5), np.float32))
     static = _cartesian_cloud(_group(2.2, 0)).xyz()
-    with TiGTrack3D(spec, plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(spec) as tracker:
         for k in range(6):
             result = tracker.step(_cartesian_cloud(_group(2 + 0.03 * k, 0.3)))
         tid = result.track_ids.tolist()
@@ -366,7 +349,7 @@ def test_static_support_inside_roi_exit_zone_and_outside_release(manifest):
         assert result.track_ids.size == 0
 
 
-def test_one_person_can_lose_rpc_while_another_keeps_moving(manifest):
+def test_one_person_can_lose_rpc_while_another_keeps_moving():
     spec = replace(_spec(), max_tracks=2, max_points=32)
 
     def group(side, frame, velocity):
@@ -374,7 +357,7 @@ def test_one_person_can_lose_rpc_while_another_keeps_moving(manifest):
         points[:, 1] += side
         return points
 
-    with TiGTrack3D(spec, plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(spec) as tracker:
         for k in range(6):
             cloud = _cartesian_cloud(np.concatenate((group(-0.5, k, 0.1), group(0.5, k, 0.1))))
             result = tracker.step(cloud)
@@ -391,9 +374,9 @@ def test_one_person_can_lose_rpc_while_another_keeps_moving(manifest):
             assert tracker.last_report["point_tid"][-1] == stopped_id
 
 
-def test_invalid_static_support_does_not_advance_or_leak_to_next_step(manifest):
+def test_invalid_static_support_does_not_advance_or_leak_to_next_step():
     cloud = _cartesian_cloud(_group(2, 0.3))
-    with TiGTrack3D(_spec(), plugin_manifest=manifest) as tracker:
+    with TiGTrack3D(_spec()) as tracker:
         for invalid in (np.zeros((2, 2)), np.array([[np.nan, 0, 0]])):
             with pytest.raises(ValueError, match="finite.*sensor XYZ"):
                 tracker.step(cloud, static_positions=invalid)

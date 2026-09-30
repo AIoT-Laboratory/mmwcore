@@ -1,12 +1,15 @@
 # GTrack3D 能力与 TI 源码版本审计
 
+本文是旧六状态原型的历史审计。该原型现已删除；当前完整 Rust 3DA 实现及多尺度对照见
+[跟踪说明](../ti-gtrack.md)。下述差距针对审计时的提交，不代表当前实现。
+
 审计日期：2026-09-05。范围是本机 Radar Toolbox 4.00.00.05 中 **6843 工程实际使用的 custom SDK3 trackerproc_overhead GTRACK**，不是任意同名 GTRACK 库的能力并集。对照的 mmwcore HEAD 为 `e799600a0813ae0d8ea26a30a71d5e84c5828b56`，审阅时其 GTrack3D 为 Rust 6D 实现。本次只读源代码与既有构建材料，没有重跑旧研究实验、采集硬件或验证新实现。
 
 ## 结论
 
-当前 mmwcore 已有逐点预测关联、扩展目标 dispersion、球面 EKF 和生命周期，但不等价于这一版 stock GTRACK。缺口涉及状态模型、关联资格、centroid 选点、速度展开、静态状态处理和事件计数，不能靠扩大 gate 或延长 timeout 补齐。
+审计时的 mmwcore 已有逐点预测关联、扩展目标 dispersion、球面 EKF 和生命周期，但不等价于这一版 stock GTRACK。缺口涉及状态模型、关联资格、centroid 选点、速度展开、静态状态处理和事件计数，不能靠扩大 gate 或延长 timeout 补齐。
 
-最可靠的完整基线策略是：**固定本机官方源码及哈希，提供一个明确标识 TI 版本的完整 C 后端，通过 Rust 所有权与参数检查边界接入 Python**；原先 6D Rust 基线保留独立标识。若必须取得完全独立的 Rust 算法实现，则应把“逐项差分达到版本行为一致”作为另一项移植工作，不能仅凭功能名称相似宣布 stock parity。此建议是工程判断，不是实测性能结论。
+审计当时建议先固定本机官方源码及哈希，通过 Rust 边界接入完整 C 后端，并与 6D 原型区分。当前已完成独立 Rust 移植并移除 6D 原型；行为对照证据见[跟踪说明](../ti-gtrack.md)，不以功能名称相似作为 stock parity 的依据。
 
 附件中两项会改变研究创新点表述的概括需要修正：本版本已经区分“关联点”和“可更新状态的可靠点”；本版本生命周期也不只是“有任意关联点即 HIT”。后续 RT 研究应对照这些已有机制，而不是对照一个全部点等权更新的概念简化版。
 
@@ -18,9 +21,9 @@
 - [build_reference.py][builder] 将完整 TI 源码编入库，但它的研究 wrapper 仅调用 allocation；不能把“曾成功编译完整源码”写成“已有完整 gtrack_step 行为验证”。[host_reference.c:77][host]
 - TI 官方 [3D People Tracking User Guide][guide] 指向 6843、SDK3.5 和本例程；[TIDUE71][design] 是参考设计背景。附件引用的 [Jacinto PTK API][ptk] 可解释概念，但不是本机 custom SDK3 的逐行行为依据。
 
-## 2. 实际 stock 能力与当前 mmwcore 差距
+## 2. 实际 stock 能力与审计时 mmwcore 的差距
 
-| 能力 | 本版本实际行为 | 当前 Rust GTrack3D 差距 |
+| 能力 | 本版本实际行为 | 审计时 Rust GTrack3D 的差距 |
 | --- | --- | --- |
 | 帧阶段顺序 | setup → Predict → Associate → Allocate → Update → Presence → Report；新分配 unit 在同帧进入 Update。[step:198][step] | 预测→关联→更新→miss/delete→allocation，出生帧计数及何时可重用点不同。[measurement3d.rs:284][current-step] |
 | 运动状态 | 3DA 是 9 维位置、速度、加速度；静态目标预测时保持状态和协方差。侧装、顶装有不同策略。[unit_create:133][create]、[unit_predict:83][predict] | 6D constant velocity；acceleration 参数仅驱动过程噪声，没有加速度状态，也没有 stock static 状态冻结。[measurement3d.rs:107][current-filter] |

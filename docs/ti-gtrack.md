@@ -1,39 +1,48 @@
 # Complete TI GTRACK for IWR6843
 
-`TiGTrack3D` executes the original **3DA nine-state** `gtrack_create / gtrack_step / gtrack_delete`
-from Radar Toolbox **4.00.00.05**, custom SDK3 `trackerproc_overhead`. This is the source selected
-by that release's 6843 3D People Tracking project. The earlier `GTrack3D` six-state Rust tracker
-remains available for historical comparisons; its results are not stock TI results.
-
-This implements the complete tracking layer. The application still supplies its existing RPC
-measurements. Capon/angle processing, point detection and TI board execution are separate work;
-this host backend does not establish full People Tracking demo or board-binary equivalence.
+`TiGTrack3D` runs a safe Rust adaptation of the **3DA nine-state** tracker from
+Radar Toolbox **4.00.00.05**, custom SDK3 `trackerproc_overhead`. Multiscale tracking
+(`ScatterBodyTracker`) is the retained alternative for comparison; the older simplified
+six-state and 2D tracker prototypes have been removed.
+The application supplies RPC measurements; this is not a port of the entire board demo.
 
 ## Source and build boundary
 
-The [source lock](../tools/ti_gtrack/source-lock.json) pins all 23 required TI C/header files.
-[build.py](../tools/ti_gtrack/build.py) reads an external SDK installation, rejects changed sources,
-and writes a local library, manifest and `TI-LICENSE.txt`. TI algorithm sources are unmodified.
-No TI algorithm source or binary is included in the Apache Python/Rust distribution. The local
-plugin retains its TI-device-only license. Operational build/start commands are in
-[OpenMMW commands](../../openmmw/docs/commands.md#完整-ti-gtrack-本地后端).
+The default mmwcore wheel includes the tracker. No TI SDK, C compiler, plugin manifest
+or DLL is required at installation or runtime. The old `MMWCORE_TI_GTRACK_MANIFEST`
+environment variable no longer selects a runtime backend.
 
-The new `mmwcore-ti-gtrack` Rust crate owns the checked native ABI and dynamic library lifetime.
-Unsafe calls are confined to that host crate; the existing numerical core and PyO3 crate retain
-`forbid(unsafe_code)`. Loading requires an explicitly selected local manifest, matching binary
-SHA-256, ABI version and Config/Target structure sizes. A manifest is provenance, not a signature
-or a sandbox for arbitrary native code. The supplied SDK build is the intended source.
+The [Rust component](../crates/mmwcore-ti-gtrack/src/lib.rs) separates frame orchestration
+(`tracker.rs`), per-track state/update/lifecycle (`unit.rs`), read-only association gates
+(`association.rs`) and fixed-size numerical operations (`math.rs`). Internal track and velocity
+states are enums, lifecycle counters have named `u16` fields, and each point has one typed
+association record. TI numeric codes and parallel report arrays are produced only at the output
+boundary; C layout is enabled only for the optional oracle build.
 
-One host allocator correction is necessary: stock step clears `(N >> 3) + 1` bitmap bytes while
-create allocates `ceil(N/8)`. At capacities divisible by 8 it writes one byte beyond each of two
-bitmaps. The host allocator reserves one extra zero byte per allocation, with overflow checks;
-the TI numerical sources and step order are unchanged.
+The tracker owns reusable frame buffers. Candidate selection swaps two buffers instead of
+allocating for every seed; track updates share one scratch buffer. Static support queries the
+same immutable gate without constructing a temporary tracker input or rolling back counters.
+These are implementation changes, not new tracking rules. TI's lookup interpolation,
+absolute-product group dispersion, threshold comparisons and slot reuse behavior are retained.
+Changes to these algorithms need separate validation.
+The source [lock](../tools/ti_gtrack/source-lock.json) identifies the C version used for comparison.
+
+This adaptation retains the [TI device-only license](../crates/mmwcore-ti-gtrack/TI-LICENSE.txt).
+Source and wheel distributions include that license and NOTICE; the remainder of mmwcore
+stays Apache-2.0. Rust adaptation does not remove TI's licensing conditions.
+
+The existing [C build tool](../tools/ti_gtrack/build.py) is only a development oracle.
+`cargo test -p mmwcore-ti-gtrack --features reference-plugin` additionally compares against
+`build/ti-gtrack/manifest.json`. Normal builds exclude its dynamic loader dependencies.
+Python oracle comparison explicitly uses `plugin_manifest=...` and requires a
+`maturin build --features ti-reference` development wheel. The ordinary constructor is
+`TiGTrack3D(spec)`.
 
 ## Capability coverage
 
 Optional `step(point_cloud, static_positions=xyz)` supplies `(M,3)` sensor
-forward/right/up positions to support existing tracks during RPC loss. Requires
-the local plugin capability `static_support_v1`; the ordinary step is unchanged.
+forward/right/up positions to support existing tracks during RPC loss.
+The built-in implementation includes `static_support_v1`; the ordinary step is unchanged.
 The host associates RPC first, then uses the original TI gate for static candidates.
 Only a candidate matching exactly one existing ACTIVE track with no RPC association
 can support it; both prediction and candidate must be inside the full boundary ROI.
@@ -52,8 +61,8 @@ It establishes an integration mechanism, not human attribution or field performa
 rows and adds `static_support` (`rpc_count`, sensor XYZ `positions`, `assigned_count`).
 Combined capacity is checked without truncation; explicit mixed RPC variances are
 currently rejected. Static candidates are not new RPC measurements or accurate velocity
-measurements. The host uses GNU linker wrapping of Associate/Event, with thread-local
-context scoped to one locked step; numerical TI sources and source hashes stay intact.
+measurements. The Rust frame pipeline applies this extension after RPC association and before
+lifecycle updates. The C oracle retains its linker wrappers for comparison.
 
 | Stage | Maintained source behavior |
 |---|---|
@@ -81,7 +90,7 @@ spec = TiGTrack3DSpec(
     radial_velocity_resolution_mps=0.125,
     scenery=TiGTrackScenery(boundary_boxes=(Box3D(0.5, 6, -3, 3, 0, 3),)),
 )
-with TiGTrack3D(spec, plugin_manifest="build/ti-gtrack/manifest.json") as tracker:
+with TiGTrack3D(spec) as tracker:
     tracks = tracker.step(point_cloud)
     native_report = tracker.last_report
 ```
@@ -161,25 +170,16 @@ Update can overwrite these buffers during static transitions. They are not clean
 hooks. `predicted_measurement` retains `H_s`; do not pair it blindly with overwritten apriori
 buffers for a future RT query. A proper Predict-stage hook is a separate future change.
 
-## Validation and current research result
+## Validation
 
-The independent C oracle calls original TI directly without this bridge. Four 99-frame cases
-(wall/ceiling × absent/positive variances) matched every common float32 report field exactly in the
-local GCC host comparison. They cover motion, static transitions, empty frames, deletion, uid
-reuse with new tid, and presence. Committed [oracle outputs](../tests/fixtures/ti_gtrack_3da_oracle.json)
-support end-to-end Python regression with a small host portability tolerance. The native bridge
-is additionally tested for input rejection, no truncation, coordinate signs, reset/close and
-binary-hash mismatch. Numerical agreement is host-source agreement, not TI DSP bit equivalence.
+Default tests run without a TI installation: 396 frozen original-C frames plus the
+Python lifecycle, capacity, coordinate and static-support regressions.
+The optional C-oracle test adds 1,440 frames of two-target association, support-only
+observations, disappearance/rebirth, velocity aliases, explicit variances and 0/30/90-degree mounts.
+Float comparisons retain rtol=3e-6, atol=2e-7; IDs and point labels must match exactly.
 
-On 850 frozen pilot-002 RPC frames, the complete source with ISK tracking defaults ran without
-non-finite states and allocated **zero** tracks. Only 35 frames even contained 20 points globally;
-c08 had at most 18. The remaining 35 frames did not pass the complete allocation conditions.
-This historical ISK run checks integration and identifies an input/configuration mismatch; it does
-not demonstrate human tracking quality or disprove TI capability.
-See [bounded replay](../../openmmw/outputs/experiments/gtrack-stock-pilot002-v1/summary.json).
-Following the user's request for an application baseline, RPC v1 was frozen before one new replay.
-c08 reports one uninterrupted ID on frames 25–99, while c01–c03 still do not allocate and c04–c07
-retain extra branches. These are diagnostic counts on previously explored data, not independent
-person-tracking accuracy. Simplified wrappers still match the independent 396-frame C oracle;
-all 850 real and 1,080 synthetic empty-tail reports reproduce exactly with the final code,
-excluding host timing counters.
+On this Windows x64 host, replaying c01-c08 (800 actual ADC-to-RPC frames, RPC v1,
+recorded one-person limit) matched the C backend's point labels exactly. Maximum
+absolute difference in the nine-state vectors and state covariances was zero.
+This establishes migration parity on these inputs, not independent tracking accuracy
+or TI DSP bit equivalence. No training or field hardware run was performed.

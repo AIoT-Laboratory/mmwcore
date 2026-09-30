@@ -11,7 +11,7 @@ def isk_capon_complex(
 ) -> tuple[NDArray[np.float32], str]: ...
 
 class NativeTiGTrack3D:
-    def __init__(self, manifest_path: str, config_json: str) -> None: ...
+    def __init__(self, manifest_path: str | None, config_json: str) -> None: ...
     def step(
         self,
         points: NDArray[np.float32],
@@ -104,87 +104,7 @@ type NativeClusterResult = tuple[
     NDArray[np.float32],
     NDArray[np.int64],
 ]
-type NativeTrackerDynamicsConfig = tuple[
-    float,
-    tuple[float, float],
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-]
-type NativeTrackerGatingConfig = tuple[float, float | None, float | None]
-type NativeTrackerAllocationConfig = tuple[int, float, float | None, int | None, float | None]
-type NativeTrackerLifecycleConfig = tuple[
-    int,
-    int,
-    int,
-    int,
-    int | None,
-    int | None,
-    float,
-]
 type NativeTrackingBox = tuple[float, float, float, float]
-type NativeTrackerSceneryConfig = tuple[
-    list[NativeTrackingBox],
-    list[NativeTrackingBox],
-    int,
-]
-type NativeClusterTrackerConfig = tuple[
-    NativeTrackerDynamicsConfig,
-    NativeTrackerGatingConfig,
-    NativeTrackerAllocationConfig,
-    NativeTrackerLifecycleConfig,
-    NativeTrackerSceneryConfig,
-    int,
-]
-type NativeMeasurementTrackerConfig = tuple[NativeClusterTrackerConfig, NativeDbscanConfig]
-type NativeTrackerDynamics3DConfig = tuple[
-    float,
-    tuple[float, float, float],
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-]
-type NativeTrackingBox3D = tuple[float, float, float, float, float, float]
-type NativeTrackerScenery3DConfig = tuple[
-    list[NativeTrackingBox3D],
-    list[NativeTrackingBox3D],
-    int,
-]
-type NativeTracker3DConfig = tuple[
-    NativeTrackerDynamics3DConfig,
-    NativeTrackerGatingConfig,
-    NativeTrackerAllocationConfig,
-    NativeTrackerLifecycleConfig,
-    NativeTrackerScenery3DConfig,
-    int,
-]
-type NativeMeasurementTracker3DConfig = tuple[NativeTracker3DConfig, NativeDbscanConfig]
-type NativeTrackerStepResult = tuple[
-    NDArray[np.int64],
-    NDArray[np.float32],
-    NDArray[np.float32],
-    NDArray[np.float32],
-    NDArray[np.float32],
-    NDArray[np.uint8],
-    NDArray[np.int64],
-    NDArray[np.int64],
-    NDArray[np.int64],
-]
-type NativeGTrack3DDiagnostics = tuple[
-    tuple[int, int, int],
-    tuple[int, int, int],
-    tuple[int, int],
-    tuple[int, int, int],
-    tuple[int, int, int],
-]
-type NativeGTrack3DStepResult = tuple[NativeTrackerStepResult, NativeGTrack3DDiagnostics]
 type NativeTrackingMetricsHeader = tuple[int, int, int, int]
 type NativeTrackingMetricsInput = tuple[
     NDArray[np.int64],
@@ -304,34 +224,6 @@ type NativeCandidateElevationResult = tuple[
     NDArray[np.float32],
     tuple[float, float],
 ]
-
-class NativeClusterTracker2D:
-    def __init__(self, config: NativeClusterTrackerConfig) -> None: ...
-    def step(
-        self,
-        centers: NDArray[np.float32],
-        extents: NDArray[np.float32],
-        mean_velocities: NDArray[np.float32],
-        point_counts: NDArray[np.int64],
-    ) -> NativeTrackerStepResult: ...
-
-class NativePointTracker2D:
-    def __init__(self, config: NativeMeasurementTrackerConfig) -> None: ...
-    def step(
-        self,
-        coordinates: NDArray[np.float32],
-        velocities: NDArray[np.float32],
-        snrs: NDArray[np.float32],
-    ) -> NativeTrackerStepResult: ...
-
-class NativePointTracker3D:
-    def __init__(self, config: NativeMeasurementTracker3DConfig) -> None: ...
-    def step(
-        self,
-        coordinates: NDArray[np.float32],
-        velocities: NDArray[np.float32],
-        snrs: NDArray[np.float32],
-    ) -> NativeGTrack3DStepResult: ...
 
 def decode_adc_i16(
     samples: NDArray[np.int16],

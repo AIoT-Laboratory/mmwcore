@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from mmwcore import _native
-from mmwcore.core import ScenerySpec, TrackFrame, TrackStatus
+from mmwcore.core import Box2D, TrackFrame, TrackStatus
 
 _STATUS_CODES = {
     TrackStatus.TENTATIVE: 0,
@@ -99,7 +99,7 @@ class TrackingSequenceSummary:
 def summarize_track_frames(
     frames: Iterable[TrackFrame],
     *,
-    scenery: ScenerySpec | None = None,
+    boundary_boxes: tuple[Box2D, ...] | None = None,
     frame_index_offset: int = 0,
 ) -> TrackingSequenceSummary:
     """Summarize ordered tracker reports without assuming ground-truth identities."""
@@ -108,8 +108,8 @@ def summarize_track_frames(
         raise ValueError("Tracking summary frame_index_offset must be non-negative.")
     packed = _pack_track_frames(tuple(frames))
     scenery_boxes = (
-        [(box.x_min_m, box.x_max_m, box.y_min_m, box.y_max_m) for box in scenery.boundary_boxes]
-        if scenery is not None
+        [(box.x_min_m, box.x_max_m, box.y_min_m, box.y_max_m) for box in boundary_boxes]
+        if boundary_boxes is not None
         else None
     )
     result = _native.summarize_tracking_metrics(

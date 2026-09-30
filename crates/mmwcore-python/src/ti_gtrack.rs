@@ -1,4 +1,4 @@
-//! PyO3 delegates optional TI state to its isolated, checked Rust host crate.
+//! PyO3 boundary for the built-in Rust GTRACK; the C oracle is development-only.
 use mmwcore_ti_gtrack::{Config, Engine};
 use numpy::{PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -14,11 +14,15 @@ struct NativeTiGTrack3D {
 #[pymethods]
 impl NativeTiGTrack3D {
     #[new]
-    fn new(manifest_path: &str, config_json: &str) -> PyResult<Self> {
+    #[pyo3(signature = (manifest_path, config_json))]
+    fn new(manifest_path: Option<&str>, config_json: &str) -> PyResult<Self> {
         let config: Config =
             serde_json::from_str(config_json).map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let engine =
-            Engine::load(Path::new(manifest_path), config).map_err(PyValueError::new_err)?;
+        let engine = match manifest_path {
+            Some(path) => Engine::load(Path::new(path), config),
+            None => Engine::new(config),
+        }
+        .map_err(PyValueError::new_err)?;
         Ok(Self {
             engine: Mutex::new(Some(engine)),
         })
