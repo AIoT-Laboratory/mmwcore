@@ -12,15 +12,13 @@ applications calling mmwcore.
 
 ## Version and installation
 
-This README describes the **0.8.0 candidate on `main`**, which is not yet published.
-The latest published Python release is
-[0.7.1](https://github.com/AIoT-Laboratory/mmwcore/releases/tag/v0.7.1); its APIs and Python support
-differ from the current checkout. See the [0.8.0 migration notes](docs/releases/0.8.0.md) before migrating.
+The current Python release is **0.8.0**. See the
+[migration notes](docs/releases/0.8.0.md) before upgrading from 0.7.1.
 
-For the published version, use a matching CPython 3.12–3.14 environment:
+Install with **CPython 3.12** on Windows x86-64 or Linux x86-64:
 
 ```console
-python -m pip install "mmwcore==0.7.1"
+python -m pip install "mmwcore==0.8.0"
 ```
 
 For current development, install from source with **CPython 3.12 and Rust 1.97**:

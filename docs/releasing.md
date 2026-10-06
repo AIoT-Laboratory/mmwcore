@@ -3,13 +3,15 @@
 ## Published versus development
 
 GitHub `main` documents the development API. PyPI, crates.io, and GitHub release assets describe
-the source at their version tag. The latest published Python version is 0.7.1. The current
-0.8.0 candidate is not published; its compatibility and license changes are listed in
-[CHANGELOG](../CHANGELOG.md) and the [candidate notes](releases/0.8.0.md).
+the source at their version tag. The current release is 0.8.0; its compatibility and license
+changes are listed in [CHANGELOG](../CHANGELOG.md) and the [release notes](releases/0.8.0.md).
 
-The current workflow is a **validation gate**, not an automated publisher. It supports pushes,
-pull requests, and manual CI runs. It builds a wheel from the source distribution, checks an
-isolated installation, and runs the extracted source's Rust tests on Linux and Windows.
+`ci.yml` is the validation gate for pushes, pull requests, and manual runs. It builds a wheel
+from the source distribution, checks an isolated installation, and runs the extracted source's
+Rust tests on Linux and Windows. `release.yml` reuses this gate, builds portable Python 3.12
+wheels, verifies them independently, and publishes versioned GitHub release assets. Its
+`publish_pypi` and `publish_crate` inputs explicitly enable trusted registry publication;
+both default to false. Dispatch it from the verified `v*` tag.
 The old release workflow used removed APIs and Python versions outside the current contract;
 do not run it from an old tag to publish current code.
 

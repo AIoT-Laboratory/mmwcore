@@ -1,0 +1,161 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_pypi:
+        description: Publish verified Python distributions to PyPI
+        type: boolean
+        required: true
+        default: false
+      publish_crate:
+        description: Publish the standalone Apache-2.0 Rust crate
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Verify immutable release tag and version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, tomllib
+          version = tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
+          assert os.environ["GITHUB_REF_TYPE"] == "tag", "Release must run from a version tag"
+          assert os.environ["GITHUB_REF_NAME"] == f"v{version}", "Tag and package version disagree"
+          assert f"## {version} — " in pathlib.Path("CHANGELOG.md").read_text()
+          assert pathlib.Path(f"docs/releases/{version}.md").is_file()
+          PY
+
+  quality:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  wheels:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64
+            interpreter: python3.12
+          - os: windows-latest
+            target: x64
+            interpreter: python
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.0
+      - name: Build portable wheel from source distribution
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          rust-toolchain: "1.97.0"
+          manylinux: "2_17"
+          args: >-
+            --release --locked --sdist --out dist
+            --interpreter ${{ matrix.interpreter }} --compatibility pypi
+      - name: Verify isolated installation and source archive
+        run: python tools/check_distribution.py dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ runner.os }}
+          path: dist/*.whl
+          if-no-files-found: error
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  github-release:
+    needs: wheels
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: sdist
+          path: dist
+      - name: Publish versioned GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" dist/* --draft --verify-tag \
+            --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" \
+            --notes-file "docs/releases/${version}.md"
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --latest \
+            --repo "${GITHUB_REPOSITORY}"
+
+  pypi:
+    if: ${{ inputs.publish_pypi }}
+    needs: wheels
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mmwcore/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: sdist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  crates-io:
+    if: ${{ inputs.publish_crate }}
+    needs: wheels
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.0
+      - id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - run: cargo publish -p mmwcore --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

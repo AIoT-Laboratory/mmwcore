@@ -4,9 +4,9 @@
 
 No changes after the 0.8.0 candidate yet.
 
-## 0.8.0 — release candidate
+## 0.8.0 — 2026-10-06
 
-Prepared for validation; not yet published. See the [migration and release notes](docs/releases/0.8.0.md).
+See the [migration and release notes](docs/releases/0.8.0.md).
 
 ### Compatibility
 
