@@ -42,10 +42,10 @@ dev = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/AIoT-Laboratory/mmwcore/tree/main/docs"
+Documentation = "https://github.com/AIoT-Laboratory/mmwcore/tree/v0.8.0/docs"
 Issues = "https://github.com/AIoT-Laboratory/mmwcore/issues"
 Repository = "https://github.com/AIoT-Laboratory/mmwcore"
-Changelog = "https://github.com/AIoT-Laboratory/mmwcore/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/CHANGELOG.md"
 
 [tool.maturin]
 profile = "release"

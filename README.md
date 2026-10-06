@@ -13,7 +13,7 @@ applications calling mmwcore.
 ## Version and installation
 
 The current Python release is **0.8.0**. See the
-[migration notes](docs/releases/0.8.0.md) before upgrading from 0.7.1.
+[migration notes](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/releases/0.8.0.md) before upgrading from 0.7.1.
 
 Install with **CPython 3.12** on Windows x86-64 or Linux x86-64:
 
@@ -50,8 +50,8 @@ print(cube.axes, cube.data.shape)
 ```
 
 For real captures, specify the actual ADC layout, TDM order, waveform, and antenna geometry.
-See [file examples](examples/README.md), [architecture](docs/architecture.md),
-[ADC compression](docs/adc-compression.md), and [tracking](docs/ti-gtrack.md).
+See [file examples](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/examples/README.md), [architecture](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/architecture.md),
+[ADC compression](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/adc-compression.md), and [tracking](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/ti-gtrack.md).
 
 ## Library scope
 
@@ -78,7 +78,7 @@ restored_capture = decompress_adc_file("radar.mmwa", "restored.bin")
 ```
 
 The standardized format carries frame geometry and the decoding contract; it preserves raw
-ADC bytes exactly. See [file and frame-group APIs](docs/adc-compression.md). Take packaging
+ADC bytes exactly. See [file and frame-group APIs](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/adc-compression.md). Take packaging
 below adds the capture/setup/context contract around that compressed ADC file.
 
 The optional take API packages a completed `mmwcli.take.v3` capture with verified setup and context metadata:
@@ -114,7 +114,7 @@ DSP composition lives in `mmwcore.dsp`: ADC decoding, range/Doppler processing, 
 mapping, Cartesian projection, and bounded sparsification. Applications choose processing
 windows and consume the resulting tensors, point clouds, or tracks.
 
-An opt-in native [ISK dynamic Capon frontend](docs/isk-capon.md) provides the
+An opt-in native [ISK dynamic Capon frontend](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/isk-capon.md) provides the
 complete default RA-Capon/CFAR/elevation/weighted-Doppler chain from ADC.
 It retains stage diagnostics and source-specific behavior without changing
 the existing RPC pipeline; host arithmetic is not TI DSP bit emulation.
@@ -125,7 +125,7 @@ the existing RPC pipeline; host arithmetic is not TI DSP bit emulation.
 Normal installations need no TI SDK, C compiler or GTRACK DLL. Association, allocation,
 update, lifecycle and static support run inside mmwcore's native extension.
 This component retains TI's **TI-device-only** license, included in source and wheels;
-other mmwcore code remains Apache-2.0. See [API and validation](docs/ti-gtrack.md).
+other mmwcore code remains Apache-2.0. See [API and validation](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/ti-gtrack.md).
 
 The other maintained backend is `ScatterBodyTracker` in `mmwcore.tracking.multiscale`, backed by
 `crates/mmwcore/src/tracking/multiscale`: multiscale clustering, scatter-component histories,
@@ -141,7 +141,7 @@ directly instead of the retired `ScenerySpec`.
 
 `benchmarks/pipeline.py` is the performance and regression gate for the fixed IWR6843 workload. It
 uses deterministic synthetic ADC and requires no hardware or private data. See
-[benchmarking](docs/benchmarking.md).
+[benchmarking](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/benchmarking.md).
 
 ## Package map
 
@@ -187,9 +187,9 @@ Use an output directory containing exactly one wheel and one source distribution
 
 Bug reports and focused contributions are welcome. Include a minimal reproduction, array
 contracts, and platform/version information; synthetic data is sufficient for most numerical
-issues. See [contribution guidelines](CONTRIBUTING.md) and the [release process](docs/releasing.md).
+issues. See [contribution guidelines](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/CONTRIBUTING.md) and the [release process](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/docs/releasing.md).
 
 Current Python distributions include Apache-2.0 code and the TI-device-only GTRACK component;
-their metadata declares `Apache-2.0 AND LicenseRef-TI-GTRACK`. See [LICENSE](LICENSE),
-[NOTICE](NOTICE), and [TI-LICENSE.txt](crates/mmwcore-ti-gtrack/TI-LICENSE.txt). The standalone
+their metadata declares `Apache-2.0 AND LicenseRef-TI-GTRACK`. See [LICENSE](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/LICENSE),
+[NOTICE](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/NOTICE), and [TI-LICENSE.txt](https://github.com/AIoT-Laboratory/mmwcore/blob/v0.8.0/crates/mmwcore-ti-gtrack/TI-LICENSE.txt). The standalone
 `crates/mmwcore` Rust crate is Apache-2.0 and does not depend on the TI tracking crate.

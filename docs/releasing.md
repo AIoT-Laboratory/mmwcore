@@ -22,6 +22,8 @@ do not run it from an old tag to publish current code.
    reuse its tag. Record API migration, Python/platform support, license changes, and known
    limitations in a versioned changelog entry.
 2. Update README installation/version statements and package metadata to match that release.
+   Use absolute version-tag URLs for README links rendered on PyPI and for the package's
+   documentation/changelog URLs.
    Keep the GitHub About description consistent with the standalone compression/DSP/tracking
    library scope. Public examples and links must not depend on private application repositories.
 3. Run the complete CI gate on the exact candidate commit. Both operating systems must pass.
