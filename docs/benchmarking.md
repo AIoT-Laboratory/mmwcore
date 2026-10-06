@@ -34,7 +34,7 @@ selects a prefix and must not exceed the recording length.
 
 ```console
 uv run --python 3.12 python benchmarks/pipeline.py \
-  --take ../openmmw/dataset/takes/pilot-002/recapture-001/c04/take-001 \
+  --take /path/to/your/verified-take \
   --warmups 1 --samples 5 --stream-frames 32 --output recorded-benchmark.json
 ```
 
@@ -45,11 +45,9 @@ but includes each read's decompression, hash check, Python frame construction an
 It does not include RPC, tracking, camera, pose inference or rendering. Divide `median_ns` by
 `frames_per_sample` for per-frame latency; OS file-cache state is stated in every case.
 
-On the local Windows x64 machine, a warm-cache 32-frame c04 prefix measured 30.6 → 8.4 ms/frame
-for reads and 43.7 → 21.4 ms/frame for reads plus RD (five samples, one warm-up). This is the
-benefit of using existing chunk-batched decoding instead of decoding each four-frame chunk
-four times. FFT scratch reuse did not produce a clear whole-path speedup in this measurement.
-These figures describe this workload, not end-to-end Offline speed or a portable timing gate.
+Chunk-batched decoding avoids decoding the same restart group for each constituent frame.
+Measure the resulting performance on your own workload; the synthetic runner is the
+reproducible public baseline, and recorded mode uses caller-supplied data.
 
 `CompressedADCReader.iter_frames(start, stop)` uses bounded, chunk-aligned `read_frames` calls;
 it keeps frame IDs/timestamps and permits early close. Retained frames remain valid after the
@@ -65,6 +63,6 @@ CI proves only that the benchmark executes and emits its contract. Compare perfo
 workload, Python, NumPy, mmwcore build, operating system, architecture, thread settings, and cache
 mode match. Run serious comparisons on the same local machine; shared CI timing is not a gate.
 
-Keep the benchmark fixed unless the maintained IWR6843 research chain changes. Add a focused case
+Keep the benchmark fixed unless the maintained IWR6843 processing contract changes. Add a focused case
 only when it protects a real storage, RT/RPC, or tracking regression; do not turn the runner into a
 general benchmark framework.

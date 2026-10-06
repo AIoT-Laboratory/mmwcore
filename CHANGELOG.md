@@ -14,11 +14,13 @@ version; it must not reuse or replace 0.7.1.
   ADC runners, and dedicated 2D benchmark are removed without aliases. Use `TiGTrack3D` or
   `ScatterBodyTracker`; their contracts differ. See [tracking](docs/ti-gtrack.md) and
   [comparison semantics](docs/architecture.md#ti--multiscale-tracking-comparison).
-- Capture and verified-take APIs now follow the finite `mmwcli.take.v3` and
-  `openmmw.take.v4` contracts; see [architecture](docs/architecture.md#data-boundary).
+- Capture and verified-take APIs now follow the finite `mmwcli.take.v3` capture and
+  v4 verified-take contracts; see [architecture](docs/architecture.md#data-boundary).
 
 ### Quality and maintenance
 
+- Public documentation describes mmwcore as an independent library; examples and validation
+  do not require private application repositories or recordings.
 - ADC storage is organized as `io::adc_compression::{codec, container}`. Explicit compression
   names distinguish frame-group payloads, standardized files, and ADCFrame readers. Old archive
   imports remain compatibility aliases; the .mmwa v3 wire format and raw ADC bytes are unchanged.

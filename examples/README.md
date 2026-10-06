@@ -10,5 +10,5 @@ All examples read caller-supplied completed files. They do not open hardware or 
 
 Use `CompressedADCReader` directly in datasets and inference code. The two older script filenames
 remain runnable for compatibility; they use the explicit compression API. See
-[ADC compression](../docs/adc-compression.md). Keep hardware acquisition in
-mmwcli and model-specific preprocessing in OpenMMW.
+[ADC compression](../docs/adc-compression.md). Calling applications own hardware acquisition
+and model-specific preprocessing.

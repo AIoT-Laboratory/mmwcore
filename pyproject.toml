@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "mmwcore"
 dynamic = ["version"]
-description = "Lossless mmWave ADC storage, deterministic radar DSP, and classical tracking with Rust-backed Python APIs."
+description = "Standalone mmWave ADC compression/decompression, deterministic radar DSP, and classical tracking with Rust-backed Python APIs."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0 AND LicenseRef-TI-GTRACK"

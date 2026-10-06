@@ -19,7 +19,8 @@ do not run it from an old tag to publish current code.
    reuse its tag. Record API migration, Python/platform support, license changes, and known
    limitations in a versioned changelog entry.
 2. Update README installation/version statements and package metadata to match that release.
-   Keep the GitHub About description consistent with the package's storage/DSP/tracking scope.
+   Keep the GitHub About description consistent with the standalone compression/DSP/tracking
+   library scope. Public examples and links must not depend on private application repositories.
 3. Run the complete CI gate on the exact candidate commit. Both operating systems must pass.
    Local Windows success cannot substitute for the Linux numerical checks.
 4. Build candidate artifacts in a fresh output directory. For each target, build from the sdist

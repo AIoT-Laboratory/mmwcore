@@ -1,6 +1,6 @@
 # mmwcore for Rust
 
-The Rust crate contains deterministic storage and compute kernels used by the Python research API:
+The Rust crate provides deterministic storage and compute kernels, also exposed through Python APIs:
 
 - standardized ADC frame compression/decompression and indexed `.mmwa` files;
 - raw ADC decoding;
@@ -43,5 +43,5 @@ let cube = decode_adc_i16(&[1, 2, 3, 4], spec, false).expect("valid ADC payload"
 assert_eq!(cube.shape(), [1, 1, 1, 2]);
 ```
 
-See the [repository README](https://github.com/AIoT-Laboratory/mmwcore) for the Python research
-path and validation commands.
+See the [repository README](https://github.com/AIoT-Laboratory/mmwcore) for Python examples
+and validation commands.

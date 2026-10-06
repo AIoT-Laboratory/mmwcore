@@ -1,4 +1,4 @@
-"""Write and read the one fixed OpenMMW take layout."""
+"""Write and read verified capture packages with embedded ADC and setup contracts."""
 
 from __future__ import annotations
 

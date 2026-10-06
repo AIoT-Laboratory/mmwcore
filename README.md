@@ -1,7 +1,8 @@
 # mmwcore
 
-mmwcore provides lossless mmWave ADC storage, deterministic radar signal processing, and
-classical tracking through Rust-backed Python APIs. Use it to turn completed raw captures or
+mmwcore is a standalone library for lossless mmWave ADC compression/decompression,
+deterministic radar signal processing, and classical tracking through Rust-backed Python APIs.
+Use it to turn completed raw captures or
 in-memory ADC frames into radar tensors and point clouds with explicit geometry, axes, and units.
 
 The maintained hardware contract is **TI IWR6843 ES2 with DCA1000**. Generic numerical kernels
@@ -53,20 +54,18 @@ For real captures, specify the actual ADC layout, TDM order, waveform, and anten
 See [file examples](examples/README.md), [architecture](docs/architecture.md),
 [ADC compression](docs/adc-compression.md), and [tracking](docs/ti-gtrack.md).
 
-## OpenMMW integration
+## Library scope
 
 ```text
-finite: mmwcli.take.v3 -> mmwcore -> openmmw.take.v4 -> RT/RPC -> OpenMMW
-online: mmwcli stream -> OpenMMW -> mmwcore DSP + tracking -> Web
-quality: mmwcore DSP -> tracking baseline + benchmarks
+raw ADC files -> compression/decompression -> frame readers -> radar DSP
+in-memory ADC frames -> radar DSP -> tensors / point clouds -> tracking
 ```
 
-Hardware setup, DCA1000 reception, training loops, checkpoints, and visualization remain outside
-mmwcore. The maintained acquisition contract is IWR6843 ES2 with DCA1000. Finite storage begins
-after mmwcli publishes a raw capture; online process and buffering remain in OpenMMW, which calls
-the same mmwcore DSP on in-memory frames.
+Public APIs, examples, tests, and benchmarks can be used from this repository alone. Callers
+supply raw ADC files, capture specifications, or in-memory frames. Acquisition, buffering,
+model training, and visualization are application responsibilities.
 
-## Research path
+## ADC files and capture packages
 
 ADC storage uses explicit lossless compression/decompression APIs:
 
@@ -83,7 +82,7 @@ The standardized format carries frame geometry and the decoding contract; it pre
 ADC bytes exactly. See [file and frame-group APIs](docs/adc-compression.md). Take packaging
 below adds the capture/setup/context contract around that compressed ADC file.
 
-Convert a completed `mmwcli.take.v3` raw capture into a verified take with immutable research context:
+The optional take API packages a completed `mmwcli.take.v3` capture with verified setup and context metadata:
 
 ```python
 from pathlib import Path
@@ -99,9 +98,8 @@ The published v4 take contains `session.json`, hashed `context.json`, the byte-e
 `setup.json`, `radar.cfg`, and
 `radar.mmwa`, plus `camera.mjpeg` and `camera.index.bin` when a camera participated. Mount height
 and boresight pitch come only from the setup snapshot. The contract accepts downward pitch `0`,
-`30`, or `90` degrees;
-OpenMMW applies the corresponding sensor-to-level transform. Open the verified take for dataset
-construction or inference:
+`30`, or `90` degrees. DSP recipes use explicit sensor-to-level geometry. Open the verified take
+for frame processing:
 
 ```python
 from mmwcore.io import open_take
@@ -111,11 +109,11 @@ frames = take.archive.decompress_frames(0, 4)
 ```
 
 The `.mmwa` archive stores exact ADC bytes, frame geometry, capture specification, index, and
-digests. Use `verify_all()` before a long training run when a complete replay is useful.
+digests. Use `verify_all()` when a complete integrity check is required before processing.
 
 DSP composition lives in `mmwcore.dsp`: ADC decoding, range/Doppler processing, TDM virtual-array
-mapping, Cartesian projection, and bounded sparsification. OpenMMW owns dataset policy, RT/RPC
-windows, models, training, evaluation, and presentation.
+mapping, Cartesian projection, and bounded sparsification. Applications choose processing
+windows and consume the resulting tensors, point clouds, or tracks.
 
 An opt-in native [ISK dynamic Capon frontend](docs/isk-capon.md) provides the
 complete default RA-Capon/CFAR/elevation/weighted-Doppler chain from ADC.

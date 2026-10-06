@@ -1,20 +1,15 @@
 # Architecture
 
-## Research chains
+## Library inputs and outputs
 
 ```text
-finite:
-IWR6843 + DCA1000 -> mmwcli.take.v3 -> read_capture -> write_take + context
-                  -> openmmw.take.v4 -> RT/RPC -> OpenMMW
-
-online:
-IWR6843 + DCA1000 -> mmwcli stream -> OpenMMW -> mmwcore DSP
-                  -> RPC/RT checkpoint -> Web
+files:  raw ADC + capture specification -> compressed ADC -> frame readers
+frames: raw ADC arrays -> DSP -> radar tensors / point clouds -> tracking
 ```
 
-mmwcore owns neither acquisition process. It does not configure hardware, receive DCA packets,
-launch camera processes, train models, manage checkpoints, or serve results. OpenMMW imports its
-DSP for both archived and in-memory ADC frames.
+mmwcore exposes the same DSP for files and in-memory frames. Acquisition, stream lifecycle,
+model training, and visualization are responsibilities of the calling application.
+Public examples and validation run without a separate application checkout or private data.
 
 ## Ownership
 
@@ -39,12 +34,12 @@ The Python layer composes Rust kernels.
 ## Data boundary
 
 `read_capture` accepts the fixed finite `mmwcli.take.v3` raw capture for IWR6843 ES2. `write_take`
-replaces `adc.bin` with indexed, lossless `radar.mmwa` and publishes `openmmw.take.v4` when a
-research context is supplied. `open_take`
-is the normal dataset and finite-inference entry point.
+replaces `adc.bin` with indexed, lossless `radar.mmwa` and writes a v4 verified take when
+context metadata is supplied. `open_take` reads completed capture packages. Direct ADC
+compression and frame processing do not require the take API.
 
 A take has one radar stream and at most one directly recorded camera stream. Camera timestamps are
-delivery observations rather than exposure timestamps. OpenMMW owns the downstream pairing policy.
+delivery observations rather than exposure timestamps. Applications choose downstream pairing policies.
 
 Each raw and verified take references an immutable `mmwcli.snapshot.v1` `setup.json` by path, size,
 and SHA-256. `write_take` copies those bytes unchanged. It also hashes `context.json` into v4 while
@@ -71,8 +66,8 @@ operations; the [compression API](adc-compression.md) documents compatibility al
 5. Project dense Cartesian RT.
 6. Optionally produce bounded sparse RPC.
 
-OpenMMW chooses windows, labels, splits, tensor layouts, and neural networks. mmwcore supplies the
-deterministic physical transformation beneath those choices.
+Callers choose processing windows and downstream uses. mmwcore supplies explicit physical
+transforms and retains geometry, axes, units, frame IDs, and timing in its output contracts.
 
 `RadarProfile` rejects sampling that extends beyond the chirp ramp. Physical range/velocity
 resolution is distinct from FFT-bin spacing: pass the actual `range_n_fft` and `doppler_bins`
@@ -83,7 +78,7 @@ Clutter-subtracted and full RD may share the same detection recipe; unrelated pr
 
 ## Quality boundary
 
-Tracking remains a classical reference for learned temporal perception. Tests protect ADC compression
+The two maintained tracking backends are library components. Tests protect ADC compression
 round trips, tensor shapes and axes, numerical behavior, take semantics, and tracking results.
 Benchmarks detect storage and DSP regressions on a fixed IWR6843 workload. Neither adds another
 workflow or hardware path.

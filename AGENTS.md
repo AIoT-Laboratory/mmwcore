@@ -13,10 +13,12 @@ mechanically or turn one-off outputs into permanent constraints.
 
 - Own standardized byte-exact ADC compression/decompression, deterministic DSP, classical
   tracking, and quality benchmarks.
-- Accept completed `mmwcli.take.v3` captures, current `openmmw.take.v4` and legacy v3 verified takes,
+- Accept completed `mmwcli.take.v3` captures, current v4 and legacy v3 verified takes,
   raw ADC files, and `.mmwa` compressed ADC files.
 - Expose Rust kernels through checked Python contracts. Acquisition, process control, models,
-  experiments, and Web belong to mmwcli or OpenMMW.
+  experiments, and visualization belong to calling applications.
+- Maintain mmwcore as an independent public library. Public documentation, examples, and
+  checks must not depend on private application repositories or recordings.
 - Online inference may reuse the DSP on in-memory frames; mmwcore does not own stream lifecycle.
 
 ## Preserve

@@ -106,7 +106,7 @@ with TiGTrack3D(spec) as tracker:
 - `TiGTrackScenery` boxes use world forward/right/up. Maximum accelerations use sensor
   forward/right/up; the adapter swaps axes for TI. Scenery horizontal origin must be the
   radar: this source's transform uses sensor height, not horizontal translation. Positive
-  elevation tilt is downward. OpenMMW takes installation and ROI from the capture snapshot.
+  elevation tilt is downward. Callers supply installation geometry and ROI explicitly.
   At least one boundary box is required: in this pinned source zero boxes count every unit as
   outside and delete it at the exit threshold; zero does not disable the boundary check.
 - Input capacity is checked without truncation. Finite forward-hemisphere measurements with
@@ -125,16 +125,14 @@ configuration fields. Defaults follow the pinned **ISK_6m_default.cfg tracking l
 | det2act / det2free / active2free / static2free / exit2free / sleep2free | 3 / 3 / 12 / 500 / 5 / 6000 |
 | Maximum points / tracks; acceleration | 800 / 30; 0.1 m/s² per axis |
 
-These remain **mmwcore API defaults**. OpenMMW now explicitly loads its versioned
-[RPC v1 application profile](../../openmmw/openmmw/configs/ti_gtrack_rpc_v1.json) for the local
-10 Hz sparse-RPC pipeline. Its [baseline record](../../openmmw/docs/research/baseline.md#ti-gtrack-rpc-baseline-v1)
-documents parameter choices, a fixed replay and unresolved cases. It does not change these defaults
-or the pinned TI numerical source.
+These are **mmwcore API defaults**, not a validated profile for every point-cloud frontend.
+Callers must choose and validate application-specific parameters against their measurement
+density, SNR, installation, and frame rate. Such profiles do not change the pinned TI numerical source.
 
 Timing, maximum radial velocity and velocity resolution remain required capture parameters.
 Installation/ROI are application inputs, not the example room. Presence is disabled until
 occupancy boxes and a positive presence point threshold are configured. Generic library defaults
-are different from these application defaults; in particular a zero velocity gate limit produced
+may differ from the pinned demo configuration; in particular a zero velocity gate limit produced
 a singular/non-finite native result in the synthetic regression. No fallback gate is substituted.
 
 ## Reading the report
@@ -178,8 +176,6 @@ The optional C-oracle test adds 1,440 frames of two-target association, support-
 observations, disappearance/rebirth, velocity aliases, explicit variances and 0/30/90-degree mounts.
 Float comparisons retain rtol=3e-6, atol=2e-7; IDs and point labels must match exactly.
 
-On this Windows x64 host, replaying c01-c08 (800 actual ADC-to-RPC frames, RPC v1,
-recorded one-person limit) matched the C backend's point labels exactly. Maximum
-absolute difference in the nine-state vectors and state covariances was zero.
-This establishes migration parity on these inputs, not independent tracking accuracy
-or TI DSP bit equivalence. No training or field hardware run was performed.
+Public validation establishes migration parity on the documented synthetic inputs,
+not independent tracking accuracy or TI DSP bit equivalence. Real-capture performance
+requires an application-specific evaluation with independent truth.

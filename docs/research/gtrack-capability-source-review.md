@@ -11,14 +11,13 @@
 
 审计当时建议先固定本机官方源码及哈希，通过 Rust 边界接入完整 C 后端，并与 6D 原型区分。当前已完成独立 Rust 移植并移除 6D 原型；行为对照证据见[跟踪说明](../ti-gtrack.md)，不以功能名称相似作为 stock parity 的依据。
 
-附件中两项会改变研究创新点表述的概括需要修正：本版本已经区分“关联点”和“可更新状态的可靠点”；本版本生命周期也不只是“有任意关联点即 HIT”。后续 RT 研究应对照这些已有机制，而不是对照一个全部点等权更新的概念简化版。
+理解本版本时需区分“关联点”和“可更新状态的可靠点”；其生命周期也不只是“有任意关联点即 HIT”。不能以全部点等权更新的概念简化版代替实际源码行为。
 
 ## 1. 锁定实际参考版本
 
 - 6843 MSS 工程定义 `GTRACK_3D`，从 `MODIFIED_SDK3_DATAPATH/dpu/trackerproc_overhead/packages/ti/alg/gtrack/lib` 链接 `libgtrack3D.aer4f`；其 tracker_utils 把 `stateVectorType` 设为 `GTRACK_STATE_VECTORS_3DA`。[MSS 工程:52][project]、[tracker_utils:274][utils]
 - 本地来源根目录：`C:/ti/radar_toolbox_4_00_00_05/source/ti/custom_sdk_files/sdk3/dpu/trackerproc_overhead/packages/ti/alg/gtrack`。
-- 既有 allocation 实验的 [build.json][build] 记录了同一来源目录、`-DGTRACK_3D`、关闭 fast-math 和浮点收缩的 host 构建，以及 23 个 TI 源/头文件 SHA-256。本次逐一重算 23 项，全部与记录相符。
-- [build_reference.py][builder] 将完整 TI 源码编入库，但它的研究 wrapper 仅调用 allocation；不能把“曾成功编译完整源码”写成“已有完整 gtrack_step 行为验证”。[host_reference.c:77][host]
+- 当前公开来源记录见 [source-lock.json](../../tools/ti_gtrack/source-lock.json)，完整 step 对照构建见 [build.py](../../tools/ti_gtrack/build.py)。仅编译完整源码或仅调用 allocation 都不构成完整 `gtrack_step` 行为验证。
 - TI 官方 [3D People Tracking User Guide][guide] 指向 6843、SDK3.5 和本例程；[TIDUE71][design] 是参考设计背景。附件引用的 [Jacinto PTK API][ptk] 可解释概念，但不是本机 custom SDK3 的逐行行为依据。
 
 ## 2. 实际 stock 能力与审计时 mmwcore 的差距
@@ -70,7 +69,7 @@ ACTIVE 下，static target 任意关联点可以 HIT；dynamic target 需要至�
 
 头文件将 EC 描述为 group covariance，但本版 unitScore 结尾把 `gC_inv` 复制到内部 `ec`，unitReport 再复制到 EC。因此该版本实际报告的是对应时刻的 **4×4 group inverse covariance**，不是 9×9 状态 P，也不是 Cartesian position covariance。[unit_score:351][score]、[unit_report:80][report]
 
-moduleReport 遍历 activeList，**没有筛除 DETECTION**。activeList 是分配后仍存活的 unit 集合，不等同于 TrackState ACTIVE。若 OpenMMW 仍只显示 confirmed/coasting，需要由适配器明确保留内部状态，再做展示筛选。[module:564][module]
+moduleReport 遍历 activeList，**没有筛除 DETECTION**。activeList 是分配后仍存活的 unit 集合，不等同于 TrackState ACTIVE。调用应用若只显示 confirmed/coasting，适配器仍需保留内部状态，再做展示筛选。[module:564][module]
 
 uid 是可复用 unit 槽；tid 是目标身份计数；逐点 mIndex 使用 uid。接入研究输出时必须明确转换，不能把 uid 复用计成同一人持续 ID，也不能误报切换数量。[gtrack.h:687][api]、[module:380][module]
 
@@ -81,7 +80,7 @@ uid 是可复用 unit 槽；tid 是目标身份计数；逐点 mIndex 使用 uid
 1. **明确版本后端。** 为当前 TI-device 数据提供来源固定的 stock backend；从配置和输出 metadata 一直保留版本、源哈希、编译选项、mount 模式和全部实际参数。不要偷偷将旧 Rust 的数值参数套入同名 stock 字段。
 2. **固定完整 gtrack_step。** 编译外部官方源文件，通过窄 C ABI 接入 Rust；Rust 管理实例所有权、生命周期、输入长度/有限值/单位/参数检查和清晰错误。现有 allocation observer 只作为来源与编译线索，不能充当完整正式 backend。
 3. **暴露完整输入/输出。** 支持 spherical point + 线性 SNR（头文件明确为 linear）、可选 measurement variance、mount/scenery/gating/allocation/state/presence 参数；输出 S9、原始 EC4×4 与其明确语义、G/dim/uCenter/confidence、uid/tid、association/unique、内部状态与必要诊断。[gtrack.h:668][api]
-4. **保持研究接口区分。** 旧 6D 算法与新 TI stock 算法使用不同 model id；RT evidence hooks 此阶段不进入 stock 数值路径。OpenMMW 展示投影可兼容，但原始 stock 输出应可读取。
+4. **保持算法接口区分。** 旧 6D 算法与新 TI stock 算法使用不同 model id；额外观测扩展不进入 stock 数值路径。应用展示投影可兼容，但原始 stock 输出应可读取。
 5. **验收完整行为，不只检查可运行。** 对选定官方原始 gtrack_step 建立确定性 CPU 序列，覆盖出生帧阶段顺序、输入排列/最大集合 tie、1/3/4 reliable 点、unique 竞争、侧装与顶装、static→dynamic、无点与仅静态点、sleep/exit、速度折叠、uid 复用、presence。逐帧比较 S/P（若暴露内部只读快照）/association/unique/计数，明确 float32 容差及边界条件。
 6. **双重限制分别说明。** “对官方实现数值一致”证明实现保真；不证明当前雷达 RPC 前端与 TI Capon 前端相同，也不证明本项目人体跟踪精度提高。Doppler 正负及坐标/SNR 契约需要独立一致性验证，不能用引入 stock 后的改观倒推旧符号必然错误。
 
@@ -152,9 +151,6 @@ build.py 固定外部源码哈希，生成本地库、构建 manifest 和 TI-LIC
 
 [project]: /C:/ti/radar_toolbox_4_00_00_05/source/ti/examples/Industrial_and_Personal_Electronics/People_Tracking/3D_People_Tracking/src/6843/3D_people_track_6843_mss.projectspec:52
 [utils]: /C:/ti/radar_toolbox_4_00_00_05/source/ti/examples/Industrial_and_Personal_Electronics/People_Tracking/3D_People_Tracking/src/6843/mss/tracker_utils.c:274
-[build]: /D:/Projects/py/openmmw/outputs/experiments/ti-allocation-pilot002-v1/build.json
-[builder]: /D:/Projects/py/openmmw/outputs/experiments/ti-allocation-pilot002-v1/build_reference.py
-[host]: /D:/Projects/py/openmmw/outputs/experiments/ti-allocation-pilot002-v1/host_reference.c:77
 [step]: /C:/ti/radar_toolbox_4_00_00_05/source/ti/custom_sdk_files/sdk3/dpu/trackerproc_overhead/packages/ti/alg/gtrack/src/gtrack_step.c:98
 [create]: /C:/ti/radar_toolbox_4_00_00_05/source/ti/custom_sdk_files/sdk3/dpu/trackerproc_overhead/packages/ti/alg/gtrack/src/gtrack_unit_create.c:109
 [predict]: /C:/ti/radar_toolbox_4_00_00_05/source/ti/custom_sdk_files/sdk3/dpu/trackerproc_overhead/packages/ti/alg/gtrack/src/gtrack_unit_predict.c:83

@@ -1,8 +1,8 @@
 # ISK dynamic Capon frontend
 
 `mmwcore.dsp.isk_capon_point_cloud` implements the complete supported default
-dynamic chain, from ADC words to points, in native Rust. It is an opt-in research
-frontend; existing RPC/Online processing is unchanged.
+dynamic chain, from ADC words to points, in native Rust. Callers select this frontend
+explicitly; the default point-cloud pipeline is unchanged.
 
 ```python
 from mmwcore.core import ADCDecodeSpec
@@ -111,5 +111,5 @@ duplicate initial tests, capacity and ordering. Independent NumPy tests cover
 the entire range-cube chain, Blackman FFT, known range/angle/Doppler from raw
 int16 ADC, approaching/receding signs, positive Nyquist, zero padding, static
 annihilation, zero-noise handling and invalid contracts. No extra numerical
-dependency is introduced. Real-take evaluation and theory are owned by
-OpenMMW, not this library's unit suite.
+dependency is introduced. These checks validate numerical and source contracts; performance
+on real recordings requires a separate evaluation with caller-supplied data and independent truth.
