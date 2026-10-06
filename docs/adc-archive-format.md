@@ -1,8 +1,11 @@
-# ADC Archive v3 Binary Format
+# Standardized ADC Compression: .mmwa v3 Binary Format
 
 This document specifies the `mmwcore.adc_archive.v3` format introduced in mmwcore 0.7.0, normally
 stored as `.mmwa`. Rust writes, opens, validates, and reads the complete container. Version 3
 replaces byte-shuffle zlib with bounded homologous-frame prediction and adaptive Rice coding.
+
+The format identity is historical and retained for compatibility. The public operation is
+ADC compression/decompression; see the [API and code organization](adc-compression.md).
 
 All integers are unsigned little-endian. SHA-256 values occupy 32 raw bytes. Offsets are absolute
 from the start of the file. No padding or trailing bytes are allowed outside the zero bit padding

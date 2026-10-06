@@ -51,7 +51,7 @@ benefit of using existing chunk-batched decoding instead of decoding each four-f
 four times. FFT scratch reuse did not produce a clear whole-path speedup in this measurement.
 These figures describe this workload, not end-to-end Offline speed or a portable timing gate.
 
-`ADCArchiveReader.iter_frames(start, stop)` uses bounded, chunk-aligned `read_frames` calls;
+`CompressedADCReader.iter_frames(start, stop)` uses bounded, chunk-aligned `read_frames` calls;
 it keeps frame IDs/timestamps and permits early close. Retained frames remain valid after the
 iterator advances. Random `read_frame` calls retain their existing behavior and no hidden cache.
 FFT scratch is reused within a cube, within each Cartesian projection worker, or across Capon

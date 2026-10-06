@@ -19,6 +19,12 @@ version; it must not reuse or replace 0.7.1.
 
 ### Quality and maintenance
 
+- ADC storage is organized as `io::adc_compression::{codec, container}`. Explicit compression
+  names distinguish frame-group payloads, standardized files, and ADCFrame readers. Old archive
+  imports remain compatibility aliases; the .mmwa v3 wire format and raw ADC bytes are unchanged.
+- `decompress_adc_file` restores raw ADC in bounded groups, verifies chunk and full-stream
+  digests before publishing, refuses overwrite, and returns the embedded capture contract.
+
 - Rust implementation is grouped into storage (`io`), processing (`dsp`), and tracking
   domains while retaining existing import paths. Python binding registration and boundary
   contracts are separated.

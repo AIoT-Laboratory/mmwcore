@@ -26,19 +26,19 @@ class NativeTiGTrack3D:
     def provenance_json(self) -> str: ...
     def close(self) -> None: ...
 
-def encode_adc_archive_chunk(
+def compress_adc_frames(
     data: bytes,
     frame_bytes: int,
     block_samples: int = 512,
 ) -> bytes: ...
-def decode_adc_archive_chunk(
+def decompress_adc_frames(
     data: bytes,
     frame_bytes: int,
     frame_count: int,
     block_samples: int = 512,
 ) -> bytes: ...
 
-class ADCArchiveFile:
+class CompressedADCFile:
     @property
     def path(self) -> str: ...
     @property
@@ -57,6 +57,8 @@ class ADCArchiveFile:
     def adc_sha256(self) -> str: ...
     @property
     def archive_size(self) -> int: ...
+    @property
+    def compressed_size_bytes(self) -> int: ...
     @property
     def payload_bytes(self) -> int: ...
     @property
@@ -77,13 +79,14 @@ class ADCArchiveFile:
     ) -> bytes: ...
     def verify_all(self) -> None: ...
 
-def open_adc_archive_file(path: str) -> ADCArchiveFile: ...
-def write_adc_archive_file(
+def open_compressed_adc(path: str) -> CompressedADCFile: ...
+def compress_adc_file(
     source: str,
     destination: str,
     capture_json: str,
     expected_adc_sha256: str | None = None,
-) -> ADCArchiveFile: ...
+) -> CompressedADCFile: ...
+def decompress_adc_file(source: str, destination: str) -> str: ...
 
 type NativeThresholdDetections = tuple[NDArray[np.int64], NDArray[np.float32]]
 type NativeDetectionAxes = tuple[int, int, int, int]
@@ -386,3 +389,10 @@ def select_virtual_subarray_complex(
     virtual_axis: int,
     indices: Sequence[int],
 ) -> NDArray[np.complex64]: ...
+
+# Compatibility aliases for earlier native callers.
+ADCArchiveFile = CompressedADCFile
+write_adc_archive_file = compress_adc_file
+open_adc_archive_file = open_compressed_adc
+encode_adc_archive_chunk = compress_adc_frames
+decode_adc_archive_chunk = decompress_adc_frames

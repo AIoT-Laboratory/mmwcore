@@ -3,7 +3,9 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mmwcore::{open_adc_archive_file, write_adc_archive_file};
+use mmwcore::{
+    compress_adc_file, decompress_adc_file, open_adc_archive_file, write_adc_archive_file,
+};
 use sha2::{Digest, Sha256};
 
 struct TestDirectory(PathBuf);
@@ -49,6 +51,25 @@ fn capture_json(frame_count: usize) -> String {
         frame_count * 16,
         frame_count,
     )
+}
+
+#[test]
+fn standardized_file_compression_restores_raw_without_overwrite() {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("adc.bin");
+    let compressed = directory.path().join("radar.mmwa");
+    let restored = directory.path().join("restored.bin");
+    let raw: Vec<u8> = (0..144).map(|value| (value * 17) as u8).collect();
+    fs::write(&source, &raw).unwrap();
+    compress_adc_file(&source, &compressed, &capture_json(9), None).unwrap();
+    let capture = decompress_adc_file(&compressed, &restored).unwrap();
+    assert_eq!(fs::read(&restored).unwrap(), raw);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&capture).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&capture_json(9)).unwrap()
+    );
+    assert!(decompress_adc_file(&compressed, &restored).is_err());
+    assert_eq!(fs::read(&restored).unwrap(), raw);
 }
 
 #[test]

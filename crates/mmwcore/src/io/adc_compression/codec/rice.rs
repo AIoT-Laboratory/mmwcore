@@ -1,4 +1,4 @@
-use super::{AdcArchiveCodecError, MAX_RICE_PARAMETER, MAX_ZIGZAG_DELTA};
+use super::{AdcCompressionError, MAX_RICE_PARAMETER, MAX_ZIGZAG_DELTA};
 
 pub(super) fn best_rice_parameter_and_bit_count(values: &[u32]) -> (u8, u64) {
     let mut costs = [0_u64; MAX_RICE_PARAMETER as usize + 1];
@@ -29,9 +29,9 @@ impl BitWriter {
         self.used = 0;
     }
 
-    pub(super) fn try_reserve(&mut self, encoded_bytes: usize) -> Result<(), AdcArchiveCodecError> {
+    pub(super) fn try_reserve(&mut self, encoded_bytes: usize) -> Result<(), AdcCompressionError> {
         self.bytes.try_reserve_exact(encoded_bytes).map_err(|_| {
-            AdcArchiveCodecError::CannotAllocateOutput {
+            AdcCompressionError::CannotAllocateOutput {
                 expected_bytes: encoded_bytes,
             }
         })
@@ -115,24 +115,24 @@ impl<'a> BitReader<'a> {
         }
     }
 
-    pub(super) fn read_rice(&mut self, parameter: u8) -> Result<u32, AdcArchiveCodecError> {
+    pub(super) fn read_rice(&mut self, parameter: u8) -> Result<u32, AdcCompressionError> {
         let maximum_quotient = MAX_ZIGZAG_DELTA >> parameter;
         let quotient = self.read_unary(maximum_quotient)?;
         let remainder = self.read_bits(parameter)?;
         quotient
             .checked_shl(u32::from(parameter))
             .and_then(|value| value.checked_add(remainder))
-            .ok_or(AdcArchiveCodecError::RiceQuotientOutOfRange)
+            .ok_or(AdcCompressionError::RiceQuotientOutOfRange)
     }
 
-    fn read_bits(&mut self, count: u8) -> Result<u32, AdcArchiveCodecError> {
+    fn read_bits(&mut self, count: u8) -> Result<u32, AdcCompressionError> {
         let mut count = count;
         let mut value = 0_u32;
         while count != 0 {
             let byte = *self
                 .bytes
                 .get(self.bit_index / 8)
-                .ok_or(AdcArchiveCodecError::TruncatedBlock)?;
+                .ok_or(AdcCompressionError::TruncatedBlock)?;
             let offset = (self.bit_index % 8) as u8;
             let available = 8 - offset;
             let take = count.min(available);
@@ -145,13 +145,13 @@ impl<'a> BitReader<'a> {
         Ok(value)
     }
 
-    fn read_unary(&mut self, maximum_quotient: u32) -> Result<u32, AdcArchiveCodecError> {
+    fn read_unary(&mut self, maximum_quotient: u32) -> Result<u32, AdcCompressionError> {
         let mut quotient = 0_u32;
         loop {
             let byte = *self
                 .bytes
                 .get(self.bit_index / 8)
-                .ok_or(AdcArchiveCodecError::TruncatedBlock)?;
+                .ok_or(AdcCompressionError::TruncatedBlock)?;
             let offset = (self.bit_index % 8) as u8;
             let available = 8 - offset;
             let remaining_mask = (1_u16 << available) - 1;
@@ -159,9 +159,9 @@ impl<'a> BitReader<'a> {
             if remaining == 0 {
                 quotient = quotient
                     .checked_add(u32::from(available))
-                    .ok_or(AdcArchiveCodecError::RiceQuotientOutOfRange)?;
+                    .ok_or(AdcCompressionError::RiceQuotientOutOfRange)?;
                 if quotient > maximum_quotient {
-                    return Err(AdcArchiveCodecError::RiceQuotientOutOfRange);
+                    return Err(AdcCompressionError::RiceQuotientOutOfRange);
                 }
                 self.bit_index += usize::from(available);
                 continue;
@@ -170,16 +170,16 @@ impl<'a> BitReader<'a> {
             let zeroes = remaining.leading_zeros() as u8 - offset;
             quotient = quotient
                 .checked_add(u32::from(zeroes))
-                .ok_or(AdcArchiveCodecError::RiceQuotientOutOfRange)?;
+                .ok_or(AdcCompressionError::RiceQuotientOutOfRange)?;
             if quotient > maximum_quotient {
-                return Err(AdcArchiveCodecError::RiceQuotientOutOfRange);
+                return Err(AdcCompressionError::RiceQuotientOutOfRange);
             }
             self.bit_index += usize::from(zeroes) + 1;
             return Ok(quotient);
         }
     }
 
-    pub(super) fn finish_block(&mut self) -> Result<usize, AdcArchiveCodecError> {
+    pub(super) fn finish_block(&mut self) -> Result<usize, AdcCompressionError> {
         let remainder = self.bit_index % 8;
         if remainder == 0 {
             return Ok(self.bit_index / 8);
@@ -187,10 +187,10 @@ impl<'a> BitReader<'a> {
         let byte = *self
             .bytes
             .get(self.bit_index / 8)
-            .ok_or(AdcArchiveCodecError::TruncatedBlock)?;
+            .ok_or(AdcCompressionError::TruncatedBlock)?;
         let padding_mask = (1_u16 << (8 - remainder)) - 1;
         if u16::from(byte) & padding_mask != 0 {
-            return Err(AdcArchiveCodecError::NonZeroPadding);
+            return Err(AdcCompressionError::NonZeroPadding);
         }
         self.bit_index += 8 - remainder;
         Ok(self.bit_index / 8)

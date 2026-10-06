@@ -18,7 +18,8 @@ DSP for both archived and in-memory ADC frames.
 
 ## Ownership
 
-- `crates/mmwcore/src/io` owns lossless `.mmwa` storage;
+- `crates/mmwcore/src/io/adc_compression` owns standardized lossless ADC compression/decompression:
+  frame-group codec and self-describing `.mmwa` file operations;
   `src/dsp` owns deterministic numerical kernels; `src/tracking` owns assignment, metrics,
   and the independent multiscale scatter-component/body tracker. Old Rust module paths and
   root imports are preserved through re-exports.
@@ -52,9 +53,14 @@ requires downward boresight pitch `0`, `30`, or `90` degrees. Cartesian projecti
 grid into sensor coordinates while building the fixed sampling plan and emits the canonical
 `level_forward_lateral_up` frame directly.
 
-The archive preserves ADC layout and dimensions, frame count and period, waveform, TDM order, and
+The compressed file preserves ADC layout and dimensions, frame count and period, waveform, TDM order, and
 exact logical bytes. Antenna geometry, calibration, axes, units, and coordinate frames remain
-explicit in recipes and products. See the [ADC archive format](adc-archive-format.md).
+explicit in recipes and products. See the [ADC compression format](adc-archive-format.md).
+
+Use `compress_adc_file` / `decompress_adc_file` for complete files, `open_compressed_adc` for
+verified random access, and `CompressedADCReader` for `ADCFrame` output. Frame-group codec
+payloads use `compress_adc_frames` / `decompress_adc_frames`. Take packaging consumes these
+operations; the [compression API](adc-compression.md) documents compatibility aliases.
 
 ## Compute path
 
@@ -77,7 +83,7 @@ Clutter-subtracted and full RD may share the same detection recipe; unrelated pr
 
 ## Quality boundary
 
-Tracking remains a classical reference for learned temporal perception. Tests protect archive
+Tracking remains a classical reference for learned temporal perception. Tests protect ADC compression
 round trips, tensor shapes and axes, numerical behavior, take semantics, and tracking results.
 Benchmarks detect storage and DSP regressions on a fixed IWR6843 workload. Neither adds another
 workflow or hardware path.
@@ -127,7 +133,7 @@ must be decoded correctly before the FFTs; negating only RPC velocity cannot rep
 
 The fixed mmwcli IWR6843 configuration uses `iqSwapSel=1`, so its two-lane raw layout is
 `GROUP2_Q_THEN_I` (`Q1 Q2 I1 I2`). New captures record that layout. Generic I-first decoders retain
-their existing meaning. `ADCArchiveReader.from_take(take)` checks the verified take CFG and
+their existing meaning. `CompressedADCReader.from_take(take)` checks the verified take CFG and
 corrects the historical I-first archive label only in the effective reader contract. It records
 that correction in frame metadata and preserves every stored byte/hash. All other capture
 mismatches are rejected; standalone archives continue to use their embedded contract.

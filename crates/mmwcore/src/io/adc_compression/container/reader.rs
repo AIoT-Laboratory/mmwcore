@@ -5,20 +5,20 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::decode_adc_archive_chunk;
+use crate::decompress_adc_frames;
 
 use super::contract::{canonical_capture_json, validate_capture_json};
 use super::wire::{
     archive_chunk_count, decode_fixed_header, decode_footer, parse_index, validate_header_capture,
 };
 use super::{
-    AdcArchiveFileError, ChunkRecord, FIXED_HEADER_BYTES, FOOTER_BYTES, INDEX_RECORD_BYTES, error,
-    io_error, read_exact_array, read_exact_vec, regular_file_size, sha256,
+    ChunkRecord, CompressedAdcFileError, FIXED_HEADER_BYTES, FOOTER_BYTES, INDEX_RECORD_BYTES,
+    error, io_error, read_exact_array, read_exact_vec, regular_file_size, sha256,
 };
 
 /// One opened, structurally verified ADC Archive v3 file.
 #[derive(Debug)]
-pub struct AdcArchiveFile {
+pub struct CompressedAdcFile {
     path: PathBuf,
     header: Vec<u8>,
     index: Vec<u8>,
@@ -45,7 +45,7 @@ fn frame_byte_offset(frame_count: u64, frame_bytes: usize) -> Option<usize> {
     usize::try_from(frame_count).ok()?.checked_mul(frame_bytes)
 }
 
-impl AdcArchiveFile {
+impl CompressedAdcFile {
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -78,8 +78,12 @@ impl AdcArchiveFile {
         &self.capture_json
     }
 
-    pub const fn archive_size(&self) -> u64 {
+    pub const fn compressed_size_bytes(&self) -> u64 {
         self.archive_size
+    }
+
+    pub const fn archive_size(&self) -> u64 {
+        self.compressed_size_bytes()
     }
 
     pub fn payload_bytes(&self) -> u64 {
@@ -107,7 +111,7 @@ impl AdcArchiveFile {
         start: u64,
         stop: u64,
         verify: bool,
-    ) -> Result<Vec<u8>, AdcArchiveFileError> {
+    ) -> Result<Vec<u8>, CompressedAdcFileError> {
         if start > stop || stop > self.frame_count {
             return Err(error(format!(
                 "Frame interval [{start}, {stop}) is outside [0, {}).",
@@ -123,7 +127,7 @@ impl AdcArchiveFile {
         starts: &[u64],
         window_frames: u64,
         verify: bool,
-    ) -> Result<Vec<u8>, AdcArchiveFileError> {
+    ) -> Result<Vec<u8>, CompressedAdcFileError> {
         if window_frames == 0 {
             return Err(error("ADC window length must be greater than zero."));
         }
@@ -141,7 +145,7 @@ impl AdcArchiveFile {
         self.read_window_batch(starts, window_frames, verify)
     }
 
-    pub fn verify_all(&self) -> Result<(), AdcArchiveFileError> {
+    pub fn verify_all(&self) -> Result<(), CompressedAdcFileError> {
         let mut logical = Sha256::new();
         let mut file = File::open(&self.path).map_err(|value| io_error("open archive", value))?;
         for record in &self.records {
@@ -167,7 +171,7 @@ impl AdcArchiveFile {
         starts: &[u64],
         window_frames: u64,
         verify: bool,
-    ) -> Result<Vec<u8>, AdcArchiveFileError> {
+    ) -> Result<Vec<u8>, CompressedAdcFileError> {
         let frame_bytes = usize::try_from(self.frame_bytes)
             .map_err(|_| error("ADC frame length does not fit memory."))?;
         let window_frames_usize = usize::try_from(window_frames)
@@ -251,7 +255,7 @@ impl AdcArchiveFile {
         &self,
         file: &mut File,
         record: &ChunkRecord,
-    ) -> Result<Vec<u8>, AdcArchiveFileError> {
+    ) -> Result<Vec<u8>, CompressedAdcFileError> {
         file.seek(SeekFrom::Start(record.offset))
             .map_err(|value| io_error("seek encoded chunk", value))?;
         let encoded_length = usize::try_from(record.stored_bytes)
@@ -259,7 +263,7 @@ impl AdcArchiveFile {
         let encoded = read_exact_vec(file, encoded_length, "encoded chunk")?;
         let frame_bytes = usize::try_from(self.frame_bytes)
             .map_err(|_| error("ADC frame length does not fit memory."))?;
-        decode_adc_archive_chunk(
+        decompress_adc_frames(
             &encoded,
             frame_bytes,
             record.frame_count as usize,
@@ -270,7 +274,7 @@ impl AdcArchiveFile {
 }
 
 /// Open a completely committed ADC Archive v3 file.
-pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFileError> {
+pub fn open_compressed_adc(path: &Path) -> Result<CompressedAdcFile, CompressedAdcFileError> {
     let archive_size = regular_file_size(path)?;
     if archive_size < (FIXED_HEADER_BYTES + FOOTER_BYTES) as u64 {
         return Err(error(
@@ -329,7 +333,7 @@ pub fn open_adc_archive_file(path: &Path) -> Result<AdcArchiveFile, AdcArchiveFi
     let records = parse_index(&index, &decoded, decoded_footer.index_offset)?;
     let capture_json = String::from_utf8(metadata)
         .map_err(|_| error("ADC archive capture metadata is not UTF-8 JSON."))?;
-    Ok(AdcArchiveFile {
+    Ok(CompressedAdcFile {
         path: path.to_path_buf(),
         header,
         index,

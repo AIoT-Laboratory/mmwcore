@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .adc_archive import ADCArchive, open_adc_archive, write_adc_archive
+from .adc_compression import CompressedADC, compress_adc_file, open_compressed_adc
 from .capture import (
     CameraRecord,
     Capture,
@@ -68,7 +68,7 @@ class Take:
     frame_period_ns: int
     radar_start: HostTimeRange
     setup: SetupSnapshot
-    archive: ADCArchive = field(repr=False)
+    archive: CompressedADC = field(repr=False)
     config_path: Path
     camera: Camera | None
     context_path: Path | None
@@ -121,7 +121,7 @@ def write_take(
         _copy_verified_file(capture.setup_path, capture.setup.record, stage / "setup.json")
         config_path = stage / "radar.cfg"
         shutil.copyfile(capture.config_path, config_path)
-        archive = write_adc_archive(
+        archive = compress_adc_file(
             capture.adc_path,
             stage / "radar.mmwa",
             capture.radar,
@@ -197,7 +197,7 @@ def open_take(path: str | Path) -> Take:
     )
 
 
-def _open_radar(root: Path, value: object, frame_count: int, frame_period_ns: int) -> ADCArchive:
+def _open_radar(root: Path, value: object, frame_count: int, frame_period_ns: int) -> CompressedADC:
     record = _object(value, "radar")
     if set(record) != {"archive", "config"}:
         raise ValueError("radar fields are invalid")
@@ -206,7 +206,7 @@ def _open_radar(root: Path, value: object, frame_count: int, frame_period_ns: in
         raise ValueError("radar archive fields are invalid")
     if archive_record["path"] != "radar.mmwa":
         raise ValueError("radar archive path must be radar.mmwa")
-    archive = open_adc_archive(root / "radar.mmwa")
+    archive = open_compressed_adc(root / "radar.mmwa")
     if (
         archive.archive_size != _positive_int(archive_record["bytes"], "radar.archive.bytes")
         or archive.capture_sha256 != _sha256(archive_record["capture_sha256"], "capture_sha256")
@@ -233,7 +233,7 @@ def _copy_camera(capture: Capture, stage: Path) -> CameraRecord | None:
 
 def _session_record(
     capture: Capture,
-    archive: ADCArchive,
+    archive: CompressedADC,
     camera: CameraRecord | None,
     context: FileRecord | None,
 ) -> dict[str, object]:

@@ -20,18 +20,18 @@ const MAX_ZIGZAG_DELTA: u32 = 131_070;
 /// Frame zero is coded as absolute samples. Every later frame is predicted from the sample at
 /// the same flattened capture coordinate in the previous frame. Blocks select the shorter of
 /// Rice-coded ZigZag residuals and exact raw `int16` bytes.
-pub fn encode_adc_archive_chunk(
+pub fn compress_adc_frames(
     raw: &[u8],
     frame_bytes: usize,
     block_samples: usize,
-) -> Result<Vec<u8>, AdcArchiveCodecError> {
+) -> Result<Vec<u8>, AdcCompressionError> {
     let frame_count = validate_chunk(raw, frame_bytes, block_samples)?;
     let frame_samples = frame_bytes / 2;
     let mut previous = vec![0_i16; frame_samples];
-    let maximum_encoded = maximum_adc_archive_chunk_bytes(frame_bytes, frame_count, block_samples)?;
+    let maximum_encoded = maximum_compressed_adc_bytes(frame_bytes, frame_count, block_samples)?;
     let mut encoded = Vec::new();
     encoded.try_reserve_exact(maximum_encoded).map_err(|_| {
-        AdcArchiveCodecError::CannotAllocateOutput {
+        AdcCompressionError::CannotAllocateOutput {
             expected_bytes: maximum_encoded,
         }
     })?;
@@ -50,7 +50,7 @@ pub fn encode_adc_archive_chunk(
             );
             let (parameter, bit_count) = best_rice_parameter_and_bit_count(&residuals);
             let expected_rice_bytes = usize::try_from(bit_count.div_ceil(8))
-                .map_err(|_| AdcArchiveCodecError::OutputSizeOverflow)?;
+                .map_err(|_| AdcCompressionError::OutputSizeOverflow)?;
             if expected_rice_bytes < raw_block.len() {
                 rice.reset();
                 rice.try_reserve(expected_rice_bytes)?;
@@ -71,26 +71,26 @@ pub fn encode_adc_archive_chunk(
 }
 
 /// Decode one independently encoded ADC frame group exactly.
-pub fn decode_adc_archive_chunk(
+pub fn decompress_adc_frames(
     encoded: &[u8],
     frame_bytes: usize,
     frame_count: usize,
     block_samples: usize,
-) -> Result<Vec<u8>, AdcArchiveCodecError> {
+) -> Result<Vec<u8>, AdcCompressionError> {
     validate_dimensions(frame_bytes, frame_count, block_samples)?;
     if encoded.is_empty() {
-        return Err(AdcArchiveCodecError::EmptyChunk {
+        return Err(AdcCompressionError::EmptyChunk {
             name: "encoded chunk",
         });
     }
     let expected_bytes = frame_bytes
         .checked_mul(frame_count)
-        .ok_or(AdcArchiveCodecError::OutputSizeOverflow)?;
+        .ok_or(AdcCompressionError::OutputSizeOverflow)?;
     let frame_samples = frame_bytes / 2;
     let mut decoded = Vec::new();
     decoded
         .try_reserve_exact(expected_bytes)
-        .map_err(|_| AdcArchiveCodecError::CannotAllocateOutput { expected_bytes })?;
+        .map_err(|_| AdcCompressionError::CannotAllocateOutput { expected_bytes })?;
     let mut previous = vec![0_i16; frame_samples];
     let mut cursor = 0_usize;
 
@@ -100,16 +100,16 @@ pub fn decode_adc_archive_chunk(
             let sample_count = block_stop - block_start;
             let tag = *encoded
                 .get(cursor)
-                .ok_or(AdcArchiveCodecError::TruncatedBlock)?;
+                .ok_or(AdcCompressionError::TruncatedBlock)?;
             cursor += 1;
             if tag == RAW_BLOCK_TAG {
                 let raw_bytes = sample_count * 2;
                 let stop = cursor
                     .checked_add(raw_bytes)
-                    .ok_or(AdcArchiveCodecError::OutputSizeOverflow)?;
+                    .ok_or(AdcCompressionError::OutputSizeOverflow)?;
                 let block = encoded
                     .get(cursor..stop)
-                    .ok_or(AdcArchiveCodecError::TruncatedBlock)?;
+                    .ok_or(AdcCompressionError::TruncatedBlock)?;
                 decoded.extend_from_slice(block);
                 for (offset, sample) in block.as_chunks::<2>().0.iter().enumerate() {
                     previous[block_start + offset] = i16::from_le_bytes(*sample);
@@ -118,14 +118,14 @@ pub fn decode_adc_archive_chunk(
                 continue;
             }
             if tag > MAX_RICE_PARAMETER {
-                return Err(AdcArchiveCodecError::InvalidBlockTag { tag });
+                return Err(AdcCompressionError::InvalidBlockTag { tag });
             }
 
             let mut reader = BitReader::new(&encoded[cursor..]);
             for previous_sample in &mut previous[block_start..block_stop] {
                 let mapped = reader.read_rice(tag)?;
                 if mapped > MAX_ZIGZAG_DELTA {
-                    return Err(AdcArchiveCodecError::ResidualOutOfRange { value: mapped });
+                    return Err(AdcCompressionError::ResidualOutOfRange { value: mapped });
                 }
                 let residual = unzigzag_i32(mapped);
                 let reconstructed = if frame_index == 0 {
@@ -134,7 +134,7 @@ pub fn decode_adc_archive_chunk(
                     i32::from(*previous_sample) + residual
                 };
                 let sample = i16::try_from(reconstructed).map_err(|_| {
-                    AdcArchiveCodecError::ReconstructedSampleOutOfRange {
+                    AdcCompressionError::ReconstructedSampleOutOfRange {
                         value: reconstructed,
                     }
                 })?;
@@ -143,11 +143,11 @@ pub fn decode_adc_archive_chunk(
             }
             cursor = cursor
                 .checked_add(reader.finish_block()?)
-                .ok_or(AdcArchiveCodecError::OutputSizeOverflow)?;
+                .ok_or(AdcCompressionError::OutputSizeOverflow)?;
         }
     }
     if cursor != encoded.len() {
-        return Err(AdcArchiveCodecError::TrailingEncodedBytes {
+        return Err(AdcCompressionError::TrailingEncodedBytes {
             trailing_bytes: encoded.len() - cursor,
         });
     }
@@ -156,30 +156,30 @@ pub fn decode_adc_archive_chunk(
 }
 
 /// Strict upper bound for one encoded chunk, including adaptive block tags.
-pub fn maximum_adc_archive_chunk_bytes(
+pub fn maximum_compressed_adc_bytes(
     frame_bytes: usize,
     frame_count: usize,
     block_samples: usize,
-) -> Result<usize, AdcArchiveCodecError> {
+) -> Result<usize, AdcCompressionError> {
     validate_dimensions(frame_bytes, frame_count, block_samples)?;
     let blocks_per_frame = (frame_bytes / 2).div_ceil(block_samples);
     frame_bytes
         .checked_mul(frame_count)
         .and_then(|raw| raw.checked_add(blocks_per_frame.checked_mul(frame_count)?))
-        .ok_or(AdcArchiveCodecError::OutputSizeOverflow)
+        .ok_or(AdcCompressionError::OutputSizeOverflow)
 }
 
 fn validate_chunk(
     raw: &[u8],
     frame_bytes: usize,
     block_samples: usize,
-) -> Result<usize, AdcArchiveCodecError> {
+) -> Result<usize, AdcCompressionError> {
     if raw.is_empty() {
-        return Err(AdcArchiveCodecError::EmptyChunk { name: "raw chunk" });
+        return Err(AdcCompressionError::EmptyChunk { name: "raw chunk" });
     }
     validate_frame_bytes(frame_bytes)?;
     if !raw.len().is_multiple_of(frame_bytes) {
-        return Err(AdcArchiveCodecError::IncompleteFrameChunk {
+        return Err(AdcCompressionError::IncompleteFrameChunk {
             chunk_bytes: raw.len(),
             frame_bytes,
         });
@@ -193,14 +193,14 @@ fn validate_dimensions(
     frame_bytes: usize,
     frame_count: usize,
     block_samples: usize,
-) -> Result<(), AdcArchiveCodecError> {
+) -> Result<(), AdcCompressionError> {
     validate_frame_bytes(frame_bytes)?;
     validate_group_dimensions(frame_count, block_samples)
 }
 
-fn validate_frame_bytes(frame_bytes: usize) -> Result<(), AdcArchiveCodecError> {
+fn validate_frame_bytes(frame_bytes: usize) -> Result<(), AdcCompressionError> {
     if frame_bytes == 0 || !frame_bytes.is_multiple_of(2) {
-        return Err(AdcArchiveCodecError::InvalidFrameBytes { frame_bytes });
+        return Err(AdcCompressionError::InvalidFrameBytes { frame_bytes });
     }
     Ok(())
 }
@@ -208,16 +208,16 @@ fn validate_frame_bytes(frame_bytes: usize) -> Result<(), AdcArchiveCodecError> 
 fn validate_group_dimensions(
     frame_count: usize,
     block_samples: usize,
-) -> Result<(), AdcArchiveCodecError> {
+) -> Result<(), AdcCompressionError> {
     if frame_count == 0 {
-        return Err(AdcArchiveCodecError::EmptyChunk {
+        return Err(AdcCompressionError::EmptyChunk {
             name: "frame group",
         });
     }
     if !(MIN_BLOCK_SAMPLES..=MAX_BLOCK_SAMPLES).contains(&block_samples)
         || !block_samples.is_power_of_two()
     {
-        return Err(AdcArchiveCodecError::InvalidBlockSamples { block_samples });
+        return Err(AdcCompressionError::InvalidBlockSamples { block_samples });
     }
     Ok(())
 }
@@ -252,7 +252,7 @@ fn unzigzag_i32(value: u32) -> i32 {
 
 /// ADC archive Rice codec validation and decoding errors.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AdcArchiveCodecError {
+pub enum AdcCompressionError {
     EmptyChunk {
         name: &'static str,
     },
@@ -287,7 +287,7 @@ pub enum AdcArchiveCodecError {
     },
 }
 
-impl fmt::Display for AdcArchiveCodecError {
+impl fmt::Display for AdcCompressionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyChunk { name } => write!(formatter, "ADC archive {name} must be non-empty."),
@@ -345,15 +345,21 @@ impl fmt::Display for AdcArchiveCodecError {
     }
 }
 
-impl std::error::Error for AdcArchiveCodecError {}
+impl std::error::Error for AdcCompressionError {}
+
+// Compatibility names for the frame-group codec.
+pub use AdcCompressionError as AdcArchiveCodecError;
+pub use compress_adc_frames as encode_adc_archive_chunk;
+pub use decompress_adc_frames as decode_adc_archive_chunk;
+pub use maximum_compressed_adc_bytes as maximum_adc_archive_chunk_bytes;
 
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        ADC_RICE_BLOCK_SAMPLES, AdcArchiveCodecError, RAW_BLOCK_TAG, decode_adc_archive_chunk,
-        encode_adc_archive_chunk, maximum_adc_archive_chunk_bytes,
+        ADC_RICE_BLOCK_SAMPLES, AdcCompressionError, RAW_BLOCK_TAG, compress_adc_frames,
+        decompress_adc_frames, maximum_compressed_adc_bytes,
     };
 
     fn samples_bytes(frames: &[&[i16]]) -> Vec<u8> {
@@ -374,14 +380,14 @@ mod tests {
         let raw = samples_bytes(&[&first, &second, &third]);
         let frame_bytes = first.len() * 2;
 
-        let encoded = encode_adc_archive_chunk(&raw, frame_bytes, ADC_RICE_BLOCK_SAMPLES).unwrap();
+        let encoded = compress_adc_frames(&raw, frame_bytes, ADC_RICE_BLOCK_SAMPLES).unwrap();
         let decoded =
-            decode_adc_archive_chunk(&encoded, frame_bytes, 3, ADC_RICE_BLOCK_SAMPLES).unwrap();
+            decompress_adc_frames(&encoded, frame_bytes, 3, ADC_RICE_BLOCK_SAMPLES).unwrap();
 
         assert_eq!(decoded, raw);
         assert!(
             encoded.len()
-                <= maximum_adc_archive_chunk_bytes(frame_bytes, 3, ADC_RICE_BLOCK_SAMPLES).unwrap()
+                <= maximum_compressed_adc_bytes(frame_bytes, 3, ADC_RICE_BLOCK_SAMPLES).unwrap()
         );
     }
 
@@ -389,8 +395,7 @@ mod tests {
     fn static_frames_use_temporal_rice_residuals() {
         let frame = vec![1234_i16; ADC_RICE_BLOCK_SAMPLES];
         let raw = samples_bytes(&[&frame, &frame]);
-        let encoded =
-            encode_adc_archive_chunk(&raw, frame.len() * 2, ADC_RICE_BLOCK_SAMPLES).unwrap();
+        let encoded = compress_adc_frames(&raw, frame.len() * 2, ADC_RICE_BLOCK_SAMPLES).unwrap();
 
         assert_ne!(encoded[0], RAW_BLOCK_TAG);
         assert!(encoded.len() < raw.len() / 2);
@@ -402,12 +407,12 @@ mod tests {
             .map(|index| (index as u16).wrapping_mul(32_749) as i16)
             .collect();
         let raw = samples_bytes(&[&frame]);
-        let encoded = encode_adc_archive_chunk(&raw, raw.len(), ADC_RICE_BLOCK_SAMPLES).unwrap();
+        let encoded = compress_adc_frames(&raw, raw.len(), ADC_RICE_BLOCK_SAMPLES).unwrap();
 
         assert_eq!(encoded[0], RAW_BLOCK_TAG);
         assert_eq!(encoded.len(), raw.len() + 1);
         assert_eq!(
-            decode_adc_archive_chunk(&encoded, raw.len(), 1, ADC_RICE_BLOCK_SAMPLES).unwrap(),
+            decompress_adc_frames(&encoded, raw.len(), 1, ADC_RICE_BLOCK_SAMPLES).unwrap(),
             raw
         );
     }
@@ -415,27 +420,27 @@ mod tests {
     #[test]
     fn rejects_invalid_dimensions_and_ambiguous_payloads() {
         assert_eq!(
-            encode_adc_archive_chunk(&[], 1024, ADC_RICE_BLOCK_SAMPLES),
-            Err(AdcArchiveCodecError::EmptyChunk { name: "raw chunk" })
+            compress_adc_frames(&[], 1024, ADC_RICE_BLOCK_SAMPLES),
+            Err(AdcCompressionError::EmptyChunk { name: "raw chunk" })
         );
         assert_eq!(
-            encode_adc_archive_chunk(&[0; 4], 3, ADC_RICE_BLOCK_SAMPLES),
-            Err(AdcArchiveCodecError::InvalidFrameBytes { frame_bytes: 3 })
+            compress_adc_frames(&[0; 4], 3, ADC_RICE_BLOCK_SAMPLES),
+            Err(AdcCompressionError::InvalidFrameBytes { frame_bytes: 3 })
         );
         assert_eq!(
-            encode_adc_archive_chunk(&[0; 6], 4, ADC_RICE_BLOCK_SAMPLES),
-            Err(AdcArchiveCodecError::IncompleteFrameChunk {
+            compress_adc_frames(&[0; 6], 4, ADC_RICE_BLOCK_SAMPLES),
+            Err(AdcCompressionError::IncompleteFrameChunk {
                 chunk_bytes: 6,
                 frame_bytes: 4,
             })
         );
         assert!(matches!(
-            decode_adc_archive_chunk(&[17], 1024, 1, ADC_RICE_BLOCK_SAMPLES),
-            Err(AdcArchiveCodecError::InvalidBlockTag { tag: 17 })
+            decompress_adc_frames(&[17], 1024, 1, ADC_RICE_BLOCK_SAMPLES),
+            Err(AdcCompressionError::InvalidBlockTag { tag: 17 })
         ));
         assert!(matches!(
-            decode_adc_archive_chunk(&[RAW_BLOCK_TAG, 0], 1024, 1, ADC_RICE_BLOCK_SAMPLES),
-            Err(AdcArchiveCodecError::TruncatedBlock)
+            decompress_adc_frames(&[RAW_BLOCK_TAG, 0], 1024, 1, ADC_RICE_BLOCK_SAMPLES),
+            Err(AdcCompressionError::TruncatedBlock)
         ));
     }
 
@@ -460,24 +465,19 @@ mod tests {
         for block_samples in [256, 512, 1024] {
             let first_group_bytes = frame_bytes * 4;
             let first =
-                encode_adc_archive_chunk(&raw[..first_group_bytes], frame_bytes, block_samples)
-                    .unwrap();
-            let second = encode_adc_archive_chunk(
+                compress_adc_frames(&raw[..first_group_bytes], frame_bytes, block_samples).unwrap();
+            let second = compress_adc_frames(
                 &raw[first_group_bytes..frame_bytes * 8],
                 frame_bytes,
                 block_samples,
             )
             .unwrap();
             let third =
-                encode_adc_archive_chunk(&raw[frame_bytes * 8..], frame_bytes, block_samples)
-                    .unwrap();
+                compress_adc_frames(&raw[frame_bytes * 8..], frame_bytes, block_samples).unwrap();
 
-            let mut decoded =
-                decode_adc_archive_chunk(&first, frame_bytes, 4, block_samples).unwrap();
-            decoded
-                .extend(decode_adc_archive_chunk(&second, frame_bytes, 4, block_samples).unwrap());
-            decoded
-                .extend(decode_adc_archive_chunk(&third, frame_bytes, 1, block_samples).unwrap());
+            let mut decoded = decompress_adc_frames(&first, frame_bytes, 4, block_samples).unwrap();
+            decoded.extend(decompress_adc_frames(&second, frame_bytes, 4, block_samples).unwrap());
+            decoded.extend(decompress_adc_frames(&third, frame_bytes, 1, block_samples).unwrap());
             assert_eq!(decoded, raw);
         }
     }
@@ -517,7 +517,7 @@ mod tests {
         ];
 
         for (block_samples, encoded_bytes, sha256) in expected {
-            let encoded = encode_adc_archive_chunk(&raw, frame_samples * 2, block_samples).unwrap();
+            let encoded = compress_adc_frames(&raw, frame_samples * 2, block_samples).unwrap();
 
             assert_eq!(encoded.len(), encoded_bytes);
             assert_eq!(format!("{:x}", Sha256::digest(&encoded)), sha256);

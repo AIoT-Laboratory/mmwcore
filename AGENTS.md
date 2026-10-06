@@ -11,17 +11,17 @@ mechanically or turn one-off outputs into permanent constraints.
 
 ## Role
 
-- Own byte-exact ADC archives, deterministic DSP, classical tracking, and quality benchmarks.
+- Own standardized byte-exact ADC compression/decompression, deterministic DSP, classical
+  tracking, and quality benchmarks.
 - Accept completed `mmwcli.take.v3` captures, current `openmmw.take.v4` and legacy v3 verified takes,
-  raw ADC files, and
-  `.mmwa` archives.
+  raw ADC files, and `.mmwa` compressed ADC files.
 - Expose Rust kernels through checked Python contracts. Acquisition, process control, models,
   experiments, and Web belong to mmwcli or OpenMMW.
 - Online inference may reuse the DSP on in-memory frames; mmwcore does not own stream lifecycle.
 
 ## Preserve
 
-- ADC bytes and lossless archive round trips.
+- ADC bytes and lossless compression/decompression round trips.
 - Frame geometry, timing, antenna geometry, calibration, axes, shapes, and units.
 - Explicit casts and contracts; Rust kernels remain the authoritative implementation.
 

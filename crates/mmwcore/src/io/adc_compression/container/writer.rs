@@ -5,25 +5,25 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use crate::{ADC_RICE_BLOCK_SAMPLES, encode_adc_archive_chunk};
+use crate::{ADC_RICE_BLOCK_SAMPLES, compress_adc_frames};
 
 use super::contract::{canonical_capture_json, capture_frame_bytes, validate_capture_json};
-use super::reader::{AdcArchiveFile, open_adc_archive_file};
+use super::reader::{CompressedAdcFile, open_compressed_adc};
 use super::wire::{archive_chunk_count, encode_footer, encode_header, encode_index};
 use super::{
-    AdcArchiveFileError, ChunkRecord, DEFAULT_RESTART_FRAMES, error, io_error, regular_file_size,
-    sha256,
+    ChunkRecord, CompressedAdcFileError, DEFAULT_RESTART_FRAMES, error, io_error,
+    regular_file_size, sha256,
 };
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Write one self-describing ADC Archive v3 file and publish it without overwrite.
-pub fn write_adc_archive_file(
+pub fn compress_adc_file(
     source: &Path,
     destination: &Path,
     capture_json: &str,
     expected_adc_sha256: Option<[u8; 32]>,
-) -> Result<AdcArchiveFile, AdcArchiveFileError> {
+) -> Result<CompressedAdcFile, CompressedAdcFileError> {
     let source_size = regular_file_size(source)?;
     let capture = validate_capture_json(capture_json.as_bytes())?;
     let frame_bytes = capture_frame_bytes(&capture)?;
@@ -72,7 +72,7 @@ pub fn write_adc_archive_file(
         }
         return Err(io_error("publish ADC archive", failure));
     }
-    let committed = match open_adc_archive_file(destination) {
+    let committed = match open_compressed_adc(destination) {
         Ok(value) => value,
         Err(failure) => {
             let _ = fs::remove_file(destination);
@@ -91,7 +91,7 @@ fn write_temporary_archive(
     frame_bytes: u64,
     frame_count: u64,
     expected_adc_sha256: Option<[u8; 32]>,
-) -> Result<(), AdcArchiveFileError> {
+) -> Result<(), CompressedAdcFileError> {
     let mut source_file = File::open(source).map_err(|value| io_error("open ADC source", value))?;
     let mut archive = OpenOptions::new()
         .write(true)
@@ -123,7 +123,7 @@ fn write_temporary_archive(
             .read_exact(chunk)
             .map_err(|value| io_error("read ADC source chunk", value))?;
         logical.update(&*chunk);
-        let encoded = encode_adc_archive_chunk(chunk, frame_length, ADC_RICE_BLOCK_SAMPLES)
+        let encoded = compress_adc_frames(chunk, frame_length, ADC_RICE_BLOCK_SAMPLES)
             .map_err(|value| error(value.to_string()))?;
         archive
             .write_all(&encoded)
@@ -161,7 +161,7 @@ fn write_temporary_archive(
     Ok(())
 }
 
-fn require_new_destination(path: &Path) -> Result<(), AdcArchiveFileError> {
+pub(super) fn require_new_destination(path: &Path) -> Result<(), CompressedAdcFileError> {
     if path.exists() {
         return Err(error(format!(
             "ADC archive destination already exists: {}",
@@ -180,7 +180,7 @@ fn require_new_destination(path: &Path) -> Result<(), AdcArchiveFileError> {
     Ok(())
 }
 
-fn temporary_path(destination: &Path) -> Result<PathBuf, AdcArchiveFileError> {
+pub(super) fn temporary_path(destination: &Path) -> Result<PathBuf, CompressedAdcFileError> {
     let parent = destination
         .parent()
         .ok_or_else(|| error("ADC archive destination has no parent directory."))?;

@@ -1,12 +1,22 @@
-"""Finite ADC and take storage."""
+"""Standardized lossless ADC compression/decompression, frame readers, and take I/O."""
 
 from __future__ import annotations
 
 from .adc_archive import ADCArchive, ADCArchiveError, open_adc_archive, write_adc_archive
 from .adc_archive_reader import ADCArchiveReader
+from .adc_compression import (
+    ADCCompressionError,
+    CompressedADC,
+    compress_adc_file,
+    compress_adc_frames,
+    decompress_adc_file,
+    decompress_adc_frames,
+    open_compressed_adc,
+)
 from .adc_file import ADCFileReader, load_adc_cube, load_adc_file
 from .adc_reader import ADCReader
 from .capture import Capture, SceneROI, SetupSnapshot, read_capture
+from .compressed_adc_reader import CompressedADCReader
 from .take import (
     LEGACY_TAKE_SCHEMA,
     TAKE_SCHEMA,
@@ -20,6 +30,14 @@ from .take import (
 )
 
 __all__ = [
+    "ADCCompressionError",
+    "CompressedADC",
+    "CompressedADCReader",
+    "compress_adc_file",
+    "decompress_adc_file",
+    "compress_adc_frames",
+    "decompress_adc_frames",
+    "open_compressed_adc",
     "ADCArchive",
     "ADCArchiveError",
     "ADCArchiveReader",

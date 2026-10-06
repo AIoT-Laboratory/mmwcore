@@ -1,9 +1,9 @@
-use crate::maximum_adc_archive_chunk_bytes;
+use crate::maximum_compressed_adc_bytes;
 
 use super::contract::{CaptureRecord, capture_frame_bytes};
 use super::{
-    AdcArchiveFileError, CODEC_I16_FRAME_DELTA_RICE, ChunkRecord, FIXED_HEADER_BYTES, FOOTER_BYTES,
-    FOOTER_MAGIC, HEADER_MAGIC, INDEX_RECORD_BYTES, MAX_RESTART_FRAMES,
+    CODEC_I16_FRAME_DELTA_RICE, ChunkRecord, CompressedAdcFileError, FIXED_HEADER_BYTES,
+    FOOTER_BYTES, FOOTER_MAGIC, HEADER_MAGIC, INDEX_RECORD_BYTES, MAX_RESTART_FRAMES,
     METADATA_RADAR_CAPTURE_JSON, VERSION, error, push_u32, push_u64, read_u32, read_u64, sha256,
 };
 
@@ -33,7 +33,7 @@ pub(super) fn encode_header(
     block_samples: u32,
     restart_frames: u32,
     capture_sha256: [u8; 32],
-) -> Result<Vec<u8>, AdcArchiveFileError> {
+) -> Result<Vec<u8>, CompressedAdcFileError> {
     validate_codec_dimensions(frame_bytes, block_samples, restart_frames)?;
     if metadata.is_empty() || metadata.len() as u64 > super::MAX_METADATA_BYTES {
         return Err(error(
@@ -64,7 +64,7 @@ pub(super) fn encode_header(
 
 pub(super) fn decode_fixed_header(
     bytes: &[u8; FIXED_HEADER_BYTES],
-) -> Result<DecodedHeader, AdcArchiveFileError> {
+) -> Result<DecodedHeader, CompressedAdcFileError> {
     if &bytes[0..8] != HEADER_MAGIC {
         return Err(error("ADC archive header is not mmwcore.adc_archive.v3."));
     }
@@ -109,7 +109,7 @@ pub(super) fn decode_fixed_header(
 pub(super) fn decode_footer(
     footer: &[u8; FOOTER_BYTES],
     header: &[u8],
-) -> Result<DecodedFooter, AdcArchiveFileError> {
+) -> Result<DecodedFooter, CompressedAdcFileError> {
     if &footer[0..8] != FOOTER_MAGIC
         || read_u32(footer, 8)? != VERSION
         || read_u32(footer, 12)? != FOOTER_BYTES as u32
@@ -171,7 +171,7 @@ pub(super) fn parse_index(
     index: &[u8],
     header: &DecodedHeader,
     index_offset: u64,
-) -> Result<Vec<ChunkRecord>, AdcArchiveFileError> {
+) -> Result<Vec<ChunkRecord>, CompressedAdcFileError> {
     let expected_records = archive_chunk_count(header.frame_count, header.restart_frames)?;
     if index.len() != expected_records * INDEX_RECORD_BYTES {
         return Err(error("ADC archive v3 index record count is invalid."));
@@ -218,7 +218,7 @@ pub(super) fn parse_index(
 pub(super) fn archive_chunk_count(
     frame_count: u64,
     restart_frames: u32,
-) -> Result<usize, AdcArchiveFileError> {
+) -> Result<usize, CompressedAdcFileError> {
     let count = frame_count.div_ceil(u64::from(restart_frames));
     usize::try_from(count).map_err(|_| error("ADC archive chunk count does not fit memory."))
 }
@@ -226,7 +226,7 @@ pub(super) fn archive_chunk_count(
 pub(super) fn validate_header_capture(
     header: &DecodedHeader,
     capture: &CaptureRecord,
-) -> Result<(), AdcArchiveFileError> {
+) -> Result<(), CompressedAdcFileError> {
     let frame_bytes = capture_frame_bytes(capture)?;
     let frame_count = capture.num_frames.expect("validated capture frame count");
     let expected_size = frame_bytes
@@ -247,10 +247,10 @@ fn validate_codec_dimensions(
     frame_bytes: u64,
     block_samples: u32,
     restart_frames: u32,
-) -> Result<(), AdcArchiveFileError> {
+) -> Result<(), CompressedAdcFileError> {
     let frame_bytes = usize::try_from(frame_bytes)
         .map_err(|_| error("ADC archive frame size does not fit memory."))?;
-    maximum_adc_archive_chunk_bytes(frame_bytes, 1, block_samples as usize)
+    maximum_compressed_adc_bytes(frame_bytes, 1, block_samples as usize)
         .map_err(|value| error(value.to_string()))?;
     if restart_frames == 0 || restart_frames > MAX_RESTART_FRAMES {
         return Err(error("ADC archive restart_frames must be in [1, 64]."));
@@ -261,10 +261,10 @@ fn validate_codec_dimensions(
 fn maximum_chunk_bytes(
     header: &DecodedHeader,
     frame_count: u32,
-) -> Result<u64, AdcArchiveFileError> {
+) -> Result<u64, CompressedAdcFileError> {
     let frame_bytes = usize::try_from(header.frame_bytes)
         .map_err(|_| error("ADC archive frame size does not fit memory."))?;
-    let maximum = maximum_adc_archive_chunk_bytes(
+    let maximum = maximum_compressed_adc_bytes(
         frame_bytes,
         frame_count as usize,
         header.block_samples as usize,

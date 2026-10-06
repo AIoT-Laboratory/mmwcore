@@ -4,8 +4,11 @@ All examples read caller-supplied completed files. They do not open hardware or 
 
 | Use | Command |
 | --- | --- |
-| Create an ADC archive | `python examples/adc_archive.py adc.bin radar.mmwa --capture-spec capture.json` |
-| Read archive windows | `python examples/adc_archive_windows.py radar.mmwa 100 104 --window-frames 4` |
+| Compress raw ADC | `python examples/compress_adc.py adc.bin radar.mmwa --capture-spec capture.json` |
+| Decompress raw ADC | `python examples/decompress_adc.py radar.mmwa restored.bin` |
+| Decompress ADC windows | `python examples/decompress_adc_windows.py radar.mmwa 100 104 --window-frames 4` |
 
-Use `ADCArchiveReader` directly in datasets and inference code. Keep hardware acquisition in
+Use `CompressedADCReader` directly in datasets and inference code. The two older script filenames
+remain runnable for compatibility; they use the explicit compression API. See
+[ADC compression](../docs/adc-compression.md). Keep hardware acquisition in
 mmwcli and model-specific preprocessing in OpenMMW.

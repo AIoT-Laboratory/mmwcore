@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{AdcArchiveFileError, MAX_FRAME_BYTES, MAX_METADATA_BYTES, error};
+use super::{CompressedAdcFileError, MAX_FRAME_BYTES, MAX_METADATA_BYTES, error};
 
 const RADAR_CAPTURE_SCHEMA: &str = "mmwcore.radar_capture_spec.v1";
 
@@ -43,7 +43,7 @@ pub(super) struct AdcRecord {
     pub(super) layout: String,
 }
 
-pub(super) fn validate_capture_json(bytes: &[u8]) -> Result<CaptureRecord, AdcArchiveFileError> {
+pub(super) fn validate_capture_json(bytes: &[u8]) -> Result<CaptureRecord, CompressedAdcFileError> {
     if bytes.is_empty() || bytes.len() as u64 > MAX_METADATA_BYTES {
         return Err(error(
             "ADC archive capture metadata size is outside v3 bounds.",
@@ -57,7 +57,7 @@ pub(super) fn validate_capture_json(bytes: &[u8]) -> Result<CaptureRecord, AdcAr
 
 pub(super) fn canonical_capture_json(
     capture: &CaptureRecord,
-) -> Result<Vec<u8>, AdcArchiveFileError> {
+) -> Result<Vec<u8>, CompressedAdcFileError> {
     serde_json::to_vec(capture).map_err(|value| {
         error(format!(
             "Cannot serialize ADC archive capture metadata: {value}"
@@ -65,7 +65,7 @@ pub(super) fn canonical_capture_json(
     })
 }
 
-fn validate_capture(capture: &CaptureRecord) -> Result<(), AdcArchiveFileError> {
+fn validate_capture(capture: &CaptureRecord) -> Result<(), CompressedAdcFileError> {
     if capture.schema != RADAR_CAPTURE_SCHEMA {
         return Err(error("ADC archive capture metadata schema is unsupported."));
     }
@@ -145,7 +145,7 @@ fn validate_capture(capture: &CaptureRecord) -> Result<(), AdcArchiveFileError> 
     Ok(())
 }
 
-pub(super) fn capture_frame_bytes(capture: &CaptureRecord) -> Result<u64, AdcArchiveFileError> {
+pub(super) fn capture_frame_bytes(capture: &CaptureRecord) -> Result<u64, CompressedAdcFileError> {
     capture
         .adc
         .num_chirps

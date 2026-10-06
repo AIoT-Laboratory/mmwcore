@@ -82,3 +82,9 @@ pub use tracking_metrics::{
     Box2D, TrackObservationMetrics, TrackingMetricsError, TrackingMetricsInput,
     TrackingSequenceMetrics, summarize_tracking_metrics,
 };
+
+pub use io::adc_compression::decompress_adc_file;
+pub use io::adc_compression::{
+    AdcCompressionError, CompressedAdcFile, CompressedAdcFileError, compress_adc_file,
+    compress_adc_frames, decompress_adc_frames, maximum_compressed_adc_bytes, open_compressed_adc,
+};

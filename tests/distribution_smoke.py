@@ -13,7 +13,7 @@ import mmwcore
 from mmwcore import _native
 from mmwcore.config import RadarCaptureSpec, RadarProfile
 from mmwcore.core import ADCFrameSpec, Box3D, PointCloudFrame, TrackStatus
-from mmwcore.io import ADCArchiveReader, write_adc_archive
+from mmwcore.io import CompressedADCReader, compress_adc_file, decompress_adc_file
 from mmwcore.tracking import ScatterBodyTracker, TiGTrack3D, TiGTrack3DSpec, TiGTrackScenery
 
 
@@ -62,10 +62,13 @@ def check_runtime() -> None:
     with tempfile.TemporaryDirectory() as directory:
         raw, archive = Path(directory) / "adc.bin", Path(directory) / "adc.mmwa"
         raw.write_bytes(words.tobytes())
-        write_adc_archive(raw, archive, capture)
-        frames = list(ADCArchiveReader(archive).iter_frames())
+        compress_adc_file(raw, archive, capture)
+        frames = list(CompressedADCReader(archive).iter_frames())
         np.testing.assert_array_equal(np.concatenate([f.samples for f in frames]), words)
         assert [f.frame_id for f in frames] == list(range(6))
+        restored = Path(directory) / "restored.bin"
+        assert decompress_adc_file(archive, restored) == capture
+        assert restored.read_bytes() == raw.read_bytes()
 
     # Normal wheels must use Rust even if an obsolete plugin variable is present.
     os.environ["MMWCORE_TI_GTRACK_MANIFEST"] = "missing-ti-plugin.json"
@@ -103,4 +106,4 @@ def check_runtime() -> None:
 if __name__ == "__main__":
     check_distribution(Path(sys.argv[1]))
     check_runtime()
-    print("Installed wheel: licenses, FFT, archive, TI and multiscale tracking passed.")
+    print("Installed wheel: licenses, FFT, ADC compression, TI and multiscale tracking passed.")

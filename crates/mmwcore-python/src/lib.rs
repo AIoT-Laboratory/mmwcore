@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 
-mod adc_archive;
+mod adc_compression;
 mod boundary;
 mod capon;
 mod capture;
@@ -21,7 +21,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     cartesian::register(module)?;
     cube::register(module)?;
     detection::register(module)?;
-    adc_archive::register(module)?;
+    adc_compression::register(module)?;
     geometry::register(module)?;
     tracking_metrics::register(module)?;
     ti_gtrack::register(module)?;

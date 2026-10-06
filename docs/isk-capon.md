@@ -7,10 +7,10 @@ frontend; existing RPC/Online processing is unchanged.
 ```python
 from mmwcore.core import ADCDecodeSpec
 from mmwcore.dsp import IskCaponSpec, isk_capon_point_cloud
-from mmwcore.io import ADCArchiveReader, open_take
+from mmwcore.io import CompressedADCReader, open_take
 
 take = open_take("path/to/take-001")
-reader = ADCArchiveReader.from_take(take)
+reader = CompressedADCReader.from_take(take)
 capture = reader.capture
 profile = capture.profile
 spec = IskCaponSpec(

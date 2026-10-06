@@ -2,7 +2,7 @@
 
 The Rust crate contains deterministic storage and compute kernels used by the Python research API:
 
-- lossless indexed ADC archives;
+- standardized ADC frame compression/decompression and indexed `.mmwa` files;
 - raw ADC decoding;
 - FFT, clutter removal, and TDM virtual-array transforms;
 - Cartesian projection and sparsification;
@@ -12,7 +12,7 @@ The Rust crate contains deterministic storage and compute kernels used by the Py
 Implementation follows three domains:
 
 ```text
-src/io/        lossless archive codec and indexed archive files
+src/io/adc_compression/   frame-group codec and standardized compressed ADC files
 src/dsp/       ADC decoding, FFT, arrays, detection, and projection
 src/tracking/  assignment, metrics, and the independent multiscale backend
 ```
@@ -24,6 +24,12 @@ forward/right/up coordinates; `step(points, dt)` advances the causal state.
 
 The TI GTRACK backend belongs to the separate `mmwcore-ti-gtrack` crate because it retains
 TI's device-only license. It is not a dependency of this Apache-2.0 crate.
+
+ADC operations are `compress_adc_frames` / `decompress_adc_frames` for byte payloads and
+`compress_adc_file` / `decompress_adc_file` for self-describing files. `open_compressed_adc`
+returns `CompressedAdcFile` for verified random access. See the
+[compression API](https://github.com/AIoT-Laboratory/mmwcore/blob/main/docs/adc-compression.md).
+Earlier archive-named imports remain compatibility aliases; the v3 wire bytes are unchanged.
 
 It performs no hardware control, DCA packet reception, process launch, plotting, or experiment
 management.

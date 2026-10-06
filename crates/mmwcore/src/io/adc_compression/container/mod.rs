@@ -1,6 +1,7 @@
 //! Self-describing, verified storage for finite raw ADC captures.
 
 mod contract;
+mod decompress;
 mod reader;
 mod wire;
 mod writer;
@@ -12,8 +13,9 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-pub use reader::{AdcArchiveFile, open_adc_archive_file};
-pub use writer::write_adc_archive_file;
+pub use decompress::decompress_adc_file;
+pub use reader::{CompressedAdcFile, open_compressed_adc};
+pub use writer::compress_adc_file;
 
 const HEADER_MAGIC: &[u8; 8] = b"MMWADCA3";
 const FOOTER_MAGIC: &[u8; 8] = b"MMWACMT3";
@@ -36,7 +38,7 @@ struct ChunkRecord {
     raw_sha256: [u8; 32],
 }
 
-fn regular_file_size(path: &Path) -> Result<u64, AdcArchiveFileError> {
+fn regular_file_size(path: &Path) -> Result<u64, CompressedAdcFileError> {
     let metadata = fs::metadata(path).map_err(|value| io_error("stat file", value))?;
     if !metadata.is_file() {
         return Err(error(format!(
@@ -55,7 +57,7 @@ fn read_exact_vec(
     reader: &mut impl Read,
     length: usize,
     label: &str,
-) -> Result<Vec<u8>, AdcArchiveFileError> {
+) -> Result<Vec<u8>, CompressedAdcFileError> {
     let mut bytes = vec![0_u8; length];
     reader
         .read_exact(&mut bytes)
@@ -66,7 +68,7 @@ fn read_exact_vec(
 fn read_exact_array<const N: usize>(
     reader: &mut impl Read,
     label: &str,
-) -> Result<[u8; N], AdcArchiveFileError> {
+) -> Result<[u8; N], CompressedAdcFileError> {
     let mut bytes = [0_u8; N];
     reader
         .read_exact(&mut bytes)
@@ -82,7 +84,7 @@ fn push_u64(bytes: &mut Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, AdcArchiveFileError> {
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, CompressedAdcFileError> {
     let value = bytes
         .get(offset..offset + 4)
         .ok_or_else(|| error("ADC archive integer field is truncated."))?;
@@ -91,7 +93,7 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, AdcArchiveFileError> {
     ))
 }
 
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, AdcArchiveFileError> {
+fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, CompressedAdcFileError> {
     let value = bytes
         .get(offset..offset + 8)
         .ok_or_else(|| error("ADC archive integer field is truncated."))?;
@@ -101,7 +103,7 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, AdcArchiveFileError> {
 }
 
 /// Parse one lowercase hexadecimal SHA-256 value for the archive writer.
-pub fn sha256_from_hex(value: &str) -> Result<[u8; 32], AdcArchiveFileError> {
+pub fn sha256_from_hex(value: &str) -> Result<[u8; 32], CompressedAdcFileError> {
     if value.len() != 64
         || !value
             .bytes()
@@ -118,7 +120,7 @@ pub fn sha256_from_hex(value: &str) -> Result<[u8; 32], AdcArchiveFileError> {
     Ok(digest)
 }
 
-fn hex_nibble(value: u8) -> Result<u8, AdcArchiveFileError> {
+fn hex_nibble(value: u8) -> Result<u8, CompressedAdcFileError> {
     match value {
         b'0'..=b'9' => Ok(value - b'0'),
         b'a'..=b'f' => Ok(value - b'a' + 10),
@@ -138,10 +140,10 @@ pub fn sha256_to_hex(value: [u8; 32]) -> String {
 
 /// ADC archive container validation or file-system failure.
 #[derive(Debug)]
-pub struct AdcArchiveFileError(AdcArchiveFileErrorKind);
+pub struct CompressedAdcFileError(CompressedAdcFileErrorKind);
 
 #[derive(Debug)]
-enum AdcArchiveFileErrorKind {
+enum CompressedAdcFileErrorKind {
     Domain(String),
     Io {
         context: String,
@@ -149,43 +151,49 @@ enum AdcArchiveFileErrorKind {
     },
 }
 
-impl AdcArchiveFileError {
+impl CompressedAdcFileError {
     /// Return the underlying file-system category, or `None` for archive-domain failures.
     pub fn io_kind(&self) -> Option<std::io::ErrorKind> {
         match &self.0 {
-            AdcArchiveFileErrorKind::Domain(_) => None,
-            AdcArchiveFileErrorKind::Io { source, .. } => Some(source.kind()),
+            CompressedAdcFileErrorKind::Domain(_) => None,
+            CompressedAdcFileErrorKind::Io { source, .. } => Some(source.kind()),
         }
     }
 }
 
-impl fmt::Display for AdcArchiveFileError {
+impl fmt::Display for CompressedAdcFileError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            AdcArchiveFileErrorKind::Domain(message) => formatter.write_str(message),
-            AdcArchiveFileErrorKind::Io { context, source } => {
+            CompressedAdcFileErrorKind::Domain(message) => formatter.write_str(message),
+            CompressedAdcFileErrorKind::Io { context, source } => {
                 write!(formatter, "{context}: {source}")
             }
         }
     }
 }
 
-impl std::error::Error for AdcArchiveFileError {
+impl std::error::Error for CompressedAdcFileError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.0 {
-            AdcArchiveFileErrorKind::Domain(_) => None,
-            AdcArchiveFileErrorKind::Io { source, .. } => Some(source),
+            CompressedAdcFileErrorKind::Domain(_) => None,
+            CompressedAdcFileErrorKind::Io { source, .. } => Some(source),
         }
     }
 }
 
-fn error(message: impl Into<String>) -> AdcArchiveFileError {
-    AdcArchiveFileError(AdcArchiveFileErrorKind::Domain(message.into()))
+fn error(message: impl Into<String>) -> CompressedAdcFileError {
+    CompressedAdcFileError(CompressedAdcFileErrorKind::Domain(message.into()))
 }
 
-fn io_error(context: &str, source: std::io::Error) -> AdcArchiveFileError {
-    AdcArchiveFileError(AdcArchiveFileErrorKind::Io {
+fn io_error(context: &str, source: std::io::Error) -> CompressedAdcFileError {
+    CompressedAdcFileError(CompressedAdcFileErrorKind::Io {
         context: context.to_owned(),
         source,
     })
 }
+
+// Compatibility names for the compressed ADC container.
+pub use CompressedAdcFile as AdcArchiveFile;
+pub use CompressedAdcFileError as AdcArchiveFileError;
+pub use compress_adc_file as write_adc_archive_file;
+pub use open_compressed_adc as open_adc_archive_file;

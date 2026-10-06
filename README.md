@@ -51,7 +51,7 @@ print(cube.axes, cube.data.shape)
 
 For real captures, specify the actual ADC layout, TDM order, waveform, and antenna geometry.
 See [file examples](examples/README.md), [architecture](docs/architecture.md),
-[archive format](docs/adc-archive-format.md), and [tracking](docs/ti-gtrack.md).
+[ADC compression](docs/adc-compression.md), and [tracking](docs/ti-gtrack.md).
 
 ## OpenMMW integration
 
@@ -67,6 +67,21 @@ after mmwcli publishes a raw capture; online process and buffering remain in Ope
 the same mmwcore DSP on in-memory frames.
 
 ## Research path
+
+ADC storage uses explicit lossless compression/decompression APIs:
+
+```python
+from mmwcore.io import compress_adc_file, decompress_adc_file
+
+# capture is the RadarCaptureSpec describing the complete raw ADC file.
+compressed = compress_adc_file("adc.bin", "radar.mmwa", capture)
+raw_frames = compressed.decompress_frames(0, 4)
+restored_capture = decompress_adc_file("radar.mmwa", "restored.bin")
+```
+
+The standardized format carries frame geometry and the decoding contract; it preserves raw
+ADC bytes exactly. See [file and frame-group APIs](docs/adc-compression.md). Take packaging
+below adds the capture/setup/context contract around that compressed ADC file.
 
 Convert a completed `mmwcli.take.v3` raw capture into a verified take with immutable research context:
 
@@ -92,7 +107,7 @@ construction or inference:
 from mmwcore.io import open_take
 
 take = open_take("dataset/takes/dataset/scenario/c01/take-001")
-frames = take.archive.read_frames(0, 4)
+frames = take.archive.decompress_frames(0, 4)
 ```
 
 The `.mmwa` archive stores exact ADC bytes, frame geometry, capture specification, index, and
@@ -133,12 +148,12 @@ uses deterministic synthetic ADC and requires no hardware or private data. See
 
 ## Package map
 
-- `mmwcore.io`: completed capture, take, raw ADC, and `.mmwa` access.
+- `mmwcore.io`: standardized ADC compression/decompression, frame readers, captures, and takes.
 - `mmwcore.config`: IWR6843 capture parsing and processing presets.
 - `mmwcore.core`: explicit array, geometry, DSP, and tracking contracts.
 - `mmwcore.dsp`: deterministic radar processing and neural-input primitives.
 - `mmwcore.tracking`: classical tracking baselines and metrics.
-- `crates/mmwcore`: Rust archive and numerical kernels.
+- `crates/mmwcore`: Rust ADC compression/decompression, DSP, and tracking kernels.
 - `crates/mmwcore/src/tracking/multiscale`: independent Rust tracking backend.
 - `crates/mmwcore-ti-gtrack`: TI GTRACK backend with its separate license.
 
@@ -160,7 +175,7 @@ These checks are local and do not access radar hardware.
 CI also builds a source distribution and compiles the wheel from that archive on Windows and
 Linux. It installs the wheel into a clean environment outside the checkout and runs
 `tests/distribution_smoke.py` with `python -I`. The check verifies installed import paths,
-license files, type stubs, FFT, archive round trips and both tracking backends. The source
+license files, type stubs, FFT, ADC compression/decompression round trips and both tracking backends. The source
 distribution includes the frozen TI oracle fixture; CI extracts the archive and runs its Rust
 tests independently as well. The same check can be run locally:
 
