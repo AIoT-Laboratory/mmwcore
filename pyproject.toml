@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "mmwcore"
 dynamic = ["version"]
-description = "Decode mmWave raw ADC data into physical radar products with Rust-backed Python APIs."
+description = "Lossless mmWave ADC storage, deterministic radar DSP, and classical tracking with Rust-backed Python APIs."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0 AND LicenseRef-TI-GTRACK"
@@ -45,6 +45,7 @@ dev = [
 Documentation = "https://github.com/AIoT-Laboratory/mmwcore/tree/main/docs"
 Issues = "https://github.com/AIoT-Laboratory/mmwcore/issues"
 Repository = "https://github.com/AIoT-Laboratory/mmwcore"
+Changelog = "https://github.com/AIoT-Laboratory/mmwcore/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 profile = "release"

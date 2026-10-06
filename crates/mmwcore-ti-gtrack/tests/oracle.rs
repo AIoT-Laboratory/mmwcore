@@ -94,6 +94,10 @@ fn compare(actual: &Value, expected: &Value, path: &str) {
             }
         }
         Value::Number(value) => {
+            if actual.is_i64() || actual.is_u64() {
+                assert_eq!(actual, expected, "{path}");
+                return;
+            }
             let a = actual
                 .as_f64()
                 .unwrap_or_else(|| panic!("{path}: {actual}"));
@@ -102,6 +106,23 @@ fn compare(actual: &Value, expected: &Value, path: &str) {
         }
         _ => assert_eq!(actual, expected, "{path}"),
     }
+}
+
+#[test]
+fn oracle_comparison_distinguishes_counters_from_float_rounding() {
+    compare(
+        &serde_json::json!(0.0000001),
+        &serde_json::json!(0),
+        "float",
+    );
+    let changed_counter = std::panic::catch_unwind(|| {
+        compare(
+            &serde_json::json!(1_000_001),
+            &serde_json::json!(1_000_000),
+            "age",
+        );
+    });
+    assert!(changed_counter.is_err());
 }
 
 #[test]
@@ -114,11 +135,10 @@ fn frozen_original_ti_3da_oracle() {
         let tilt = case["tilt"].as_f64().unwrap() as f32;
         let variance = case["variance"].as_bool().unwrap();
         let mut engine = Engine::new(config(tilt)).unwrap();
-        for (i, (points, expected)) in frames()
-            .iter()
-            .zip(case["frames"].as_array().unwrap())
-            .enumerate()
-        {
+        let inputs = frames();
+        let expected_frames = case["frames"].as_array().unwrap();
+        assert_eq!(inputs.len(), expected_frames.len(), "oracle frame count");
+        for (i, (points, expected)) in inputs.iter().zip(expected_frames).enumerate() {
             let var = vec![[0.01, 0.001, 0.002, 0.02]; points.len()];
             let report = engine
                 .step(points, variance.then_some(var.as_slice()))

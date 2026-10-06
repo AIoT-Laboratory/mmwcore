@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import operator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,6 +11,8 @@ import numpy as np
 
 from mmwcore.core import ADCFrame, ADCFrameSpec, RadarCube
 from mmwcore.dsp.adc import organize_adc_samples
+
+from .adc_reader import _frame_index
 
 if TYPE_CHECKING:
     from mmwcore.config import RadarCaptureSpec
@@ -87,14 +88,7 @@ class ADCFileReader:
     def read_frame(self, index: int) -> ADCFrame:
         """Map one frame by zero-based index without reading the full file."""
 
-        if isinstance(index, bool):
-            raise TypeError("ADC frame index must be an integer, not bool.")
-        try:
-            index = operator.index(index)
-        except TypeError as exc:
-            raise TypeError("ADC frame index must be an integer.") from exc
-        if not 0 <= index < self.num_frames:
-            raise IndexError(f"ADC frame index {index} is outside [0, {self.num_frames}).")
+        index = _frame_index(index, self.num_frames)
         values = self.spec.raw_values_per_frame
         samples = np.memmap(
             self.path,

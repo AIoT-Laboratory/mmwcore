@@ -33,8 +33,8 @@ Run only checks affected by the change. The full gate is `.github/workflows/ci.y
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-uv run --no-sync ruff format --check python tests benchmarks examples
-uv run --no-sync ruff check --no-cache python tests benchmarks examples
+uv run --no-sync ruff format --check python tests benchmarks examples tools
+uv run --no-sync ruff check --no-cache python tests benchmarks examples tools
 uv run --no-sync pyright
 uv run --no-sync python -m pytest -p no:cacheprovider -q
 ```

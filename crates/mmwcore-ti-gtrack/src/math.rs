@@ -66,10 +66,16 @@ pub fn spherical(p: &[f32]) -> [f32; 4] {
     let [x, y, z] = [p[0], p[1], p[2]];
     [
         (x * x + y * y + z * z).sqrt(),
-        (x / y).atan(),
-        (z / (x * x + y * y).sqrt()).atan(),
+        atan(x / y),
+        atan(z / (x * x + y * y).sqrt()),
         0.0,
     ]
+}
+
+fn atan(value: f32) -> f32 {
+    // Keep TI's f32 input/output, but avoid host atanf rounding differences
+    // accumulating in the covariance update across Linux and Windows.
+    f64::from(value).atan() as f32
 }
 
 pub fn measurement(s: &[f32; 9]) -> [f32; 4] {
@@ -132,7 +138,7 @@ pub fn limits(r: f32, c: &Config) -> [f32; 4] {
         if limit <= f32::MIN_POSITIVE {
             f32::MAX
         } else if i == 1 || i == 2 {
-            ((limit / 2.0) / r).atan()
+            atan((limit / 2.0) / r)
         } else {
             limit / 2.0
         }
@@ -149,13 +155,13 @@ pub fn spread(r: f32, c: &Config) -> [f32; 4] {
         if c.gating_limits[1] <= f32::MIN_POSITIVE {
             2.0 * PI / 180.0
         } else {
-            2.0 * ((c.gating_limits[1] / 2.0) / r).atan()
+            2.0 * atan((c.gating_limits[1] / 2.0) / r)
         },
         // Deliberately retain TI's width here; height is used by limits().
         if c.gating_limits[2] <= f32::MIN_POSITIVE {
             2.0 * PI / 180.0
         } else {
-            2.0 * ((c.gating_limits[1] / 2.0) / r).atan()
+            2.0 * atan((c.gating_limits[1] / 2.0) / r)
         },
         1.0,
     ]

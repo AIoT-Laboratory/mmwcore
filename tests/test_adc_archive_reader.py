@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -12,6 +13,25 @@ from mmwcore.core import ADCDecodeSpec, ADCFrameSpec, DopplerFFTSpec, RangeDoppl
 from mmwcore.dsp import range_doppler
 from mmwcore.io import ADCArchiveReader, ADCFileReader, write_adc_archive
 from mmwcore.io.adc_archive import ADCArchive
+
+
+@pytest.mark.parametrize("reader_kind", ["raw", "archive"])
+def test_readers_share_integer_index_contract(tmp_path: Path, reader_kind: str) -> None:
+    archive, capture, _ = _archive(tmp_path)
+    reader = (
+        ADCFileReader.from_capture(tmp_path / "adc.bin", capture)
+        if reader_kind == "raw"
+        else ADCArchiveReader(archive)
+    )
+    frame = reader.read_frame(cast(int, np.int64(2)))
+    assert frame.frame_id == 2
+    np.testing.assert_array_equal(frame.samples, [8, 9, 10, 11])
+    for index in (True, 1.5, "1", None):
+        with pytest.raises(TypeError, match="ADC frame index must be an integer"):
+            reader.read_frame(cast(int, index))
+    for index in (-1, 3, np.int64(3)):
+        with pytest.raises(IndexError, match="outside"):
+            reader.read_frame(cast(int, index))
 
 
 def _capture(*, num_frames: int | None = 3) -> RadarCaptureSpec:

@@ -14,6 +14,7 @@ from mmwcore.config import RadarCaptureSpec
 from mmwcore.core import ADCComplexLayout, ADCFrame, ADCFrameSpec
 
 from .adc_archive import ADCArchive, open_adc_archive
+from .adc_reader import _frame_index
 from .capture import _radar_capture
 
 if TYPE_CHECKING:
@@ -86,7 +87,7 @@ class ADCArchiveReader:
         return self._archive.path
 
     def read_frame(self, index: int) -> ADCFrame:
-        index = self._frame_index(index)
+        index = _frame_index(index, self.num_frames)
         samples = np.frombuffer(self._archive.read_frames(index, index + 1), dtype=np.dtype("<i2"))
         return self._raw_frame(index, samples)
 
@@ -95,7 +96,7 @@ class ADCArchiveReader:
 
         if isinstance(indices, str | bytes) or not isinstance(indices, Sequence):
             raise TypeError("ADC frame indices must be a sequence of integers.")
-        normalized = tuple(self._frame_index(index) for index in indices)
+        normalized = tuple(_frame_index(index, self.num_frames) for index in indices)
         if not normalized:
             return ()
         samples = np.frombuffer(
@@ -113,7 +114,7 @@ class ADCArchiveReader:
         """Stream [start, stop), decoding each archive chunk once.
 
         Only one chunk-sized batch is retained by the iterator. A yielded frame
-        owns its bytes and remains valid after advancing or closing the iterator.
+        shares its batch's bytes and remains valid after advancing or closing the iterator.
         Chunk hashes are still verified by read_frames.
         """
         stop = self.num_frames if stop is None else stop
@@ -129,17 +130,6 @@ class ADCArchiveReader:
             end = min((start // chunk_frames + 1) * chunk_frames, stop)
             yield from self.read_frames(range(start, end))
             start = end
-
-    def _frame_index(self, index: int) -> int:
-        if isinstance(index, bool):
-            raise TypeError("ADC frame index must be an integer, not bool.")
-        try:
-            index = operator.index(index)
-        except TypeError as exc:
-            raise TypeError("ADC frame index must be an integer.") from exc
-        if not 0 <= index < self.num_frames:
-            raise IndexError(f"ADC frame index {index} is outside [0, {self.num_frames}).")
-        return index
 
     def _raw_frame(self, index: int, samples: np.ndarray) -> ADCFrame:
         timestamp = (
