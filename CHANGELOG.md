@@ -19,6 +19,14 @@ version; it must not reuse or replace 0.7.1.
 
 ### Quality and maintenance
 
+- Rust implementation is grouped into storage (`io`), processing (`dsp`), and tracking
+  domains while retaining existing import paths. Python binding registration and boundary
+  contracts are separated.
+- The full multiscale `ScatterBodyTracker.step_points` pipeline now runs in the Apache-2.0
+  Rust crate. Python keeps the existing input/output and diagnostic state contracts; the
+  earlier Python ablation classes remain available for comparisons. A frozen pre-migration
+  Python oracle checks frame outputs and internal histories across configuration variants.
+
 - FFT configurations retain physical resolution/bin-spacing distinctions and validate
   precomputed range-Doppler provenance.
 - Raw ADC and archive readers share index validation, preserving accepted integer-like

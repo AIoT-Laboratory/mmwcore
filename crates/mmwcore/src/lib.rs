@@ -2,23 +2,17 @@
 
 //! Typed mmWave radar data-link and signal-processing primitives.
 
-pub mod adc;
-pub mod adc_archive;
-pub mod adc_archive_file;
-pub mod angle;
-pub mod assignment;
-pub mod candidate_aoa;
-pub mod capon;
-pub mod cartesian;
-pub mod cfar;
-pub mod clustering;
-pub mod cube;
-pub mod detection;
-pub mod detection_postprocess;
-pub mod fft;
-pub mod pointcloud;
-pub mod sparsification;
-pub mod tracking_metrics;
+pub mod dsp;
+pub mod io;
+pub mod tracking;
+
+// Preserve published module paths while implementation follows domain ownership.
+pub use dsp::{
+    adc, angle, candidate_aoa, capon, cartesian, cfar, clustering, cube, detection,
+    detection_postprocess, fft, pointcloud, sparsification,
+};
+pub use io::{adc_archive, adc_archive_file};
+pub use tracking::{assignment, metrics as tracking_metrics};
 
 #[inline]
 pub(crate) fn exact_candidate_index(value: f32, upper_bound: usize) -> Option<usize> {

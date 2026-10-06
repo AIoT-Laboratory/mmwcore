@@ -4,7 +4,8 @@ use numpy::ndarray::Array4;
 use numpy::{Complex32, IntoPyArray, PyArray4, PyReadonlyArray1};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-use super::{AdcComplexLayout, AdcFrameSpec, decode_error, decode_native_adc_i16};
+use crate::boundary::decode_error;
+use mmwcore::{AdcComplexLayout, AdcFrameSpec, decode_adc_i16 as decode_native_adc_i16};
 
 #[pyfunction]
 fn decode_adc_i16<'py>(

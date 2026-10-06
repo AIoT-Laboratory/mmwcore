@@ -3,6 +3,9 @@ from collections.abc import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+def scatter_body_step(
+    points: NDArray[np.float64], config_json: str, state_json: str, dt: float
+) -> str: ...
 def isk_capon_complex(
     data: NDArray[np.complex64],
     range_resolution_m: float,

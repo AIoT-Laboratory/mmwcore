@@ -6,15 +6,19 @@ use numpy::{
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-use super::{
-    CartesianSparsificationInput, DetectionPointCloudColumns, DetectionPointCloudInput,
+use crate::boundary::{
     NativeCartesianAxes, NativeCartesianSparsificationConfig, NativeCartesianSparsificationResult,
     NativeDetectionPointCloudColumns, NativeDetectionPointCloudConfig, NativePlanarCartesianConfig,
-    NativePlanarCartesianResult, PlanarCartesianProjectionPlan, bool_cube_input, cartesian_axes,
-    cartesian_error, cartesian_sparsification_config, complex_cube_input,
-    detection_point_cloud_config, detection_point_cloud_error, dzyx_shape,
-    native_project_detection_point_cloud, native_sparsify, planar_cartesian_config,
-    real_cube_array, real_cube_input, sparsification_error,
+    NativePlanarCartesianResult, bool_cube_input, cartesian_axes, cartesian_error,
+    cartesian_sparsification_config, complex_cube_input, detection_point_cloud_config,
+    detection_point_cloud_error, dzyx_shape, planar_cartesian_config, real_cube_array,
+    real_cube_input, sparsification_error,
+};
+use mmwcore::{
+    CartesianSparsificationInput, DetectionPointCloudColumns, DetectionPointCloudInput,
+    PlanarCartesianProjectionPlan,
+    project_detection_point_cloud as native_project_detection_point_cloud,
+    sparsify as native_sparsify,
 };
 
 #[pyclass]

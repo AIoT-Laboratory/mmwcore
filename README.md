@@ -115,8 +115,9 @@ update, lifecycle and static support run inside mmwcore's native extension.
 This component retains TI's **TI-device-only** license, included in source and wheels;
 other mmwcore code remains Apache-2.0. See [API and validation](docs/ti-gtrack.md).
 
-The other maintained backend is `ScatterBodyTracker` in `mmwcore.tracking.multiscale`:
-multiscale clustering, scatter-component histories and causal bulk-motion estimation.
+The other maintained backend is `ScatterBodyTracker` in `mmwcore.tracking.multiscale`, backed by
+`crates/mmwcore/src/tracking/multiscale`: multiscale clustering, scatter-component histories,
+causal bulk-motion estimation, split-origin body hypotheses, and separate component/body limits.
 Its ablation components remain available for comparison and subsequent improvements against
 complete TI GTRACK. Both backends are exported from `mmwcore.tracking`.
 
@@ -138,6 +139,8 @@ uses deterministic synthetic ADC and requires no hardware or private data. See
 - `mmwcore.dsp`: deterministic radar processing and neural-input primitives.
 - `mmwcore.tracking`: classical tracking baselines and metrics.
 - `crates/mmwcore`: Rust archive and numerical kernels.
+- `crates/mmwcore/src/tracking/multiscale`: independent Rust tracking backend.
+- `crates/mmwcore-ti-gtrack`: TI GTRACK backend with its separate license.
 
 ## Validation
 

@@ -18,11 +18,19 @@ DSP for both archived and in-memory ADC frames.
 
 ## Ownership
 
-- `crates/mmwcore` owns lossless `.mmwa` storage and deterministic numerical kernels.
+- `crates/mmwcore/src/io` owns lossless `.mmwa` storage;
+  `src/dsp` owns deterministic numerical kernels; `src/tracking` owns assignment, metrics,
+  and the independent multiscale scatter-component/body tracker. Old Rust module paths and
+  root imports are preserved through re-exports.
 - `crates/mmwcore-ti-gtrack` owns the complete Rust TI GTRACK 3DA implementation.
-- `crates/mmwcore-python` exposes those kernels as checked NumPy operations.
+- `crates/mmwcore-python` exposes those kernels as checked NumPy operations. Its module entry
+  point registers bindings; `boundary/` groups array conversion and configuration adapters by
+  domain, separate from the processing bindings.
 - `python/mmwcore` owns finite capture/take readers, physical contracts, DSP composition, and
-  multiscale tracking and the public TI tracking adapter. These are the two maintained backends.
+  tracking adapters. `ScatterBodyTracker.step_points` executes the Rust multiscale backend and
+  restores existing Python diagnostic attributes; its point rows, IDs, histories, and body
+  reports retain their contracts. The earlier Python ablation classes remain explicit comparison
+  implementations. Multiscale and TI GTRACK are the two maintained backends.
 - `benchmarks` owns reproducible storage and DSP regression workloads.
 
 The Python layer composes Rust kernels.

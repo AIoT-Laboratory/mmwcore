@@ -1,4 +1,4 @@
-"""Multiscale scatter-component tracking with causal bulk-motion readout.
+"""Frozen pre-migration oracle for validating the native multiscale backend.
 
 Fine-scale connected density cores are kept separate. Previously unassigned points
 may attach to a core at a larger scale, without chaining through peripheral points.
@@ -7,7 +7,6 @@ All original point rows survive; membership and bulk-state weights are separate.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 import numpy as np
@@ -489,74 +488,118 @@ class ScatterBodyTracker(RecentSupportTracker):
         ]
         return sum(i < len(child) for i in matched), sum(i >= len(child) for i in matched)
 
-    def step_points(self, points: np.ndarray, dt: float = 0.1) -> tuple:
-        """Advance the Rust backend, retaining the existing diagnostic attributes."""
-        points = np.ascontiguousarray(np.asarray(points, dtype=float).reshape(-1, 5))
-        if not np.isfinite(points).all() or not np.isfinite(dt) or dt <= 0:
-            raise ValueError("Points must be finite and dt positive")
-        config = dict(
-            lineage=bool(self.lineage),
-            prefer_recent=bool(self.prefer_recent),
-            temporal=bool(self.temporal),
-            doppler=bool(self.doppler),
-            association_guard=bool(self.association_guard),
-            max_components=self.max_tracks,
-            max_bodies=self.max_bodies,
-            height_m=self.height_m,
-            velocity_scale_mps=self.velocity_scale_mps,
-            clustering_method=self.clustering_method,
-        )
-        state = {
-            name: getattr(self, name)
-            for name in (
-                "tracks",
-                "next_id",
-                "last_matches",
-                "position_history",
-                "time_s",
-                "previous_clouds",
-                "parents",
-                "lineage_events",
-                "component_support",
+    def _update_lineage(self, points: np.ndarray, old_ids: set[int], dt: float) -> None:
+        matched = self.last_matches
+        support = dict(self.component_support)
+        support.update({tid: self.support(points[o["members"]]) for tid, o in matched.items()})
+        for child in sorted(set(self.tracks) - old_ids):
+            child_points = points[matched[child]["members"], :2]
+            candidates = []
+            for parent, observation in matched.items():
+                if parent not in self.previous_clouds or self.tracks[parent]["hits"] < 3:
+                    continue
+                if self.independently_supported(support[child], support[parent]):
+                    continue
+                previous, velocity = self.previous_clouds[parent]
+                parent_points = points[observation["members"], :2]
+                child_count, parent_count = self.split_support(
+                    previous + dt * velocity, child_points, parent_points
+                )
+                if child_count >= max(
+                    DEFAULT_CONFIG.min_points, len(child_points) / 2
+                ) and parent_count >= max(DEFAULT_CONFIG.min_points, len(parent_points) / 2):
+                    candidates.append((parent, child_count, parent_count))
+            if len(candidates) == 1:
+                parent, child_count, parent_count = candidates[0]
+                self.parents[child] = parent
+                self.lineage_events.append(
+                    dict(
+                        child=child,
+                        parent=parent,
+                        matched_child_points=int(child_count),
+                        matched_parent_points=int(parent_count),
+                    )
+                )
+        for child, parent in list(self.parents.items()):
+            if (
+                child not in self.tracks
+                or parent not in self.tracks
+                or self.independently_supported(support[child], support[parent])
+            ):
+                del self.parents[child]
+                continue
+            separation = np.linalg.norm(
+                self.tracks[child]["association_position"]
+                - self.tracks[parent]["association_position"]
             )
-        }
-        result = json.loads(
-            _native.scatter_body_step(
-                points,
-                json.dumps(config, allow_nan=False),
-                json.dumps(state, default=_state_array, allow_nan=False),
-                dt,
-            )
-        )
-        self._restore_state(result["state"])
-        output = result["output"]
-        return (
-            np.asarray(output["labels"], dtype=int),
-            np.asarray(output["weights"], dtype=float),
-            output["observations"],
-            output["bodies"],
-        )
-
-    def _restore_state(self, state: dict) -> None:
-        for name in ("next_id", "time_s", "lineage_events"):
-            setattr(self, name, state[name])
-        for name in ("tracks", "last_matches", "parents", "component_support"):
-            setattr(self, name, {int(key): value for key, value in state[name].items()})
-        for track in self.tracks.values():
-            for name in ("position", "velocity", "association_position", "association_velocity"):
-                track[name] = np.asarray(track[name], dtype=float)
+            if separation > DEFAULT_CONFIG.outer_radius_m:
+                del self.parents[child]
         self.component_support = {
-            key: (value[0], value[1]) for key, value in self.component_support.items()
+            tid: value for tid, value in support.items() if tid in self.tracks
         }
-        self.position_history = {
-            int(key): [(time, np.asarray(position)) for time, position in value]
-            for key, value in state["position_history"].items()
-        }
+
+    def _body_root(self, tid: int) -> int:
+        while tid in self.parents:
+            tid = self.parents[tid]
+        return tid
+
+    def _limit_bodies(self, previous_roots: set[int]) -> None:
+        if self.max_bodies is None:
+            return
+        roots = {self._body_root(tid) for tid in self.tracks}
+        if len(roots) <= self.max_bodies:
+            return
+
+        def priority(tid: int) -> tuple:
+            observation = self.last_matches.get(tid, {})
+            # Keep admitted bodies until their normal expiry. For simultaneous
+            # births use the existing allocation order: point count, then SNR.
+            return (
+                tid not in previous_roots,
+                -len(observation.get("members", [])),
+                -observation.get("snr_sum", 0),
+                tid,
+            )
+
+        admitted = set(sorted(roots, key=priority)[: self.max_bodies])
+        rejected = {tid for tid in self.tracks if self._body_root(tid) not in admitted}
+        # Reject whole hypotheses in the backend, including point associations.
+        # A person-count prior is not evidence for joining unrelated components.
+        for tid in rejected:
+            del self.tracks[tid]
+            self.last_matches.pop(tid, None)
+            self.position_history.pop(tid, None)
+            self.component_support.pop(tid, None)
+            self.parents.pop(tid, None)
+        self.lineage_events = [e for e in self.lineage_events if e["child"] not in rejected]
+
+    def step_points(self, points: np.ndarray, dt: float = 0.1) -> tuple:
+        points = np.asarray(points, dtype=float).reshape(-1, 5)
+        old_ids = set(self.tracks)
+        previous_roots = old_ids - self.parents.keys()
+        labels, weights, observations, components = super().step_points(points, dt)
+        self.lineage_events = []
+        if self.lineage:
+            self._update_lineage(points, old_ids, dt)
+        # Candidate components must reach the split test before counting bodies.
+        self._limit_bodies(previous_roots)
+        components = [c for c in components if c["id"] in self.tracks]
         self.previous_clouds = {
-            int(key): (np.asarray(points).reshape(-1, 2), np.asarray(velocity))
-            for key, (points, velocity) in state["previous_clouds"].items()
+            tid: (points[o["members"], :2].copy(), self.tracks[tid]["association_velocity"].copy())
+            for tid, o in self.last_matches.items()
         }
-
-
-def _state_array(value: np.ndarray) -> list:
-    return value.tolist()
+        groups: dict[int, list[dict]] = {}
+        by_id = {c["id"]: c for c in components}
+        for component in components:
+            root = self._body_root(component["id"])
+            groups.setdefault(root, []).append(component)
+        bodies = [
+            dict(
+                by_id[root],
+                component_ids=[c["id"] for c in group],
+                components=group,
+                body_measurement_members=[i for c in group for i in c["measurement_members"]],
+            )
+            for root, group in groups.items()
+        ]
+        return labels, weights, observations, bodies

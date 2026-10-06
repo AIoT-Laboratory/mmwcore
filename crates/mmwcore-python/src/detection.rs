@@ -5,18 +5,24 @@ use numpy::{
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-use super::{
-    CfarInputScale, DetectionCandidateInput, DetectionIndexColumns, DetectionQualityInput,
+use crate::boundary::{
     NativeCfar1DConfig, NativeCfar1DResult, NativeCfar2DConfig, NativeCfarDetections,
     NativeDetectionAxes, NativeDetectionIndexColumns, NativePeakGroupingConfig,
-    NativeThresholdDetections, PeakGroupingConfig, PeakGroupingInput, RangeDopplerAxes,
-    RangeDopplerAzimuthAxes, ReceiverAggregation, candidate_indices_array, candidate_matrix_input,
-    cfar_1d_config, cfar_1d_result_array, cfar_2d_config, cfar_detections_array, cfar_error,
-    complex_cube_input, detection_error, detection_postprocess_error, native_detect_cfar_1d,
-    native_detect_cfar_2d, native_detect_range_doppler_cfar, native_filter_detection_quality,
-    native_group_range_doppler_candidates, native_range_doppler_magnitude,
-    native_threshold_range_doppler, native_threshold_range_doppler_azimuth, real_cube_array,
-    threshold_detections_array,
+    NativeThresholdDetections, candidate_indices_array, candidate_matrix_input, cfar_1d_config,
+    cfar_1d_result_array, cfar_2d_config, cfar_detections_array, cfar_error, complex_cube_input,
+    detection_error, detection_postprocess_error, real_cube_array, threshold_detections_array,
+};
+use mmwcore::{
+    CfarInputScale, DetectionCandidateInput, DetectionIndexColumns, DetectionQualityInput,
+    PeakGroupingConfig, PeakGroupingInput, RangeDopplerAxes, RangeDopplerAzimuthAxes,
+    ReceiverAggregation, detect_cfar_1d as native_detect_cfar_1d,
+    detect_cfar_2d_complex as native_detect_cfar_2d,
+    detect_range_doppler_cfar_complex as native_detect_range_doppler_cfar,
+    filter_detection_quality as native_filter_detection_quality,
+    group_range_doppler_candidates as native_group_range_doppler_candidates,
+    range_doppler_magnitude_complex as native_range_doppler_magnitude,
+    threshold_range_doppler_azimuth_complex as native_threshold_range_doppler_azimuth,
+    threshold_range_doppler_complex as native_threshold_range_doppler,
 };
 
 #[pyfunction]

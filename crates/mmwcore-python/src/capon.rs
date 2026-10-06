@@ -11,7 +11,7 @@ fn isk_capon_complex<'py>(
     velocity_resolution_mps: f64,
     doppler_bins: usize,
 ) -> PyResult<(Bound<'py, PyArrayDyn<f32>>, String)> {
-    let (data, shape) = super::complex_cube_input(data)?;
+    let (data, shape) = crate::boundary::complex_cube_input(data)?;
     if shape.len() != 3 || shape[1] != 12 {
         return Err(PyValueError::new_err(
             "Capon input must have shape (loop, 12, range)",
@@ -38,7 +38,7 @@ fn isk_capon_complex<'py>(
     )
     .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok((
-        super::real_cube_array(py, &[AZIMUTH_BINS, ranges], result.ra_power)?,
+        crate::boundary::real_cube_array(py, &[AZIMUTH_BINS, ranges], result.ra_power)?,
         report,
     ))
 }

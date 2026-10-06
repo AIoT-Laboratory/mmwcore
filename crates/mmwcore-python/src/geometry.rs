@@ -6,19 +6,24 @@ use numpy::{
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 
-use super::{
-    AngleAxis, AngleBinCalibrationConfig, AngleBinCalibrationInput, CandidateAzimuthConfig,
-    CandidateAzimuthInput, CandidateCubeAxes, CandidateCubeInput, CandidateElevationColumns,
-    CandidateElevationConfig, CandidateElevationInput, CandidateIndexColumns, CandidateMatrixInput,
-    FftWindow, NativeAssignmentResult, NativeCandidateAzimuthConfig, NativeCandidateAzimuthResult,
+use crate::boundary::{
+    NativeAssignmentResult, NativeCandidateAzimuthConfig, NativeCandidateAzimuthResult,
     NativeCandidateCubeAxes, NativeCandidateElevationColumns, NativeCandidateElevationConfig,
     NativeCandidateElevationResult, NativeCandidateIndexColumns, NativeCandidateSubarrays,
     NativeClusterResult, NativeDbscanConfig, NativePointColumns, angle_calibration_error,
     assignment_error, assignment_result_array, candidate_aoa_error, candidate_indices_array,
     candidate_matrix_input, cluster_error, cluster_result_array, complex_cube_input, dbscan_config,
-    fft_error, native_calibrate_angle_bins, native_cluster_points,
-    native_estimate_candidate_azimuths, native_estimate_candidate_elevations,
-    native_linear_sum_assignment, point_columns, position_matrix_f32, position_matrix_f64,
+    fft_error, point_columns, position_matrix_f32, position_matrix_f64,
+};
+use mmwcore::{
+    AngleAxis, AngleBinCalibrationConfig, AngleBinCalibrationInput, CandidateAzimuthConfig,
+    CandidateAzimuthInput, CandidateCubeAxes, CandidateCubeInput, CandidateElevationColumns,
+    CandidateElevationConfig, CandidateElevationInput, CandidateIndexColumns, CandidateMatrixInput,
+    FftWindow, calibrate_angle_bins as native_calibrate_angle_bins,
+    cluster_points as native_cluster_points,
+    estimate_candidate_azimuths as native_estimate_candidate_azimuths,
+    estimate_candidate_elevations as native_estimate_candidate_elevations,
+    linear_sum_assignment as native_linear_sum_assignment,
 };
 
 #[pyfunction]
