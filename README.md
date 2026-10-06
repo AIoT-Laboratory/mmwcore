@@ -12,9 +12,10 @@ applications calling mmwcore.
 
 ## Version and installation
 
-This README describes **development on `main`**. The latest published Python release is
+This README describes the **0.8.0 candidate on `main`**, which is not yet published.
+The latest published Python release is
 [0.7.1](https://github.com/AIoT-Laboratory/mmwcore/releases/tag/v0.7.1); its APIs and Python support
-differ from the current checkout. See the [changelog](CHANGELOG.md) before migrating.
+differ from the current checkout. See the [0.8.0 migration notes](docs/releases/0.8.0.md) before migrating.
 
 For the published version, use a matching CPython 3.12–3.14 environment:
 

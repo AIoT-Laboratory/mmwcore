@@ -3,8 +3,9 @@
 ## Published versus development
 
 GitHub `main` documents the development API. PyPI, crates.io, and GitHub release assets describe
-the source at their version tag. The latest published Python version is 0.7.1; current development
-has compatibility and license changes listed in [CHANGELOG](../CHANGELOG.md).
+the source at their version tag. The latest published Python version is 0.7.1. The current
+0.8.0 candidate is not published; its compatibility and license changes are listed in
+[CHANGELOG](../CHANGELOG.md) and the [candidate notes](releases/0.8.0.md).
 
 The current workflow is a **validation gate**, not an automated publisher. It supports pushes,
 pull requests, and manual CI runs. It builds a wheel from the source distribution, checks an

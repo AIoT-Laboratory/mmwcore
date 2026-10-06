@@ -108,7 +108,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "mmwcore"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "num-complex",
  "rustfft",
@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "mmwcore-python"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "mmwcore",
  "mmwcore-ti-gtrack",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "mmwcore-ti-gtrack"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "libloading",
  "serde",

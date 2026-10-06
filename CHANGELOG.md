@@ -2,8 +2,11 @@
 
 ## Unreleased
 
-This section describes `main`, not the published 0.7.1 artifacts. The next release needs a new
-version; it must not reuse or replace 0.7.1.
+No changes after the 0.8.0 candidate yet.
+
+## 0.8.0 — release candidate
+
+Prepared for validation; not yet published. See the [migration and release notes](docs/releases/0.8.0.md).
 
 ### Compatibility
 
@@ -53,4 +56,4 @@ version; it must not reuse or replace 0.7.1.
 Historical release: [artifacts](https://github.com/AIoT-Laboratory/mmwcore/releases/tag/v0.7.1),
 [source and documentation](https://github.com/AIoT-Laboratory/mmwcore/tree/v0.7.1), and
 [changes from 0.7.0](https://github.com/AIoT-Laboratory/mmwcore/compare/v0.7.0...v0.7.1).
-These artifacts predate the unreleased API and license changes above.
+These artifacts predate the 0.8.0 API and license changes above.
